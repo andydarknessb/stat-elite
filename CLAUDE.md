@@ -15,7 +15,7 @@ M1 in progress. The app is scaffolded on React + TypeScript + Vite, vite-plugin-
 - `docs/plan.md`: v1 screens, interaction rules, stats, milestones and what is cut.
 - `docs/schema.sql` and `docs/schema.test.sql`: the planned Supabase schema and its SQL self-check (`docs/schema.test.ts` runs it).
 - `src/core/`: App Core, the headless commands and read models every screen uses, and its tests. `src/App.tsx`: the screens. `e2e/`: Playwright smoke tests.
-- `docs/agents/`: how the agent skills use the issue tracker, the triage labels and the domain docs.
+- `docs/agents/`: how the agent skills use the issue tracker, the triage labels and the domain docs, and the brief-writing rules in `agent-briefs.md`.
 
 ## Rules
 
