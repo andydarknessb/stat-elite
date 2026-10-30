@@ -5,7 +5,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 ## Product
 
 - A public product for families. v1 goes to a handful of families, with no payments.
-- Each Athlete is owned by one account. No shared Athletes and no live viewing in v1; anyone else sees a Game through its share card.
+- Each Athlete has one Owner and can be shared with Members through an Invite (M3, ADR 0004). No live viewing in v1: Members see a Game once it uploads, everyone else through its share card.
 - No account until the first Game ends: "Save this game" asks for an email magic link, then uploads everything recorded so far.
 - Photos stay on the phone. Only stats sync.
 - Settings has "Delete my account and all data" (`delete_my_account()`), which also clears the phone.
@@ -21,7 +21,8 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Live game, softball/baseball | Team–Opponent strip, optional Pitch buttons, Outcome grid, RBI chips, diamond for the Athlete only | spec's Plate Appearance flow |
 | Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus | Stattie Activity |
 | Game Complete | Share card and ready-to-paste text | MyKidDid |
-| Insights | Practice Focus cards; layout designed at the start of M3 alongside the rules | — |
+| Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
+| Athlete sharing | Invite co-parent (link through the share sheet), Members list, Remove Member (Owner only), Leave (Members) | — |
 
 Navigation: bottom tabs Home · Games · Insights · Settings.
 
@@ -61,18 +62,24 @@ Interaction rules:
 - Sub In/Out, score strip, Plus/Minus, Playing Share. An open Shift survives an app restart: a Sub In with no Sub Out means the Athlete is on court.
 - Bleacher two-page layout, Home, Games feed.
 
-**M3: share card and Practice Focus**
-- Game Complete sheet: a 1200×1200 card drawn with OffscreenCanvas in a worker, shared with Web Share files, plus copy text.
-- Insights tab with Practice Focus cards. Rules run on the phone over the last 5 Games, staying silent on any zone with fewer than about 10 attempts. Exact zones and rules get designed at the start of M3 from M2 data. First candidates: Free Throw drop-off late in games, weak-side conversion.
+**M3: sharing an Athlete (ADR 0004)**
+- Invite: a single-use link valid for 7 days, sent through the share sheet. Accepting it signs the co-parent in and makes them a Member.
+- Members see every Game and record new ones. Only the Owner removes Members or deletes the Athlete. Members can leave.
+- Download on launch and reconnect brings in Games recorded on other phones. Until M3 it runs only at sign-in.
+- Delete account: each shared Athlete passes to its earliest Member, and the delete screen says so.
 
-**M4: softball and baseball**
+**M4: share card and Practice Focus**
+- Game Complete sheet: a 1200×1200 card drawn with OffscreenCanvas in a worker, shared with Web Share files, plus copy text.
+- Insights tab with Practice Focus cards. Rules run on the phone over the last 5 Games, staying silent on any zone with fewer than about 10 attempts. Exact zones and rules get designed at the start of M4 from M2 data. First candidates: Free Throw drop-off late in games, weak-side conversion.
+
+**M5: softball and baseball**
 - Plate Appearance flow, optional Pitches, Outcome grid, RBI chips, Athlete-only diamond, score strip with a required Final Score.
 - AVG, OBP and SLG.
 - Baseball is a label on the same engine.
 
 ## Cut from v1
 
-Streak evaluator · video highlights and training log · shared Athletes and live viewing · background sync (iOS doesn't support it) · photo sync · cross-device conflict resolution · AI-generated insights.
+Streak evaluator · video highlights and training log · live viewing · background sync (iOS doesn't support it) · photo sync · cross-device conflict resolution · AI-generated insights.
 
 ## Stack
 

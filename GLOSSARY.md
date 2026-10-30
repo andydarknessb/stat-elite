@@ -8,6 +8,18 @@ A phone app a parent uses on the sideline to record one child's games, then shar
 The child whose games are recorded. Every Game belongs to exactly one Athlete.
 _Avoid_: player, kid, profile, child
 
+**Owner**:
+The account an Athlete belongs to: the one that created it, or the Member it passed to. Only the Owner removes Members or deletes the Athlete.
+_Avoid_: admin, creator
+
+**Member**:
+An account invited to share an Athlete. A Member sees every Game of that Athlete and can record new ones.
+_Avoid_: co-parent (outside UI copy), collaborator, guest, viewer
+
+**Invite**:
+A single-use link, valid for 7 days, that makes whoever accepts it a Member of one Athlete.
+_Avoid_: share link, invitation code
+
 **Recorder**:
 The person whose phone records a Game. Each Game has exactly one Recorder.
 _Avoid_: user, parent, scorekeeper, tracker
