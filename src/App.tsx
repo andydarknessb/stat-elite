@@ -61,7 +61,7 @@ function LiveGame({ core, gameId }: { core: AppCore; gameId: string }) {
   return (
     <main>
       {/* shortcut: only the STL tile, until the full basketball live screen (#15) */}
-      <button className="tile" onClick={() => void core.recordStat(gameId, 'steal')}>
+      <button className="tile" onClick={() => void core.recordTile(gameId, 'steal')}>
         STL <span className="count">{game.tiles.steal}</span>
       </button>
     </main>

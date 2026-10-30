@@ -1,6 +1,6 @@
-import { TILE_STATS, type EventRow, type GameRow, type Store, type TileStat } from './store';
+import { TILE_EVENT_TYPES, type EventRow, type GameRow, type Store, type TileEventType } from './store';
 
-export type { TileStat };
+export type { TileEventType };
 
 /** The backend App Core syncs with. Empty until the outbox (#9) gives it upload and download. */
 export interface Server {}
@@ -17,7 +17,7 @@ export interface Home {
 export interface LiveGame {
   id: string;
   sport: GameRow['sport'];
-  tiles: Record<TileStat, number>;
+  tiles: Record<TileEventType, number>;
 }
 
 export function createAppCore({ clock, store }: { clock: () => Date; store: Store; server: Server }) {
@@ -28,7 +28,8 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
   return {
     async addAthlete({ name }: { name: string }): Promise<string> {
       const id = crypto.randomUUID();
-      await store.athletes.add({ id, name, created_at: now(), updated_at: now() });
+      const ts = now();
+      await store.athletes.add({ id, name, created_at: ts, updated_at: ts });
       return id;
     },
 
@@ -40,6 +41,7 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
         athlete_id: athleteId,
         sport,
         period_format: periodFormat,
+        // shortcut: the schema's default Opponent name, until Game setup asks for it (#14)
         opponent_name: 'Opponent',
         // the phone's local date, not UTC
         game_date: new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10),
@@ -50,7 +52,7 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
     },
 
     /** Writes the Event to the store before resolving (ADR 0001). */
-    recordStat(gameId: string, stat: TileStat): Promise<EventRow> {
+    recordTile(gameId: string, type: TileEventType): Promise<EventRow> {
       // One rw transaction at a time per store, so taps in quick succession still get distinct seqs.
       return store.transaction('rw', store.events, async () => {
         const last = await gameEvents(gameId).last();
@@ -61,7 +63,7 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
           client_ts: now(),
           // shortcut: every Event is in Period 1 until Next period exists (#18)
           period: 1,
-          type: stat,
+          type,
         };
         await store.events.add(event);
         return event;
@@ -80,7 +82,7 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
     async liveGame(gameId: string): Promise<LiveGame | undefined> {
       const game = await store.games.get(gameId);
       if (!game) return undefined;
-      const tiles = Object.fromEntries(TILE_STATS.map((stat) => [stat, 0])) as Record<TileStat, number>;
+      const tiles = Object.fromEntries(TILE_EVENT_TYPES.map((type) => [type, 0])) as Record<TileEventType, number>;
       for (const event of await gameEvents(gameId).toArray()) {
         tiles[event.type]++;
       }

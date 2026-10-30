@@ -21,8 +21,8 @@ export interface GameRow {
   updated_at: string;
 }
 
-export const TILE_STATS = ['reb_off', 'reb_def', 'assist', 'steal', 'block', 'turnover', 'foul'] as const;
-export type TileStat = (typeof TILE_STATS)[number];
+export const TILE_EVENT_TYPES = ['reb_off', 'reb_def', 'assist', 'steal', 'block', 'turnover', 'foul'] as const;
+export type TileEventType = (typeof TILE_EVENT_TYPES)[number];
 
 export interface EventRow {
   id: string;
@@ -30,7 +30,7 @@ export interface EventRow {
   seq: number;
   client_ts: string;
   period: number;
-  type: TileStat;
+  type: TileEventType;
 }
 
 /** The phone's local store: one Dexie (IndexedDB) database. */

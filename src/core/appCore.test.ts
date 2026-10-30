@@ -21,7 +21,7 @@ test('a stat tile tap counts on the live Game', async () => {
   const { core } = setup();
   const gameId = await basketballGame(core);
 
-  await core.recordStat(gameId, 'steal');
+  await core.recordTile(gameId, 'steal');
 
   const live = await core.liveGame(gameId);
   expect(live?.tiles.steal).toBe(1);
@@ -33,8 +33,8 @@ test('each tap is an Event with its own ID, the next sequence number in its Game
   const gameA = await basketballGame(core);
   const gameB = await basketballGame(core);
 
-  const [first, second] = await Promise.all([core.recordStat(gameA, 'steal'), core.recordStat(gameA, 'block')]);
-  const other = await core.recordStat(gameB, 'steal');
+  const [first, second] = await Promise.all([core.recordTile(gameA, 'steal'), core.recordTile(gameA, 'block')]);
+  const other = await core.recordTile(gameB, 'steal');
 
   expect([first.seq, second.seq, other.seq]).toEqual([1, 2, 1]);
   expect(new Set([first.id, second.id, other.id]).size).toBe(3);
@@ -56,11 +56,11 @@ test('Home goes from no Athlete, to the Athlete, to their Game in progress', asy
 test('after a reload the Game in progress shows the same count and keeps counting', async () => {
   const { core, reopen } = setup();
   const gameId = await basketballGame(core);
-  await core.recordStat(gameId, 'steal');
+  await core.recordTile(gameId, 'steal');
 
   const reloaded = reopen();
 
   expect((await reloaded.home()).liveGameId).toBe(gameId);
   expect((await reloaded.liveGame(gameId))?.tiles.steal).toBe(1);
-  expect((await reloaded.recordStat(gameId, 'steal')).seq).toBe(2);
+  expect((await reloaded.recordTile(gameId, 'steal')).seq).toBe(2);
 });
