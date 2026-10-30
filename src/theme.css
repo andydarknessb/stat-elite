@@ -1,0 +1,78 @@
+/* StatElite's own palette. Color only carries meaning: make, miss, and neutral everything else. */
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #14171c;
+  --muted: #5d6673;
+  --border: #d9dde3;
+  --accent: #1f5fd1;
+  --make: #1a7f37;
+  --miss: #c9302c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216;
+    --surface: #1a1f26;
+    --text: #eef1f5;
+    --muted: #9aa4b2;
+    --border: #2c333d;
+    --accent: #6ea0ff;
+    --make: #3fb950;
+    --miss: #f0605a;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.4 system-ui, -apple-system, sans-serif;
+}
+
+main,
+form {
+  display: grid;
+  gap: 16px;
+}
+
+main {
+  padding: 16px;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+}
+
+input,
+button {
+  font: inherit;
+  color: inherit;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+input {
+  padding: 0 12px;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.tile {
+  display: grid;
+  min-height: 88px;
+  font-weight: 600;
+}
+
+.tile .count {
+  font-size: 32px;
+}
