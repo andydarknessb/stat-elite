@@ -10,5 +10,6 @@ Every tap is saved on the phone as an Event the moment it happens and is never e
 
 ## Consequences
 
-- Only the Recorder's phone writes a Game's Events. v1 has no live viewing either; anyone else sees a Game through its share card.
+- Only the Recorder's phone writes a Game's Events. v1 has no live viewing; Members of the Athlete (ADR 0004) see a Game once it uploads, and anyone else through its share card.
 - Before the Recorder signs up, Events live only on the phone; the first "Save this game" uploads them.
+- Athletes and Games are not Events: their details (name, number, Opponent, location) can be edited, and edits sync as latest edit wins by an updated-at time set on the phone. Only Events are append-only.

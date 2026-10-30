@@ -9,7 +9,7 @@ Planning only. No app code exists yet. The first ticket scaffolds the app. The p
 ## Where things live
 
 - `GLOSSARY.md`: the domain terms. This repo has no CONTEXT.md; the glossary is GLOSSARY.md.
-- `docs/adr/`: the accepted decisions (0001 to 0003 so far).
+- `docs/adr/`: the accepted decisions (0001 to 0004 so far).
 - `docs/plan.md`: v1 screens, interaction rules, stats, milestones and what is cut.
 - `docs/schema.sql` and `docs/schema.test.sql`: the planned Supabase schema and its SQL self-check.
 - `docs/agents/`: how the agent skills use the issue tracker, the triage labels and the domain docs.
