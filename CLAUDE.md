@@ -4,14 +4,17 @@ A phone web app a parent uses on the sideline to record one child's games (baske
 
 ## Status
 
-Planning only. No app code exists yet. The first ticket scaffolds the app. The planned stack is React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7), Dexie 4 on the phone, and supabase-js (`docs/plan.md:79`).
+M1 in progress. The app is scaffolded on React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7) and Dexie 4; supabase-js arrives with sign-in (`docs/plan.md:79`).
+
+`npm test` runs everything: typecheck, Vitest (App Core tests and the schema self-check on PGlite), then Playwright at 390×844. GitHub Actions runs it on every pull request into `integration`.
 
 ## Where things live
 
 - `GLOSSARY.md`: the domain terms. This repo has no CONTEXT.md; the glossary is GLOSSARY.md.
 - `docs/adr/`: the accepted decisions (0001 to 0004 so far).
 - `docs/plan.md`: v1 screens, interaction rules, stats, milestones and what is cut.
-- `docs/schema.sql` and `docs/schema.test.sql`: the planned Supabase schema and its SQL self-check.
+- `docs/schema.sql` and `docs/schema.test.sql`: the planned Supabase schema and its SQL self-check (`docs/schema.test.ts` runs it).
+- `src/core/`: App Core, the headless commands and read models every screen uses, and its tests. `src/App.tsx`: the screens. `e2e/`: Playwright smoke tests.
 - `docs/agents/`: how the agent skills use the issue tracker, the triage labels and the domain docs, and the brief-writing rules in `agent-briefs.md`.
 
 ## Rules
