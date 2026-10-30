@@ -22,7 +22,7 @@ export interface LiveGame {
   undoable?: { id: string; type: TileEventType };
 }
 
-/** IDs of the Events that some Retraction in this list cancels. */
+/** IDs of the Events that a Retraction in this list undoes. */
 const retractedIds = (events: EventRow[]) => new Set(events.flatMap((e) => (e.retracts_id ? [e.retracts_id] : [])));
 
 export function createAppCore({ clock, store }: { clock: () => Date; store: Store; server: Server }) {
