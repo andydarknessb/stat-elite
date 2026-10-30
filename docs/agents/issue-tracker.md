@@ -15,7 +15,7 @@ Infer the repo from `git remote -v` — `gh` does this automatically when run in
 
 ## Ticket template
 
-A ticket cut from a spec carries these sections, in this order.
+A ticket cut from a spec carries these sections, in this order. `## Premises` is required: it lists each code fact the criteria depend on, in the format `docs/agents/agent-briefs.md` gives under **Stated** (one `<path>: <claim> @<sha>` line per premise, or `none`), in the body and never in a comment.
 
 ```markdown
 ## Parent
@@ -25,6 +25,10 @@ Spec #<n>. Cut against integration <sha> on <date>.
 ## What to build
 
 <the result, end to end>
+
+## Premises
+
+<path>: <claim> @<sha>
 
 ## Acceptance criteria
 
