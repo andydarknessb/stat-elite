@@ -18,12 +18,30 @@ export interface LiveGame {
   id: string;
   sport: GameRow['sport'];
   tiles: Record<TileEventType, number>;
+  /** The Event the next Undo retracts: the newest one not already retracted. */
+  undoable?: { id: string; type: TileEventType };
 }
+
+/** IDs of the Events that some Retraction in this list cancels. */
+const retractedIds = (events: EventRow[]) => new Set(events.flatMap((e) => (e.retracts_id ? [e.retracts_id] : [])));
 
 export function createAppCore({ clock, store }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
   // a Game's Events in seq order
   const gameEvents = (gameId: string) => store.events.where('[game_id+seq]').between([gameId, 0], [gameId, Infinity]);
+  // the next Event in a Game, appended to its log
+  const nextEvent = async (gameId: string, fields: Pick<EventRow, 'type' | 'retracts_id'>): Promise<EventRow> => {
+    const last = await gameEvents(gameId).last();
+    return {
+      id: crypto.randomUUID(),
+      game_id: gameId,
+      seq: (last?.seq ?? 0) + 1,
+      client_ts: now(),
+      // shortcut: every Event is in Period 1 until Next period exists (#18)
+      period: 1,
+      ...fields,
+    };
+  };
 
   return {
     async addAthlete({ name }: { name: string }): Promise<string> {
@@ -55,18 +73,25 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
     recordTile(gameId: string, type: TileEventType): Promise<EventRow> {
       // One rw transaction at a time per store, so taps in quick succession still get distinct seqs.
       return store.transaction('rw', store.events, async () => {
-        const last = await gameEvents(gameId).last();
-        const event: EventRow = {
-          id: crypto.randomUUID(),
-          game_id: gameId,
-          seq: (last?.seq ?? 0) + 1,
-          client_ts: now(),
-          // shortcut: every Event is in Period 1 until Next period exists (#18)
-          period: 1,
-          type,
-        };
+        const event = await nextEvent(gameId, { type, retracts_id: null });
         await store.events.add(event);
         return event;
+      });
+    },
+
+    /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. */
+    undo(gameId: string): Promise<EventRow | undefined> {
+      return store.transaction('rw', store.events, async () => {
+        const events = await gameEvents(gameId).toArray();
+        const retracted = retractedIds(events);
+        let target: EventRow | undefined;
+        for (const event of events) {
+          if (event.type !== 'retraction' && !retracted.has(event.id)) target = event;
+        }
+        if (!target) return undefined;
+        const retraction = await nextEvent(gameId, { type: 'retraction', retracts_id: target.id });
+        await store.events.add(retraction);
+        return retraction;
       });
     },
 
@@ -82,11 +107,16 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
     async liveGame(gameId: string): Promise<LiveGame | undefined> {
       const game = await store.games.get(gameId);
       if (!game) return undefined;
+      const events = await gameEvents(gameId).toArray();
+      const retracted = retractedIds(events);
       const tiles = Object.fromEntries(TILE_EVENT_TYPES.map((type) => [type, 0])) as Record<TileEventType, number>;
-      for (const event of await gameEvents(gameId).toArray()) {
+      let undoable: LiveGame['undoable'];
+      for (const event of events) {
+        if (event.type === 'retraction' || retracted.has(event.id)) continue;
         tiles[event.type]++;
+        undoable = { id: event.id, type: event.type };
       }
-      return { id: game.id, sport: game.sport, tiles };
+      return { id: game.id, sport: game.sport, tiles, undoable };
     },
   };
 }
