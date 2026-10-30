@@ -20,7 +20,8 @@ This is a **single-context** repo:
 ├── docs/adr/
 │   ├── 0001-event-log-one-recorder.md
 │   ├── 0002-plus-minus-from-score-snapshots.md
-│   └── 0003-one-events-table.md
+│   ├── 0003-one-events-table.md
+│   └── 0004-shared-athletes.md
 └── src/
 ```
 

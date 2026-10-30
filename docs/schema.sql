@@ -8,6 +8,7 @@ create table athletes (
   name          text not null,
   jersey_number text,
   created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),  -- set by the phone; latest edit wins (ADR 0001)
   unique (id, owner_id)
 );
 
@@ -21,6 +22,7 @@ create table games (
   location_label text,
   game_date      date not null,
   created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),  -- set by the phone; latest edit wins (ADR 0001)
   unique (id, owner_id),
   -- a Game can only belong to an Athlete with the same owner
   foreign key (athlete_id, owner_id) references athletes (id, owner_id) on delete cascade,
@@ -84,6 +86,8 @@ create index on events (owner_id);
 create index on events (retracts_id) where retracts_id is not null;
 
 -- Row-level security: every row belongs to its owner, no joins.
+-- This is the M1 access model. ADR 0004 replaces it in M3 (Owner-or-Member access,
+-- the recording account on Games, ownership transfer in delete_my_account).
 alter table athletes enable row level security;
 alter table games    enable row level security;
 alter table events   enable row level security;

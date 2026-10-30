@@ -9,6 +9,7 @@ Two parents often follow the same child, so an Athlete has one Owner and any num
 
 ## Consequences
 
-- Every Game and Event row still carries the Athlete's Owner, so the same-owner keys from ADR 0003 stay. Games also record which account recorded them, and only that account adds Events to the Game, so ADR 0001's one Recorder per Game holds on the server too.
+- Every Game and Event row carries its Athlete's Owner, whoever recorded it, so the same-owner keys from ADR 0003 stay. Games also record which account recorded them (the Recorder's), and only that account adds Events to the Game, so ADR 0001's one Recorder per Game holds on the server too.
 - Members' Games reach other phones by download on launch and reconnect, not live. One Recorder per Game means downloads never conflict with local Events.
-- When an Owner deletes their account, each shared Athlete passes to the Member who joined first, along with all its Games. Only Athletes with no Members are deleted.
+- When an Owner deletes their account, each shared Athlete passes to the Member who joined first. Moving ownership is the one change only the server makes: a single step re-owns the Athlete, its Games and its Events together. Event contents never change, and users still can't update Events. Only Athletes with no Members are deleted.
+- When a Member deletes their account, the Games they recorded stay with the Athlete; only their "recorded by" link is cleared.

@@ -8,7 +8,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 - Each Athlete has one Owner and can be shared with Members through an Invite (M3, ADR 0004). No live viewing in v1: Members see a Game once it uploads, everyone else through its share card.
 - No account until the first Game ends: "Save this game" asks for an email magic link, then uploads everything recorded so far.
 - Photos stay on the phone. Only stats sync.
-- Settings has "Delete my account and all data" (`delete_my_account()`), which also clears the phone.
+- Settings has "Delete my account and all data" (`delete_my_account()`), which also clears the phone. From M3, shared Athletes pass to a Member instead of being deleted.
 
 ## Screens
 
@@ -52,6 +52,8 @@ Interaction rules:
 - Button Size setting and theme tokens.
 - Supabase schema and row-level security (`docs/schema.sql`).
 - Outbox uploads after each tap when online, on launch, and on reconnect, plus an "N not synced" badge (ADR 0001).
+- Download at sign-in brings back the account's Athletes, Games and Events on a new phone.
+- Athlete and Game edits sync as latest edit wins; Events stay insert-only (ADR 0001).
 - "Save this game" magic link and Delete account.
 - First run (Add Athlete) and the Athlete switcher on Home.
 
@@ -63,10 +65,9 @@ Interaction rules:
 - Bleacher two-page layout, Home, Games feed.
 
 **M3: sharing an Athlete (ADR 0004)**
-- Invite: a single-use link valid for 7 days, sent through the share sheet. Accepting it signs the co-parent in and makes them a Member.
-- Members see every Game and record new ones. Only the Owner removes Members or deletes the Athlete. Members can leave.
-- Download on launch and reconnect brings in Games recorded on other phones. Until M3 it runs only at sign-in.
-- Delete account: each shared Athlete passes to its earliest Member, and the delete screen says so.
+- Invite, Members, Remove Member and Leave, as ADR 0004 describes. Accepting an Invite signs the invitee in and makes them a Member.
+- Download also runs on launch and reconnect, bringing in Games recorded on other phones.
+- Delete account: each shared Athlete passes to the Member who joined first, and the delete screen says so. A Member's own deletion leaves the Games they recorded with the Athlete.
 
 **M4: share card and Practice Focus**
 - Game Complete sheet: a 1200×1200 card drawn with OffscreenCanvas in a worker, shared with Web Share files, plus copy text.
