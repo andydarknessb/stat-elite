@@ -19,3 +19,26 @@ test('first run asks the browser to keep storage permanently', async ({ page }) 
   const calls = await page.evaluate(() => (window as unknown as PersistWindow).persistCalls);
   expect(calls).toBeGreaterThanOrEqual(1);
 });
+
+test('every launch asks the browser to keep storage permanently, once an Athlete exists', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as PersistWindow;
+    w.persistCalls = 0;
+    navigator.storage.persist = async () => {
+      w.persistCalls += 1;
+      return true;
+    };
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Athlete name').fill('Casey');
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
+
+  // the init script resets the counter on every load, so this counts the reloaded page alone
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
+
+  const calls = await page.evaluate(() => (window as unknown as PersistWindow).persistCalls);
+  expect(calls).toBeGreaterThanOrEqual(1);
+});

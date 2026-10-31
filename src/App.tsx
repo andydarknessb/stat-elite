@@ -2,7 +2,6 @@ import { liveQuery } from 'dexie';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { AppCore, GameFormat, GameSetup, Home, Scores, TileEventType, UndoableType } from './core/appCore';
 import { InstallPrompt } from './InstallPrompt';
-import { requestPersistence } from './pwa';
 
 /** Re-renders whenever the store data behind a read model changes. */
 function useReadModel<T>(read: () => Promise<T>, deps: unknown[]): T | undefined {
@@ -72,11 +71,8 @@ function SaveGame({ core }: { core: AppCore }) {
   );
 }
 
-/** No Athlete yet: asks the browser to keep storage permanently, then offers the install and Add Athlete. */
+/** No Athlete yet: offers the install and Add Athlete. */
 function FirstRun({ core }: { core: AppCore }) {
-  useEffect(() => {
-    void requestPersistence(navigator.storage);
-  }, []);
   return (
     <>
       <AthleteForm core={core} />

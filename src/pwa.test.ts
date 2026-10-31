@@ -38,4 +38,9 @@ describe('requestPersistence', () => {
   it('does nothing where the Storage API is missing', async () => {
     await expect(requestPersistence(undefined)).resolves.toBeUndefined();
   });
+
+  it('resolves quietly when the browser rejects the request', async () => {
+    const persist = vi.fn().mockRejectedValue(new Error('denied'));
+    await expect(requestPersistence({ persist } as unknown as StorageManager)).resolves.toBeUndefined();
+  });
 });
