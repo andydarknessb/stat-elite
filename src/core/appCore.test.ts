@@ -831,11 +831,17 @@ test('a write made while the server is unreachable waits on the phone, then uplo
   expect(server.rows.athletes.has(athleteId)).toBe(true);
 });
 
-// a fake Supabase client signed in as `userId`, recording each write
-function recordingClient(calls: unknown[][], userId: string) {
+// a fake Supabase client signed in as `userId` (signed out when undefined), recording each write; `memberOf` names the
+// Athletes the account is a Member of, which is what its membership query finds
+function recordingClient(calls: unknown[][], userId: string | undefined, memberOf: string[] = []) {
   return {
-    auth: { getSession: async () => ({ data: { session: { user: { id: userId } } } }) },
+    auth: { getSession: async () => ({ data: { session: userId === undefined ? null : { user: { id: userId } } } }) },
     from: (table: string) => ({
+      select: () => ({
+        eq: (_column: string, athleteId: string) => ({
+          eq: async () => ({ data: memberOf.includes(athleteId) ? [{ member_id: userId }] : [], error: null }),
+        }),
+      }),
       upsert: async (_row: unknown, options: unknown) => {
         calls.push(['upsert', table, options]);
         return { error: null };
@@ -866,13 +872,25 @@ test('the Supabase upload ignores an Event already on the server, and replaces a
   ]);
 });
 
-test('the Supabase upload of an Athlete another account owns only updates it, since a Member never inserts one (ADR 0004)', async () => {
+test('the Supabase upload of an Athlete its Member edits only updates it, since a Member never inserts one (ADR 0004)', async () => {
   const calls: unknown[][] = [];
-  const server = createSupabaseServer(recordingClient(calls, 'member-1') as never);
+  const server = createSupabaseServer(recordingClient(calls, 'member-1', ['a1']) as never);
 
   await server.upload('athletes', { id: 'a1', owner_id: 'owner-1', updated_at: '2026-10-30T19:00:00.000Z' });
 
   expect(calls).toEqual([['update', 'athletes', 'id', 'a1', 'updated_at', '2026-10-30T19:00:00.000Z']]);
+});
+
+test('the Supabase upload of an Athlete the account is not a Member of, or signed out, still upserts, so the server refuses it and it stays queued', async () => {
+  const calls: unknown[][] = [];
+  const row = { id: 'a1', owner_id: 'owner-1', updated_at: '2026-10-30T19:00:00.000Z' };
+  await createSupabaseServer(recordingClient(calls, 'stranger-1') as never).upload('athletes', row);
+  await createSupabaseServer(recordingClient(calls, undefined) as never).upload('athletes', row);
+
+  expect(calls.filter(([kind]) => kind === 'upsert')).toEqual([
+    ['upsert', 'athletes', { ignoreDuplicates: true }],
+    ['upsert', 'athletes', { ignoreDuplicates: true }],
+  ]);
 });
 
 test('the Supabase download reads every page of rows the account can see, with timestamps as the phone writes them', async () => {
