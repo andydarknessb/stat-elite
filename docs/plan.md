@@ -86,4 +86,6 @@ Streak evaluator · video highlights and training log · live viewing · backgro
 
 React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7), Dexie 4, supabase-js. The outbox is our own code; PowerSync was rejected in ADR 0001.
 
+Hosting: Netlify serves https://stat-elite.netlify.app, rebuilt from `integration` on every push (`netlify.toml`). The Supabase env vars live in Netlify, not the repo.
+
 Minimum platform: iOS 16.4, the first version with OffscreenCanvas, and current Chrome on Android.
