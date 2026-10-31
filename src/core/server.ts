@@ -1,3 +1,5 @@
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+
 /** The tables the outbox uploads: an Athlete before its Game, a Game before its Events (ADR 0001). */
 export type SyncedTable = 'athletes' | 'games' | 'events';
 
@@ -41,4 +43,40 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       uploads.push(`${table}:${row.id}`);
     },
   };
+}
+
+/** Supabase through its client: the server the deployed app syncs with. */
+export function createSupabaseServer(client: SupabaseClient): Server {
+  return {
+    async session() {
+      return (await client.auth.getSession()).data.session?.user.id;
+    },
+    async signIn(email) {
+      const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin } });
+      if (error) throw error;
+    },
+    async upload(table, row) {
+      // Events are insert-only: a repeat of one already on the server is ignored (ADR 0001)
+      const { error } = await client.from(table).upsert(row, { ignoreDuplicates: true });
+      if (error) throw error;
+      // an Athlete or Game is replaced only by a copy at least as new: latest edit wins
+      if (table !== 'events') {
+        const { error: stale } = await client.from(table).update(row).eq('id', row.id).lte('updated_at', row.updated_at);
+        if (stale) throw stale;
+      }
+    },
+  };
+}
+
+/**
+ * Supabase when the build has its URL and key. Without them only localhost gets the stand-in, so a deployed
+ * build refuses to sign in rather than pretend its rows reached a server.
+ */
+export function serverFor({ url, key, host }: { url?: string; key?: string; host: string }): Server {
+  if (url && key) return createSupabaseServer(createClient(url, key));
+  if (host === 'localhost') return createStandInServer();
+  const refuse = async () => {
+    throw new Error('Sign-in is not set up in this build');
+  };
+  return { session: async () => undefined, signIn: refuse, upload: refuse };
 }

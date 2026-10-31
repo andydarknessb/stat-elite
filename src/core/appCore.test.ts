@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { expect, test } from 'vitest';
 import { createAppCore } from './appCore';
-import { createStandInServer } from './server';
+import { createStandInServer, createSupabaseServer, serverFor } from './server';
 import { openStore } from './store';
 
 let stores = 0;
@@ -384,4 +384,41 @@ test('a write made while the server is unreachable waits on the phone, then uplo
   await core.flush();
   expect(await core.sync()).toEqual({ signedIn: true, notSynced: 0 });
   expect(server.rows.athletes.has(athleteId)).toBe(true);
+});
+
+test('the Supabase upload ignores an Event already on the server, and replaces an Athlete or Game only with a copy at least as new', async () => {
+  const calls: unknown[][] = [];
+  const client = {
+    from: (table: string) => ({
+      upsert: async (_row: unknown, options: unknown) => {
+        calls.push(['upsert', table, options]);
+        return { error: null };
+      },
+      update: () => ({
+        eq: (column: string, id: string) => ({
+          lte: async (column2: string, value: string) => {
+            calls.push(['update', table, column, id, column2, value]);
+            return { error: null };
+          },
+        }),
+      }),
+    }),
+  };
+  const server = createSupabaseServer(client as never);
+
+  await server.upload('events', { id: 'e1' });
+  await server.upload('athletes', { id: 'a1', updated_at: '2026-10-30T18:00:00.000Z' });
+
+  expect(calls).toEqual([
+    ['upsert', 'events', { ignoreDuplicates: true }],
+    ['upsert', 'athletes', { ignoreDuplicates: true }],
+    ['update', 'athletes', 'id', 'a1', 'updated_at', '2026-10-30T18:00:00.000Z'],
+  ]);
+});
+
+test('a deployed build with no Supabase config refuses to sign in, rather than pretend to upload', async () => {
+  const server = serverFor({ host: 'stat-elite.netlify.app' });
+
+  await expect(server.signIn('casey@example.com')).rejects.toThrow('not set up');
+  expect(await server.session()).toBeUndefined();
 });
