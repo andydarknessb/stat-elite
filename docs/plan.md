@@ -19,7 +19,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Game setup | Sport, Opponent, date, period format, all prefilled from the last Game so starting is one tap | — |
 | Live game, basketball | Shift timer and Sub In/Out toggle on top, Team–Opponent strip, half court for Shots, Free Throw row, 2-column stat tiles with live counts | Stattie (shift bar), Buckets (tiles, Free Throw row) |
 | Live game, softball/baseball | Team–Opponent strip, optional Pitch buttons, Outcome grid, RBI chips, diamond for the Athlete only | spec's Plate Appearance flow |
-| Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus | Stattie Activity |
+| Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus on basketball rows | Stattie Activity |
 | Game Complete | Share card and ready-to-paste text | MyKidDid |
 | Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
 | Athlete sharing | Invite co-parent (link through the share sheet), Members list, Remove Member (Owner only), Leave (Members) | — |

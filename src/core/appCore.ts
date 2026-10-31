@@ -1085,7 +1085,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const name = (await store.athletes.get(game.athlete_id))?.name ?? 'Athlete';
       return [
         `${name} vs ${summary.opponent}: ${summary.final.team}–${summary.final.opponent} final`,
-        `${name}: ${gameLineText(summary)} · Plus/Minus ${signed(summary.line.plusMinus)}`,
+        // Plus/Minus is defined per Shift, and only basketball has Shifts (docs/plan.md, ADR 0002)
+        `${name}: ${gameLineText(summary)}${summary.sport === 'basketball' ? ` · Plus/Minus ${signed(summary.line.plusMinus)}` : ''}`,
         SPORT_TAG[game.sport],
       ].join('\n');
     },

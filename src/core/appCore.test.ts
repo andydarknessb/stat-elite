@@ -1991,7 +1991,7 @@ test("a softball Game's copy text and share card carry its batting line and Fina
   await core.endGame(gameId, { teamScore: 4, opponentScore: 2 });
 
   expect(await core.gameCopyText(gameId)).toBe(
-    ['Casey vs Hawks: 4–2 final', 'Casey: H/AB 2/3 · 3 RBI · Plus/Minus 0', '#softball'].join('\n'),
+    ['Casey vs Hawks: 4–2 final', 'Casey: H/AB 2/3 · 3 RBI', '#softball'].join('\n'),
   );
   expect(await core.gameCard(gameId)).toMatchObject({ final: { team: 4, opponent: 2 }, line: 'H/AB 2/3 · 3 RBI' });
 });
@@ -2006,11 +2006,14 @@ test("a softball season sums its Games' batting counts, and its rates come from 
   const second = await core.startGame({ athleteId, ...GAME_SETUP, gameDate: '2026-10-28', sport: 'softball', periodFormat: 'innings' });
   await core.recordPlateAppearance(second, { outcome: 'ground_out', rbi: 0 });
   await core.recordPlateAppearance(second, { outcome: 'home_run', rbi: 2 });
+  await core.recordPlateAppearance(second, { outcome: 'hit_by_pitch', rbi: 0 });
+  await core.recordPlateAppearance(second, { outcome: 'sac_fly', rbi: 0 });
   await core.endGame(second, { teamScore: 3, opponentScore: 0 });
 
-  // AB 3 (the walk is not one), H 2, RBI 3, total bases 5; AVG 2/3, OBP (2 + 1) / (3 + 1), SLG 5/3
+  // AB 3 (the walk, the hit by pitch and the sac fly are not), H 2, RBI 3, total bases 5, BB 1, HBP 1, SF 1; AVG 2/3, SLG 5/3
+  // OBP is summed: (2 + 1 + 1) / (3 + 1 + 1 + 1) = 4/6. A mean of the Games' OBPs (1 and 2/4) would be 0.75.
   expect((await core.gameFeed(athleteId)).seasons).toEqual([
-    { sport: 'softball', batting: { atBats: 3, hits: 2, rbi: 3, bases: 5, walks: 1, hitByPitch: 0, sacFlies: 0, avg: 2 / 3, obp: 0.75, slg: 5 / 3 } },
+    { sport: 'softball', batting: { atBats: 3, hits: 2, rbi: 3, bases: 5, walks: 1, hitByPitch: 1, sacFlies: 1, avg: 2 / 3, obp: 4 / 6, slg: 5 / 3 } },
   ]);
 });
 
