@@ -30,7 +30,9 @@ export interface EventRow {
   seq: number;
   client_ts: string;
   period: number;
-  type: TileEventType;
+  type: TileEventType | 'retraction';
+  /** The Event a Retraction cancels; null on every other Event. */
+  retracts_id: string | null;
 }
 
 /** The phone's local store: one Dexie (IndexedDB) database. */

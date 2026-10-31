@@ -76,3 +76,32 @@ button.primary {
 .tile .count {
   font-size: 32px;
 }
+
+button:disabled {
+  opacity: 0.5;
+}
+
+/* Taps pass through the toast, except on its own Undo button. */
+.toast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 8px 8px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.toast button {
+  pointer-events: auto;
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--bg);
+  font-weight: 600;
+}

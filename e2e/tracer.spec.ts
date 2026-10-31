@@ -6,7 +6,7 @@ test('a Recorder adds an Athlete, taps STL, and still sees the count after a rel
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
 
-  const steal = page.getByRole('button', { name: 'STL' });
+  const steal = page.getByRole('button', { name: /^STL/ });
   await expect(steal).toHaveText('STL 0');
   await steal.click();
   await expect(steal).toHaveText('STL 1');

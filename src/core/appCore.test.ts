@@ -9,7 +9,7 @@ function setup() {
   const name = `test-${++stores}`;
   const now = new Date('2026-10-30T18:00:00Z');
   const open = () => createAppCore({ clock: () => now, store: openStore(name), server: {} });
-  return { core: open(), reopen: open, now };
+  return { core: open(), reopen: open, now, inspect: openStore(name) };
 }
 
 async function basketballGame(core: ReturnType<typeof createAppCore>) {
@@ -63,4 +63,53 @@ test('after a reload the Game in progress shows the same count and keeps countin
   expect((await reloaded.home()).liveGameId).toBe(gameId);
   expect((await reloaded.liveGame(gameId))?.tiles.steal).toBe(1);
   expect((await reloaded.recordTile(gameId, 'steal')).seq).toBe(2);
+});
+
+test('Undo appends a Retraction for the newest Event and leaves every Event as it was', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+  const first = await core.recordTile(gameId, 'steal');
+  const second = await core.recordTile(gameId, 'block');
+
+  const retraction = await core.undo(gameId);
+
+  expect(retraction).toMatchObject({ type: 'retraction', retracts_id: second.id, seq: 3, game_id: gameId });
+  expect(await inspect.events.get(first.id)).toEqual(first);
+  expect(await inspect.events.get(second.id)).toEqual(second);
+  expect((await core.liveGame(gameId))?.tiles).toMatchObject({ steal: 1, block: 0 });
+});
+
+test('Undo steps back through un-retracted Events, newest first, then has nothing left', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+  await core.recordTile(gameId, 'steal');
+  await core.recordTile(gameId, 'block');
+  await core.recordTile(gameId, 'assist');
+
+  expect((await core.liveGame(gameId))?.undoable?.type).toBe('assist');
+  await core.undo(gameId);
+  expect((await core.liveGame(gameId))?.undoable?.type).toBe('block');
+  await core.undo(gameId);
+  await core.undo(gameId);
+
+  expect(await core.undo(gameId)).toBeUndefined();
+  expect(await core.liveGame(gameId)).toMatchObject({
+    tiles: { steal: 0, block: 0, assist: 0 },
+    undoable: undefined,
+  });
+});
+
+test('after a reload Undo still steps back from the same Event', async () => {
+  const { core, reopen } = setup();
+  const gameId = await basketballGame(core);
+  await core.recordTile(gameId, 'steal');
+  await core.recordTile(gameId, 'block');
+  await core.undo(gameId);
+
+  const reloaded = reopen();
+
+  expect((await reloaded.liveGame(gameId))?.tiles).toMatchObject({ steal: 1, block: 0 });
+  expect((await reloaded.liveGame(gameId))?.undoable?.type).toBe('steal');
+  expect(await reloaded.undo(gameId)).toMatchObject({ type: 'retraction', seq: 4 });
+  expect((await reloaded.recordTile(gameId, 'steal')).seq).toBe(5);
 });
