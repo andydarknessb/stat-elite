@@ -241,7 +241,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
           ) : (
             // a downloaded Athlete has no photo here: photos stay on the phone that picked them
             <span className="photo-placeholder" aria-hidden="true">
-              {athlete.name.charAt(0)}
+              {[...athlete.name][0]}
             </span>
           )}
         </button>

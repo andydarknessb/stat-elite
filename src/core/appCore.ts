@@ -198,8 +198,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     if (!owner) return;
     // a sign-in downloads before anything uploads, so the server's newer copies land before this phone's older ones go up
     if ((await store.settings.get(DOWNLOADED_FOR))?.value !== owner) {
-      await download();
-      await store.settings.put({ key: DOWNLOADED_FOR, value: owner });
+      try {
+        await download();
+        await store.settings.put({ key: DOWNLOADED_FOR, value: owner });
+      } catch (error) {
+        // the marker stays unset, so the next flush tries again; uploads go on, and the server keeps the later edit either way
+        console.error(error);
+      }
     }
     // signing in makes the account the Owner of the phone's Athletes
     await store.athletes

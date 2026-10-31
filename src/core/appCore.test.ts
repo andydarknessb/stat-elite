@@ -555,8 +555,8 @@ test('a Game edited elsewhere replaces the phone copy at its next sign-in, when 
   expect(await inspect.games.get(gameId)).toMatchObject({ opponent_name: 'Rams', updated_at: '2026-10-30T20:00:00.000Z' });
 });
 
-test('a sign-in brings no photo down, and downloads no Event the phone already holds', async () => {
-  const { core, server, inspect } = setup();
+test('a sign-in brings no photo down, and adds only the Events the phone lacks, never overwriting one it holds', async () => {
+  const { core, server } = setup();
   const photo = new Blob(['jpeg bytes'], { type: 'image/jpeg' });
   const athleteId = await core.addAthlete({ name: 'Casey', photo });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
@@ -568,8 +568,40 @@ test('a sign-in brings no photo down, and downloads no Event the phone already h
   expect(await second.inspect.athletePhotos.get(athleteId)).toBeUndefined();
   expect((await second.core.home()).athlete).toEqual({ id: athleteId, name: 'Casey', jerseyNumber: null });
 
+  // the first phone adds an Event the second lacks; the server then holds a differing copy of one the second has
+  const block = await core.recordTile(gameId, 'block');
+  await core.flush();
+  const differing = { ...steal, owner_id: await server.session(), client_ts: '2026-10-30T19:59:00.000Z' };
+  server.rows.events.set(steal.id, differing);
+
+  await second.core.signIn('casey@example.com');
+  expect(await second.inspect.events.where('game_id').equals(gameId).sortBy('seq')).toEqual([steal, block]);
+  expect(await second.inspect.settings.get('downloadedFor')).toEqual({
+    key: 'downloadedFor',
+    value: await server.session(),
+  });
+});
+
+test('a download that fails for another reason does not stop uploads, and the next flush tries it again', async () => {
+  const { core, server, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const download = server.download;
+  server.download = async () => {
+    throw new Error('select refused');
+  };
+
   await core.signIn('casey@example.com');
-  expect(await inspect.events.toArray()).toEqual([steal]);
+
+  expect(server.uploads).toEqual([`athletes:${athleteId}`]);
+  expect(await core.sync()).toEqual({ signedIn: true, notSynced: 0 });
+  expect(await inspect.settings.get('downloadedFor')).toBeUndefined();
+
+  server.download = download;
+  await core.flush();
+  expect(await inspect.settings.get('downloadedFor')).toEqual({
+    key: 'downloadedFor',
+    value: await server.session(),
+  });
 });
 
 test('an Athlete edited on one phone reaches the other at its next sign-in, and the later edit wins on both', async () => {
