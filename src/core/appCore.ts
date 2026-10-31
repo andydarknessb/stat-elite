@@ -398,12 +398,29 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
-    /** Signs the Recorder in with a magic link, then uploads everything recorded so far. */
-    async signIn(email: string): Promise<void> {
-      await server.signIn(email);
+    /** Signs the Recorder in with a magic link, then uploads everything recorded so far. An Invite's token rides in the link. */
+    async signIn(email: string, invite?: string): Promise<void> {
+      await server.signIn(email, invite);
       // the account is signing in here, so it downloads again even if this phone has downloaded it before
       await store.settings.delete(DOWNLOADED_FOR);
       await flush();
+    },
+
+    /** Makes an Invite to one of the Recorder's Athletes; its token goes out in the share link. */
+    createInvite(athleteId: string): Promise<string> {
+      return server.createInvite(athleteId);
+    },
+
+    /** Whether Invite co-parent is offered: the signed-in account is the Athlete's Owner. */
+    async canInvite(athleteId: string): Promise<boolean> {
+      const owner = (await store.athletes.get(athleteId))?.owner_id;
+      return owner !== undefined && owner === (await server.session());
+    },
+
+    /** Makes the signed-in account a Member of the Invite's Athlete, then brings the Athlete and its Games down (ADR 0004). */
+    async acceptInvite(token: string): Promise<void> {
+      await server.acceptInvite(token);
+      await download();
     },
 
     /** The "N not synced" badge: whether the Recorder is signed in, and how many rows still live only on the phone. */

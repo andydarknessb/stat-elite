@@ -1,6 +1,7 @@
 import { liveQuery } from 'dexie';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { AppCore, GameFormat, GameSetup, Home, Scores, TileEventType, UndoableType } from './core/appCore';
+import { InviteRefused } from './core/server';
 import { InstallPrompt } from './InstallPrompt';
 
 /** Re-renders whenever the store data behind a read model changes. */
@@ -17,6 +18,15 @@ export function App({ core }: { core: AppCore }) {
   const home = useReadModel(() => core.home(), [core]);
   // the Game the Recorder just ended stays on screen, showing its Final Score, until Done
   const [ended, setEnded] = useState<string>();
+  // an Invite link opens its own screen until the invitee is done with it
+  const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get('invite') ?? undefined);
+  if (invite) {
+    const done = () => {
+      history.replaceState(null, '', location.pathname);
+      setInvite(undefined);
+    };
+    return <InviteScreen core={core} token={invite} onDone={done} />;
+  }
   if (!home) return null;
   const gameId = home.liveGameId ?? ended;
   return (
@@ -28,6 +38,111 @@ export function App({ core }: { core: AppCore }) {
         <HomeScreen core={core} athlete={home.athlete} next={home.next} />
       ) : (
         <LiveGame core={core} gameId={gameId} onEnded={setEnded} onDone={() => setEnded(undefined)} />
+      )}
+    </>
+  );
+}
+
+/** An Invite link. Signed out, the invitee gets a magic link that carries the Invite; signed in, accepting it makes them a Member. */
+function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; onDone: () => void }) {
+  const sync = useReadModel(() => core.sync(), [core]);
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [joined, setJoined] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (!sync?.signedIn) return;
+    core.acceptInvite(token).then(
+      () => setJoined(true),
+      (refused: unknown) => setError(refusalMessage(refused)),
+    );
+  }, [core, token, sync?.signedIn]);
+  if (!sync) return null;
+  if (!sync.signedIn) {
+    if (sent) return <main><p>Check your email for the link, then open it on this phone.</p></main>;
+    const submit = async (e: FormEvent) => {
+      e.preventDefault();
+      try {
+        await core.signIn(email.trim(), token);
+        setSent(true);
+      } catch {
+        setError('Could not send the link. Check the connection and try again.');
+      }
+    };
+    return (
+      <main>
+        <h1>Join an Athlete</h1>
+        <p>Sign in with your email to become a Member.</p>
+        <form onSubmit={submit}>
+          <label>
+            Email
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+          </label>
+          <button className="primary">Send link</button>
+          {error && <p role="alert">{error}</p>}
+        </form>
+      </main>
+    );
+  }
+  if (joined) {
+    return (
+      <main>
+        <h1>You&apos;re a Member</h1>
+        <p>The Athlete and its Games are on this phone.</p>
+        <button className="primary" onClick={onDone}>Continue</button>
+      </main>
+    );
+  }
+  if (error) {
+    return (
+      <main>
+        <p role="alert">{error}</p>
+        <button className="primary" onClick={onDone}>Continue</button>
+      </main>
+    );
+  }
+  return <main><p>Joining…</p></main>;
+}
+
+/** What a link that cannot be accepted says, in the words the invitee needs. */
+function refusalMessage(error: unknown): string {
+  if (!(error instanceof InviteRefused)) return 'Could not join. Check the connection and try again.';
+  if (error.reason === 'used') return 'This invite link has already been used.';
+  if (error.reason === 'expired') return 'This invite link has expired. Ask for a new one.';
+  return 'This invite link is not valid.';
+}
+
+/** Invite co-parent, for the Owner of a signed-in Athlete: makes an Invite, then offers its link to the share sheet (ADR 0004). */
+function InviteCoParent({ core, athleteId }: { core: AppCore; athleteId: string }) {
+  const canInvite = useReadModel(() => core.canInvite(athleteId), [core, athleteId]);
+  const [link, setLink] = useState<string>();
+  const [error, setError] = useState<string>();
+  if (!canInvite) return null;
+  const makeInvite = async () => {
+    try {
+      const token = await core.createInvite(athleteId);
+      setLink(`${location.origin}/?invite=${token}`);
+    } catch {
+      setError('Could not make an invite. Check the connection and try again.');
+    }
+  };
+  if (!link) {
+    return (
+      <>
+        <button onClick={() => void makeInvite()}>Invite co-parent</button>
+        {error && <p role="alert">{error}</p>}
+      </>
+    );
+  }
+  return (
+    <>
+      <p style={{ overflowWrap: 'anywhere' }}>{link}</p>
+      <p>Works once, and for 7 days.</p>
+      {/* without the share sheet the link above is copied by hand; a cancelled share is not an error */}
+      {'share' in navigator && (
+        <button onClick={() => void navigator.share({ url: link, title: 'Join StatElite' }).catch(() => undefined)}>
+          Share invite link
+        </button>
       )}
     </>
   );
@@ -248,6 +363,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         </button>
         <button onClick={() => setForm('edit')}>Edit</button>
         <button onClick={() => setForm('add')}>Add Athlete</button>
+        <InviteCoParent core={core} athleteId={athlete.id} />
       </main>
       <InstallPrompt />
     </>
