@@ -8,6 +8,9 @@ test('a Game recorded offline uploads once it is saved, and the badge reaches 0'
     if (request.url().includes('supabase.co')) supabaseRequests.push(request.url());
   });
 
+  // a second guard: no request to Supabase leaves the browser, even from a build that has its URL and key
+  await page.route(/\.supabase\.co\//, (route) => route.abort());
+
   await page.goto('/');
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();

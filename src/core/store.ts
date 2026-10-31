@@ -78,8 +78,18 @@ export function openStore(name = 'stat-elite'): Store {
     athletePhotos: 'athlete_id',
     settings: 'key',
   });
-  db.version(3).stores({
-    outbox: '++seq',
-  });
+  db.version(3)
+    .stores({ outbox: '++seq' })
+    // rows recorded before the outbox existed queue now, Athletes first, so the first sign-in uploads them (ADR 0001)
+    .upgrade(async (tx) => {
+      const athletes = await tx.table('athletes').toArray();
+      const games = await tx.table('games').toArray();
+      const events = await tx.table('events').orderBy('[game_id+seq]').toArray();
+      await tx.table('outbox').bulkAdd([
+        ...athletes.map(({ id }) => ({ table: 'athletes', id })),
+        ...games.map(({ id }) => ({ table: 'games', id })),
+        ...events.map(({ id }) => ({ table: 'events', id })),
+      ]);
+    });
   return db;
 }

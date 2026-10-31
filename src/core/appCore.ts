@@ -108,16 +108,18 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   };
   const queue = (table: SyncedTable, id: string) => store.outbox.add({ table, id });
 
-  // the row an outbox entry names, as it is now
-  const rowOf = ({ table, id }: OutboxRow): Promise<UploadRow | undefined> =>
-    table === 'athletes' ? store.athletes.get(id) : table === 'games' ? store.games.get(id) : store.events.get(id);
-
-  // the Athlete a row belongs to: a Game's, or an Event's through its Game
-  const athleteIdOf = async ({ table, id }: OutboxRow): Promise<string | undefined> => {
-    if (table === 'athletes') return id;
-    if (table === 'games') return (await store.games.get(id))?.athlete_id;
+  // the row an outbox entry names, as it is now, and the id of its Athlete: a Game names its Athlete, an Event its Game
+  const loadRow = async ({ table, id }: OutboxRow): Promise<{ row: UploadRow; athleteId?: string } | undefined> => {
+    if (table === 'athletes') {
+      const athlete = await store.athletes.get(id);
+      return athlete && { row: athlete, athleteId: id };
+    }
+    if (table === 'games') {
+      const game = await store.games.get(id);
+      return game && { row: game, athleteId: game.athlete_id };
+    }
     const event = await store.events.get(id);
-    return event && (await store.games.get(event.game_id))?.athlete_id;
+    return event && { row: event, athleteId: (await store.games.get(event.game_id))?.athlete_id };
   };
 
   // Uploads in sequence order, each row as it is now. A row the server cannot take stays queued, and so do the rows behind it.
@@ -131,14 +133,14 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       .filter((a) => a.owner_id === undefined)
       .modify({ owner_id: owner });
     for (const entry of await store.outbox.orderBy('seq').toArray()) {
-      const row = await rowOf(entry);
-      if (!row) {
+      const loaded = await loadRow(entry);
+      if (!loaded) {
         await store.outbox.delete(entry.seq!);
         continue;
       }
-      const athlete = await store.athletes.get((await athleteIdOf(entry)) ?? '');
+      const athlete = await store.athletes.get(loaded.athleteId ?? '');
       try {
-        await server.upload(entry.table, { ...row, owner_id: athlete?.owner_id });
+        await server.upload(entry.table, { ...loaded.row, owner_id: athlete?.owner_id });
       } catch {
         return;
       }

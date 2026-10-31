@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import Dexie from 'dexie';
 import { expect, test } from 'vitest';
 import { createAppCore } from './appCore';
 import { createStandInServer, createSupabaseServer, serverFor } from './server';
@@ -432,4 +433,43 @@ test('the server keeps the newer copy of an Athlete when an older one arrives af
   await server.upload('athletes', older);
 
   expect(server.rows.athletes.get('a1')).toEqual(newer);
+});
+
+test('rows recorded before the outbox existed are queued when it is first opened: Athletes, then Games, then Events in order', async () => {
+  const name = `test-${++stores}`;
+  // the phone's database as the build before the outbox left it
+  const before = new Dexie(name);
+  before.version(1).stores({ athletes: 'id, created_at', games: 'id, athlete_id', events: 'id, &[game_id+seq]' });
+  before.version(2).stores({ athletePhotos: 'athlete_id', settings: 'key' });
+  await before.open();
+  await before.table('athletes').add({
+    id: 'a1',
+    name: 'Casey',
+    jersey_number: null,
+    created_at: '2026-10-30T18:00:00.000Z',
+    updated_at: '2026-10-30T18:00:00.000Z',
+  });
+  await before.table('games').add({
+    id: 'g1',
+    athlete_id: 'a1',
+    sport: 'basketball',
+    period_format: 'quarters',
+    opponent_name: 'Hawks',
+    game_date: '2026-10-30',
+    created_at: '2026-10-30T18:00:00.000Z',
+    updated_at: '2026-10-30T18:00:00.000Z',
+  });
+  // written out of order, so only the sequence number puts e1 first
+  await before.table('events').bulkAdd([
+    { id: 'e2', game_id: 'g1', seq: 2, client_ts: '2026-10-30T18:02:00.000Z', period: 1, type: 'steal', retracts_id: null, team_score: null, opponent_score: null },
+    { id: 'e1', game_id: 'g1', seq: 1, client_ts: '2026-10-30T18:01:00.000Z', period: 1, type: 'steal', retracts_id: null, team_score: null, opponent_score: null },
+  ]);
+  before.close();
+
+  expect(await openStore(name).outbox.toArray()).toEqual([
+    { seq: 1, table: 'athletes', id: 'a1' },
+    { seq: 2, table: 'games', id: 'g1' },
+    { seq: 3, table: 'events', id: 'e1' },
+    { seq: 4, table: 'events', id: 'e2' },
+  ]);
 });
