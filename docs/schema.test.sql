@@ -28,10 +28,10 @@ insert into auth.users values ('00000000-0000-0000-0000-00000000000a'), ('000000
 insert into athletes (id, owner_id, name) values
   ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'Casey'),
   ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', 'Jordan');
-insert into games (id, owner_id, athlete_id, sport, period_format, game_date) values
-  ('20000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-30'),
-  ('20000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'softball', 'innings', '2026-10-30'),
-  ('20000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b', '10000000-0000-0000-0000-00000000000b', 'basketball', 'halves', '2026-10-30');
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values
+  ('20000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-30', '00000000-0000-0000-0000-00000000000a'),
+  ('20000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'softball', 'innings', '2026-10-30', '00000000-0000-0000-0000-00000000000a'),
+  ('20000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b', '10000000-0000-0000-0000-00000000000b', 'basketball', 'halves', '2026-10-30', '00000000-0000-0000-0000-00000000000b');
 
 -- Happy path: a basketball Game with a Shift, a retracted Shot, and a Final Score.
 insert into events (id, owner_id, game_id, seq, client_ts, period, type, court_x, court_y, shot_value, made, team_score, opponent_score, retracts_id) values
@@ -125,7 +125,27 @@ begin
   if n <> 7 then raise exception 'a Member should see its Athlete''s 7 Events, saw %', n; end if;
 end $$;
 select pg_temp.expect_fail($$insert into invites (athlete_id, owner_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000c')$$, 'a Member making an Invite');
-select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a1', 7, now(), 1, 'steal')$$, 'a Member recording an Event');
+select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a1', 7, now(), 1, 'steal')$$, 'a Member adding an Event to a Game it did not record');
+
+-- A Member records its own Game on Casey: the Game carries Casey's Owner and names the Member as its Recorder (ADR 0004).
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values
+  ('20000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-31', '00000000-0000-0000-0000-00000000000c');
+insert into events (id, owner_id, game_id, seq, client_ts, period, type) values
+  ('30000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000c1', 1, now(), 1, 'steal');
+-- and it can record nothing under another account's name: not as the Owner, not on an Athlete it is not a Member of, not as its own Owner
+select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-31', '00000000-0000-0000-0000-00000000000a')$$, 'a Game recorded by the Owner, inserted by a Member');
+select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000c4', '00000000-0000-0000-0000-00000000000c', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-31', '00000000-0000-0000-0000-00000000000c')$$, 'a Member''s Game under its own account as Owner');
+select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000c5', '00000000-0000-0000-0000-00000000000b', '10000000-0000-0000-0000-00000000000b', 'basketball', 'halves', '2026-10-31', '00000000-0000-0000-0000-00000000000c')$$, 'a Member recording on an Athlete it is not a Member of');
+
+-- The Owner does not add Events to the Game its Member recorded; it reads them.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000c1', 2, now(), 1, 'steal')$$, 'the Owner adding an Event to a Game its Member recorded');
+do $$
+declare n int;
+begin
+  select count(*) into n from events where game_id = '20000000-0000-0000-0000-0000000000c1';
+  if n <> 1 then raise exception 'the Owner should see the Member''s Event, saw %', n; end if;
+end $$;
 
 -- B, the stranger, still sees only its own rows, and cannot take the Invite C used.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
