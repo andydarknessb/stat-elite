@@ -13,6 +13,9 @@ export type UploadRow = { id: string; owner_id?: string; updated_at?: string };
 /** The stand-in's copy of a row: the Athlete a Game or Event belongs to is what Member access checks. */
 type StoredRow = UploadRow & { athlete_id?: string; game_id?: string };
 
+/** A Member of an Athlete and when it joined. */
+export type MemberRow = { member_id: string; joined_at: string };
+
 /** Why an Invite cannot be taken: unknown, the Owner's own, used by another account, or past its 7 days (ADR 0004). */
 export type InviteReason = 'unknown' | 'own' | 'used' | 'expired';
 
@@ -38,6 +41,12 @@ export interface Server {
   createInvite(athleteId: string): Promise<string>;
   /** Makes the signed-in account a Member of the Invite's Athlete. Rejects with an InviteRefused when the Invite cannot be taken. */
   acceptInvite(token: string): Promise<void>;
+  /** The Members of one Athlete the signed-in account can see: all of them for its Owner, its own membership for a Member. */
+  members(athleteId: string): Promise<MemberRow[]>;
+  /** Removes a Member from one of the account's Athletes. Rejects unless the account owns that Athlete. */
+  removeMember(athleteId: string, memberId: string): Promise<void>;
+  /** Removes the signed-in account's membership of an Athlete. */
+  leave(athleteId: string): Promise<void>;
 }
 
 const DAY = 24 * 60 * 60_000;
@@ -50,8 +59,8 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
   const rows: Record<SyncedTable, Map<string, StoredRow>> = { athletes: new Map(), games: new Map(), events: new Map() };
   const uploads: string[] = [];
   const invites = new Map<string, { athlete_id: string; owner_id: string; expires: number; used_by?: string }>();
-  // `${athleteId} ${memberId}` for each Member
-  const members = new Set<string>();
+  // `${athleteId} ${memberId}` for each Member, with when it joined
+  const members = new Map<string, string>();
   const reach = () => {
     if (!reachable()) throw new Error('The server cannot be reached');
   };
@@ -105,8 +114,26 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
         if (invite.used_by === account) return;
         if (invite.used_by !== undefined) throw new InviteRefused('used');
         if (invite.expires <= Date.now()) throw new InviteRefused('expired');
-        members.add(`${invite.athlete_id} ${account}`);
+        members.set(`${invite.athlete_id} ${account}`, new Date().toISOString());
         invite.used_by = account;
+      },
+      async members(athleteId: string) {
+        reach();
+        const owner = account !== undefined && rows.athletes.get(athleteId)?.owner_id === account;
+        return [...members]
+          .filter(([key]) => key.startsWith(`${athleteId} `) && (owner || key === `${athleteId} ${account}`))
+          .map(([key, joined_at]) => ({ member_id: key.slice(athleteId.length + 1), joined_at }));
+      },
+      async removeMember(athleteId: string, memberId: string) {
+        reach();
+        if (account === undefined || rows.athletes.get(athleteId)?.owner_id !== account) {
+          throw new Error('Only the Owner can remove a Member');
+        }
+        members.delete(`${athleteId} ${memberId}`);
+      },
+      async leave(athleteId: string) {
+        reach();
+        members.delete(`${athleteId} ${account}`);
       },
     };
   };
@@ -160,6 +187,31 @@ export function createSupabaseServer(client: SupabaseClient): Server {
       if (refusal) throw new InviteRefused(refusal[1] as InviteReason);
       throw error;
     },
+    async members(athleteId) {
+      const { data, error } = await client.from('members').select('member_id, joined_at').eq('athlete_id', athleteId);
+      if (error) throw error;
+      return data;
+    },
+    async removeMember(athleteId, memberId) {
+      const { data, error } = await client
+        .from('members')
+        .delete()
+        .eq('athlete_id', athleteId)
+        .eq('member_id', memberId)
+        .select('member_id');
+      if (error) throw error;
+      // RLS keeps the rows the account may not remove, so an empty answer means none was removed
+      if (data.length === 0) throw new Error('Only the Owner can remove a Member');
+    },
+    async leave(athleteId) {
+      const { error } = await client
+        .from('members')
+        .delete()
+        .eq('athlete_id', athleteId)
+        .eq('member_id', await session())
+        .select('member_id');
+      if (error) throw error;
+    },
   };
 }
 
@@ -191,5 +243,8 @@ export function serverFor({ url, key, host }: { url?: string; key?: string; host
     download: refuse,
     createInvite: refuse,
     acceptInvite: refuse,
+    members: refuse,
+    removeMember: refuse,
+    leave: refuse,
   };
 }

@@ -1104,6 +1104,99 @@ test('Invite co-parent is offered only by the Owner of a signed-in Athlete', asy
   expect(await member.core.canInvite(athleteId)).toBe(false);
 });
 
+test('only the Owner removes a Member, and sees the Members to remove', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+  const memberId = (await member.server.session())!;
+  const stranger = otherAccount(server);
+  await stranger.core.signIn('lee@example.com');
+
+  await expect(member.core.removeMember(athleteId, memberId)).rejects.toThrow('Only the Owner can remove a Member');
+  await expect(stranger.core.removeMember(athleteId, memberId)).rejects.toThrow('Only the Owner can remove a Member');
+  expect(await core.members(athleteId)).toEqual([expect.objectContaining({ member_id: memberId })]);
+
+  await core.removeMember(athleteId, memberId);
+
+  expect(await core.members(athleteId)).toEqual([]);
+});
+
+// Casey, a Game the Owner recorded, and a Member joined to it who records a Game of its own with a steal
+async function sharedWithAMember() {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+  const memberGame = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
+  const steal = await member.core.recordTile(memberGame, 'steal');
+  await member.core.flush();
+  return { core, server, athleteId, member, memberId: (await member.server.session())!, memberGame, steal };
+}
+
+test("a removed Member's phone drops the Athlete, its Games and Events at its next download, and the Owner keeps the Games it recorded", async () => {
+  const { core, server, athleteId, member, memberId, memberGame, steal } = await sharedWithAMember();
+
+  await core.removeMember(athleteId, memberId);
+  await member.core.refresh();
+
+  expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
+  expect(await member.inspect.games.count()).toBe(0);
+  expect(await member.inspect.events.count()).toBe(0);
+  expect((await member.core.home()).athlete).toBeUndefined();
+  expect(server.rows.games.get(memberGame)).toMatchObject({ athlete_id: athleteId, recorded_by: memberId });
+  expect(server.rows.events.get(steal.id)).toBeDefined();
+});
+
+test('a Member who leaves drops the Athlete from its phone at once, and its Games stay with the Athlete', async () => {
+  const { core, server, athleteId, member, memberId, memberGame, steal } = await sharedWithAMember();
+
+  await member.core.leave(athleteId);
+
+  expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
+  expect(await member.inspect.events.get(steal.id)).toBeUndefined();
+  expect(await core.members(athleteId)).toEqual([]);
+  expect(server.rows.games.get(memberGame)).toMatchObject({ recorded_by: memberId });
+  expect((await core.home()).athlete?.id).toBe(athleteId);
+});
+
+test('the Supabase server removes a Member as the Owner, and names a removal the database refused', async () => {
+  const removed: unknown[][] = [];
+  let rows: unknown[] = [];
+  const client = {
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'owner-1' } } } }) },
+    from: (table: string) => ({
+      delete: () => ({
+        eq: (athleteColumn: string, athleteId: unknown) => ({
+          eq: (memberColumn: string, memberId: unknown) => ({
+            select: async () => {
+              removed.push([table, athleteColumn, athleteId, memberColumn, memberId]);
+              return { data: rows, error: null };
+            },
+          }),
+        }),
+      }),
+    }),
+  };
+  const server = createSupabaseServer(client as never);
+
+  await expect(server.removeMember('a1', 'm1')).rejects.toThrow('Only the Owner can remove a Member');
+  rows = [{ member_id: 'm1' }];
+  await server.removeMember('a1', 'm1');
+
+  expect(removed).toEqual([
+    ['members', 'athlete_id', 'a1', 'member_id', 'm1'],
+    ['members', 'athlete_id', 'a1', 'member_id', 'm1'],
+  ]);
+});
+
 test('the Supabase server makes an Invite as its Owner, sends it with the sign-in link, and names why an Invite was refused', async () => {
   vi.stubGlobal('location', { origin: 'https://stat-elite.netlify.app' });
   const calls: unknown[][] = [];
