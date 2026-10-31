@@ -935,8 +935,8 @@ function LiveGame({
   }, []);
   const game = useReadModel(() => core.liveGame(gameId), [core, gameId, second]);
   const size = useReadModel(() => core.buttonSize(), [core]) ?? 'standard';
-  // the label of the Event a tap just recorded, shown for 3 seconds
-  const [toast, setToast] = useState<string>();
+  // the toast for the last tap, shown 3 seconds; each call sets a new object, so a repeated label still restarts the timer
+  const [toast, setToast] = useState<{ label: string }>();
   const [ending, setEnding] = useState(false);
   // the Outcome picked on softball or baseball, waiting for its RBI chip
   const [pending, setPending] = useState<Outcome>();
@@ -963,30 +963,30 @@ function LiveGame({
   }
   const tap = async (type: TileEventType) => {
     await core.recordTile(gameId, type);
-    setToast(TILE_LABELS[type]);
+    setToast({ label: TILE_LABELS[type] });
   };
   const tapFreeThrow = async (made: boolean) => {
     await core.recordFreeThrow(gameId, made);
-    setToast(freeThrowLabel(made));
+    setToast({ label: freeThrowLabel(made) });
   };
   const tapPitch = async (pitch: Pitch) => {
     await core.recordPitch(gameId, pitch);
-    setToast(PITCH_LABELS[pitch]);
+    setToast({ label: PITCH_LABELS[pitch] });
   };
   const pick = async (rbi: number) => {
     if (!pending) return;
     setPending(undefined);
     await core.recordPlateAppearance(gameId, { outcome: pending, rbi });
-    setToast(outcomeLabel(pending, game.count?.strikeout));
+    setToast({ label: outcomeLabel(pending, game.count?.strikeout) });
   };
   const tapBase = async (base: BaseMove) => {
     const stolen = stealing;
     setStealing(false);
     await core.recordBaserunning(gameId, { base, stolen });
-    setToast(baseLabel(base, stolen));
+    setToast({ label: baseLabel(base, stolen) });
   };
   const adjust = (side: 'team' | 'opponent', delta: 1 | -1) => {
-    setToast(EVENT_LABELS.score);
+    setToast({ label: EVENT_LABELS.score });
     void core.adjustScore(gameId, side, delta);
   };
   const undo = () => {
@@ -994,12 +994,12 @@ function LiveGame({
     void core.undo(gameId);
   };
   const sub = () => {
-    setToast(game.onCourt ? EVENT_LABELS.sub_out : EVENT_LABELS.sub_in);
+    setToast({ label: game.onCourt ? EVENT_LABELS.sub_out : EVENT_LABELS.sub_in });
     setPulse((n) => n + 1);
     void core.toggleSub(gameId);
   };
   const nextPeriod = () => {
-    setToast(EVENT_LABELS.period_start);
+    setToast({ label: EVENT_LABELS.period_start });
     void core.nextPeriod(gameId);
   };
   // the Shift on court, if any: its timer and Plus/Minus so far
@@ -1011,7 +1011,7 @@ function LiveGame({
         gameId={gameId}
         shots={game.shots}
         points={game.points}
-        onRecorded={(label) => setToast(label)}
+        onRecorded={(label) => setToast({ label })}
       />
       <div className="free-throws" role="group" aria-label="Free Throw">
         <button className="make" onClick={() => void tapFreeThrow(true)}>
@@ -1152,7 +1152,7 @@ function LiveGame({
       )}
       {toast && (
         <div className="toast" role="status">
-          <span>{toast}</span>
+          <span>{toast.label}</span>
           <button onClick={undo}>Undo</button>
         </div>
       )}
