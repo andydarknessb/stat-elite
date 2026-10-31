@@ -1082,9 +1082,14 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
-    /** Signs the Recorder in with a magic link, then uploads everything recorded so far. An Invite's token rides in the link. */
-    async signIn(email: string, invite?: string): Promise<void> {
-      await server.signIn(email, invite);
+    /** Sends the sign-in link and code to the address. The Recorder is signed in once the code is entered (verifyCode). An Invite's token rides in the link. */
+    signIn(email: string, invite?: string): Promise<void> {
+      return server.signIn(email, invite);
+    },
+
+    /** Signs the Recorder in with the emailed code, then uploads everything recorded so far. */
+    async verifyCode(email: string, code: string): Promise<void> {
+      await server.verifyCode(email, code);
       // the account is signing in here, so it downloads again even if this phone has downloaded it before
       await store.settings.delete(DOWNLOADED_FOR);
       await flush();

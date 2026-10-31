@@ -30,6 +30,15 @@ async function basketballGame(core: ReturnType<typeof createAppCore>) {
   return core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
 }
 
+// the six digits the stand-in accepts in place of the emailed code
+const CODE = '123456';
+
+// a phone signs in as the Save this game screen does: the link is sent, then the code is entered
+async function signInWithCode(core: ReturnType<typeof createAppCore>, email: string) {
+  await core.signIn(email);
+  await core.verifyCode(email, CODE);
+}
+
 test('with no earlier Game, Game setup offers basketball in quarters against "Opponent", dated today', async () => {
   // local noon, so the local date is the 30th wherever the tests run
   const { core } = setup(new Date(2026, 9, 30, 12));
@@ -202,10 +211,10 @@ test("a Shot's spot, value and result reach the server and a second phone", asyn
   const { core, server } = setup();
   const gameId = await basketballGame(core);
   const shot = await core.recordShot(gameId, { x: 12.5, y: 80, value: 3, made: false });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   const second = phoneOn(server);
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
 
   expect(await second.inspect.events.get(shot.id)).toEqual(shot);
 });
@@ -215,10 +224,10 @@ test("a Plate Appearance's Outcome and RBI reach a second phone at sign-in", asy
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
   const hit = await core.recordPlateAppearance(gameId, { outcome: 'triple', rbi: 3 });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   const second = phoneOn(server);
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
 
   expect(await second.inspect.events.get(hit.id)).toEqual(hit);
 });
@@ -238,10 +247,10 @@ test('a Free Throw keeps its result when a second phone downloads it at sign-in'
   const { core, server } = setup();
   const gameId = await basketballGame(core);
   const make = await core.recordFreeThrow(gameId, true);
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   const second = phoneOn(server);
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
 
   expect(await second.inspect.events.get(make.id)).toEqual(make);
 });
@@ -738,7 +747,7 @@ test('with no account, writes stay on the phone, and the badge counts each row n
   expect(server.uploads).toEqual([]);
 });
 
-test("signing in makes the account the Owner of the phone's Athletes and uploads everything recorded so far, in order", async () => {
+test("the link signs nothing in; the emailed code makes the account the Owner of the phone's Athletes and uploads everything recorded so far, in order", async () => {
   const { core, server, inspect } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
@@ -746,6 +755,12 @@ test("signing in makes the account the Owner of the phone's Athletes and uploads
   const end = await core.endGame(gameId, { teamScore: 5, opponentScore: 3 });
 
   await core.signIn('casey@example.com');
+  expect(await core.sync()).toEqual({ signedIn: false, notSynced: 4 });
+  expect(server.uploads).toEqual([]);
+  await expect(core.verifyCode('casey@example.com', '12345')).rejects.toThrow();
+  expect((await core.sync()).signedIn).toBe(false);
+
+  await core.verifyCode('casey@example.com', CODE);
 
   const owner = await server.session();
   expect(owner).toEqual(expect.any(String));
@@ -767,7 +782,7 @@ test('signing in while the server is unreachable fails and leaves the Recorder s
 
 test('a write made while the server is unreachable waits on the phone, then uploads on the next flush', async () => {
   const { core, server, link } = setup();
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   link.up = false;
 
   const athleteId = await core.addAthlete({ name: 'Casey' });
@@ -911,10 +926,10 @@ test("signing in on an empty phone brings down the account's Athletes, Games and
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   const steal = await core.recordTile(gameId, 'steal');
   const end = await core.endGame(gameId, { teamScore: 5, opponentScore: 3 });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   const second = phoneOn(server);
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
 
   expect(await second.inspect.athletes.get(athleteId)).toMatchObject({
     name: 'Casey',
@@ -931,13 +946,13 @@ test('a Game edited elsewhere replaces the phone copy at its next sign-in, when 
   const { core, server, inspect } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const game = await inspect.games.get(gameId);
   // another phone's later edit, already on the server
   const edited = { ...game!, owner_id: await server.session(), opponent_name: 'Rams', updated_at: '2026-10-30T20:00:00.000Z' };
   await server.upload('games', edited);
 
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   expect(await inspect.games.get(gameId)).toMatchObject({ opponent_name: 'Rams', updated_at: '2026-10-30T20:00:00.000Z' });
 });
@@ -948,10 +963,10 @@ test('a sign-in brings no photo down, and adds only the Events the phone lacks, 
   const athleteId = await core.addAthlete({ name: 'Casey', photo });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   const steal = await core.recordTile(gameId, 'steal');
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const second = phoneOn(server);
 
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
   expect(await second.inspect.athletePhotos.get(athleteId)).toBeUndefined();
   expect((await second.core.home()).athlete).toEqual({ id: athleteId, name: 'Casey', jerseyNumber: null });
 
@@ -961,7 +976,7 @@ test('a sign-in brings no photo down, and adds only the Events the phone lacks, 
   const differing = { ...steal, owner_id: await server.session(), client_ts: '2026-10-30T19:59:00.000Z' };
   server.rows.events.set(steal.id, differing);
 
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
   expect(await second.inspect.events.where('game_id').equals(gameId).sortBy('seq')).toEqual([steal, block]);
   expect(await second.inspect.settings.get('downloadedFor')).toEqual({
     key: 'downloadedFor',
@@ -977,7 +992,7 @@ test('a download that fails for another reason does not stop uploads, and the ne
     throw new Error('select refused');
   };
 
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   expect(server.uploads).toEqual([`athletes:${athleteId}`]);
   expect(await core.sync()).toEqual({ signedIn: true, notSynced: 0 });
@@ -994,9 +1009,9 @@ test('a download that fails for another reason does not stop uploads, and the ne
 test('an Athlete edited on one phone reaches the other at its next sign-in, and the later edit wins on both', async () => {
   const { core, server, inspect, link } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const second = phoneOn(server);
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
   // an edit made at `at` on the phone holding `store`, uploaded before the call returns
   const editAt = async (store: Store, at: string, name: string) => {
     const phone = createAppCore({ clock: () => new Date(at), store, server });
@@ -1006,7 +1021,7 @@ test('an Athlete edited on one phone reaches the other at its next sign-in, and 
 
   await editAt(second.inspect, '2026-10-30T19:00:00Z', 'Casey Jones');
   await editAt(inspect, '2026-10-30T20:00:00Z', 'Casey Smith');
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
 
   expect((await second.inspect.athletes.get(athleteId))?.name).toBe('Casey Smith');
   expect((await inspect.athletes.get(athleteId))?.name).toBe('Casey Smith');
@@ -1015,7 +1030,7 @@ test('an Athlete edited on one phone reaches the other at its next sign-in, and 
   link.up = false;
   await editAt(second.inspect, '2026-10-30T21:00:00Z', 'Casey Lee');
   link.up = true;
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
 
   expect((await second.inspect.athletes.get(athleteId))?.name).toBe('Casey Lee');
   expect(server.rows.athletes.get(athleteId)).toMatchObject({ name: 'Casey Lee' });
@@ -1032,20 +1047,20 @@ function otherAccount(server: ReturnType<typeof createStandInServer>) {
 test('only the Owner can make an Invite, and it names one Athlete', async () => {
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   const token = await core.createInvite(athleteId);
 
   expect(server.invites.get(token)).toMatchObject({ athlete_id: athleteId });
   const stranger = otherAccount(server);
-  await stranger.core.signIn('sam@example.com');
+  await signInWithCode(stranger.core, 'sam@example.com');
   await expect(stranger.core.createInvite(athleteId)).rejects.toThrow();
 });
 
 test('an Invite expires 7 days after it is made', async () => {
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const before = Date.now();
 
   const token = await core.createInvite(athleteId);
@@ -1060,10 +1075,10 @@ test('accepting an Invite makes the account a Member, and brings its Athlete and
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   const steal = await core.recordTile(gameId, 'steal');
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
 
   await member.core.acceptInvite(token);
 
@@ -1076,27 +1091,27 @@ test('accepting an Invite makes the account a Member, and brings its Athlete and
 test('an Invite works once: another account is refused, and the account that accepted it may accept again', async () => {
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
 
   // a retry after a failed download is the same account, not a second use
   await member.core.acceptInvite(token);
   const other = otherAccount(server);
-  await other.core.signIn('lee@example.com');
+  await signInWithCode(other.core, 'lee@example.com');
   await expect(other.core.acceptInvite(token)).rejects.toMatchObject({ reason: 'used' });
 });
 
 test('an expired Invite is refused and makes no Member', async () => {
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   server.invites.get(token)!.expires = Date.now() - 1;
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
 
   await expect(member.core.acceptInvite(token)).rejects.toMatchObject({ reason: 'expired' });
   expect(await member.inspect.athletes.count()).toBe(0);
@@ -1107,10 +1122,10 @@ test("a stranger signing in downloads none of an Athlete's rows", async () => {
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   await core.recordTile(gameId, 'steal');
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   const stranger = otherAccount(server);
-  await stranger.core.signIn('lee@example.com');
+  await signInWithCode(stranger.core, 'lee@example.com');
 
   expect(await stranger.inspect.athletes.count()).toBe(0);
   expect(await stranger.inspect.games.count()).toBe(0);
@@ -1121,11 +1136,11 @@ test('Invite co-parent is offered only by the Owner of a signed-in Athlete', asy
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
   expect(await core.canInvite(athleteId)).toBe(false);
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   expect(await core.canInvite(athleteId)).toBe(true);
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
 
   expect(await member.core.canInvite(athleteId)).toBe(false);
@@ -1134,14 +1149,14 @@ test('Invite co-parent is offered only by the Owner of a signed-in Athlete', asy
 test('only the Owner removes a Member, and sees the Members to remove', async () => {
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
   const memberId = (await member.server.session())!;
   const stranger = otherAccount(server);
-  await stranger.core.signIn('lee@example.com');
+  await signInWithCode(stranger.core, 'lee@example.com');
 
   await expect(member.core.removeMember(athleteId, memberId)).rejects.toThrow('Only the Owner can remove a Member');
   await expect(stranger.core.removeMember(athleteId, memberId)).rejects.toThrow('Only the Owner can remove a Member');
@@ -1157,10 +1172,10 @@ async function sharedWithAMember() {
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
   await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
   const memberGame = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
   const steal = await member.core.recordTile(memberGame, 'steal');
@@ -1197,10 +1212,10 @@ test('a Member who leaves drops the Athlete from its phone at once, and its Game
 test("a Member cannot leave while a row on the Athlete waits to upload, and the Game reaches the server before the leave", async () => {
   const { core, server, link } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
   link.up = false;
   const gameId = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
@@ -1219,7 +1234,7 @@ test("a Member cannot leave while a row on the Athlete waits to upload, and the 
 
 test("an Athlete this phone made under an account is not dropped by a download, because no Owner shared it in", async () => {
   const { core, inspect } = setup();
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   // a row written under another account, as a sign-in as someone else would leave it: it was never shared with this phone
   await inspect.athletes.put({
     id: 'made-here',
@@ -1308,15 +1323,31 @@ test('the Supabase server makes an Invite as its Owner, sends it with the sign-i
   ]);
 });
 
+test('the Supabase server checks the emailed code as an email OTP', async () => {
+  const calls: unknown[] = [];
+  const client = {
+    auth: {
+      verifyOtp: async (args: unknown) => {
+        calls.push(args);
+        return { error: null };
+      },
+    },
+  };
+
+  await createSupabaseServer(client as never).verifyCode('casey@example.com', CODE);
+
+  expect(calls).toEqual([{ email: 'casey@example.com', token: CODE, type: 'email' }]);
+});
+
 test("the Owner opening its own Invite is refused, and the link still works for a co-parent", async () => {
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
 
   await expect(core.acceptInvite(token)).rejects.toMatchObject({ reason: 'own' });
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
 
   expect((await member.core.home()).athlete?.id).toBe(athleteId);
@@ -1326,10 +1357,10 @@ test("a Member's phone is not the Owner, and offers no Game in progress to recor
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
 
   expect(await member.core.isOwner(athleteId)).toBe(false);
@@ -1342,11 +1373,11 @@ test('a Member whose download fails on accepting has the Athlete and its Games a
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
   // this sign-in downloads too, and marks the download done for the account
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   const download = member.server.download;
   member.server.download = async () => {
     throw new Error('select refused');
@@ -1365,10 +1396,10 @@ test("a Game a Member records reaches the Owner's phone at its next launch, unde
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const ownerGame = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   await core.endGame(ownerGame, { teamScore: 5, opponentScore: 3 });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
 
   const gameId = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
@@ -1390,10 +1421,10 @@ test("a Game a Member records reaches the Owner's phone at its next launch, unde
 test("a Game the Owner records while offline reaches a Member's phone once both are back online, and the Member does not record on it", async () => {
   const { core, server, link } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
 
   link.up = false;
@@ -1411,9 +1442,9 @@ test("a Game the Owner records while offline reaches a Member's phone once both 
 test("a launch on a phone already signed in downloads the Games another phone of the account recorded", async () => {
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const second = phoneOn(server);
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   await core.flush();
 
@@ -1427,10 +1458,10 @@ test("a Game held from before Recorders were stored is still its Owner's: the Ow
   const { core, server, inspect } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
   const member = otherAccount(server);
-  await member.core.signIn('sam@example.com');
+  await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
   // the phones' copies of the Game as the build before this one stored them: no Recorder
   await inspect.games.put({ ...(await inspect.games.get(gameId))!, recorded_by: undefined });
@@ -1831,10 +1862,10 @@ test("a Pitch keeps its result when a second phone downloads it at sign-in", asy
   const { core, server } = setup();
   const gameId = await softballGame(core);
   const swing = await core.recordPitch(gameId, 'swinging_strike');
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   const second = phoneOn(server);
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
 
   expect(await second.inspect.events.get(swing.id)).toEqual(swing);
 });
@@ -1950,10 +1981,10 @@ test("a baserunning move's base and steal reach a second phone at sign-in", asyn
   const gameId = await softballGame(core);
   await core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 0 });
   const steal = await core.recordBaserunning(gameId, { base: 'second', stolen: true });
-  await core.signIn('casey@example.com');
+  await signInWithCode(core, 'casey@example.com');
 
   const second = phoneOn(server);
-  await second.core.signIn('casey@example.com');
+  await signInWithCode(second.core, 'casey@example.com');
 
   expect(await second.inspect.events.get(steal.id)).toEqual(steal);
 });

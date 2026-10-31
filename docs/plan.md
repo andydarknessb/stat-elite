@@ -6,7 +6,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 
 - A public product for families. v1 goes to a handful of families, with no payments.
 - Each Athlete has one Owner and can be shared with Members through an Invite (M3, ADR 0004). No live viewing in v1: Members see a Game once it uploads, everyone else through its share card.
-- No account until the first Game ends: "Save this game" asks for an email magic link, then uploads everything recorded so far.
+- No account until the first Game ends: "Save this game" asks for an email magic link or the emailed code, then uploads everything recorded so far.
 - Photos stay on the phone. Only stats sync.
 - Settings has "Delete my account and all data" (`delete_my_account()`), which also clears the phone. From M3, shared Athletes pass to a Member instead of being deleted.
 
@@ -54,7 +54,7 @@ Interaction rules:
 - Outbox uploads after each tap when online, on launch, and on reconnect, plus an "N not synced" badge (ADR 0001).
 - Download at sign-in brings back the account's Athletes, Games and Events on a new phone.
 - Athlete and Game edits sync as latest edit wins; Events stay insert-only (ADR 0001).
-- "Save this game" magic link and Delete account.
+- "Save this game" magic link or emailed code, and Delete account.
 - First run (Add Athlete) and the Athlete switcher on Home.
 
 **M2: basketball**

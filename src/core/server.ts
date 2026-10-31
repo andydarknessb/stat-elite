@@ -31,8 +31,10 @@ export class InviteRefused extends Error {
 export interface Server {
   /** The signed-in account's id, or undefined when signed out. */
   session(): Promise<string | undefined>;
-  /** Sends a magic link to the address. An Invite's token rides in the link, so accepting it survives the sign-in. Rejects when the server cannot be reached. */
+  /** Sends a magic link and a 6-digit code to the address. An Invite's token rides in the link, so accepting it survives the sign-in. Rejects when the server cannot be reached. */
   signIn(email: string, invite?: string): Promise<void>;
+  /** Signs the account in with the code from the sign-in email. Rejects when the code is wrong or the server cannot be reached. */
+  verifyCode(email: string, code: string): Promise<void>;
   /** Writes one row. Rejects when the server cannot be reached or refuses the row; the outbox keeps it. */
   upload(table: SyncedTable, row: UploadRow): Promise<void>;
   /** Every row of one table the signed-in account can see. Rejects when the server cannot be reached. */
@@ -79,9 +81,13 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       async session() {
         return account;
       },
-      // the magic link is opened at once, so the stand-in is signed in as soon as this resolves
       async signIn(_email: string, _invite?: string) {
         reach();
+      },
+      // shortcut: any six digits pass and the address is never checked, upgrade when a test needs a real code refused
+      async verifyCode(_email: string, code: string) {
+        reach();
+        if (!/^\d{6}$/.test(code)) throw new Error('invalid code');
         account ??= crypto.randomUUID();
       },
       async upload(table: SyncedTable, row: UploadRow) {
@@ -148,6 +154,10 @@ export function createSupabaseServer(client: SupabaseClient): Server {
     async signIn(email, invite) {
       const redirect = invite ? `${location.origin}/?invite=${invite}` : location.origin;
       const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect } });
+      if (error) throw error;
+    },
+    async verifyCode(email, code) {
+      const { error } = await client.auth.verifyOtp({ email, token: code, type: 'email' });
       if (error) throw error;
     },
     async upload(table, row) {
@@ -234,6 +244,7 @@ export function serverFor({ url, key, host }: { url?: string; key?: string; host
   return {
     session: async () => undefined,
     signIn: refuse,
+    verifyCode: refuse,
     upload: refuse,
     download: refuse,
     createInvite: refuse,
