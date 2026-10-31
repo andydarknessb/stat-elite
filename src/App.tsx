@@ -4,6 +4,8 @@ import {
   BUTTON_SIZES,
   HALF_COURT,
   arcPreset,
+  battingText,
+  gameLineText,
   lineText,
   movesFrom,
   signed,
@@ -16,6 +18,7 @@ import {
   type Home,
   type LiveGame,
   type Scores,
+  type Season,
   type StrikeKind,
   type TileEventType,
   type UndoableType,
@@ -582,7 +585,7 @@ function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: strin
                 <span>
                   {game.final.team}–{game.final.opponent}
                 </span>
-                <span className="line">{lineText(game.line)}</span>
+                <span className="line">{gameLineText(game)}</span>
                 <span>{signed(game.line.plusMinus)}</span>
               </button>
             ))}
@@ -593,15 +596,28 @@ function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: strin
   );
 }
 
-/** Home's season line and the Athlete's three most recent finished Games. */
+/** One sport's season line: the basketball totals with Plus/Minus, or the batting line with its rates. */
+function SeasonLine({ season }: { season: Season }) {
+  const text =
+    season.sport === 'basketball'
+      ? `${lineText(season.line)} · Plus/Minus ${signed(season.line.plusMinus)}`
+      : `${battingText(season.batting)} · AVG ${rateText(season.batting.avg)} · OBP ${rateText(season.batting.obp)} · SLG ${rateText(season.batting.slg)}`;
+  return (
+    <p className="season">
+      Season ({season.sport}): {text}
+    </p>
+  );
+}
+
+/** Home's season lines, one per sport played, and the Athlete's three most recent finished Games. */
 function SeasonAndRecent({ core, athleteId, onOpen }: { core: AppCore; athleteId: string; onOpen: (gameId: string) => void }) {
   const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
   if (!feed) return null;
   return (
     <section aria-label="Season">
-      <p className="season">
-        Season: {lineText(feed.season)} · Plus/Minus {signed(feed.season.plusMinus)}
-      </p>
+      {feed.seasons.map((season) => (
+        <SeasonLine key={season.sport} season={season} />
+      ))}
       <FeedRows games={feed.games.slice(0, 3)} onOpen={onOpen} />
     </section>
   );
@@ -787,7 +803,7 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
       <p className="final">
         Team {game.final.team} – Opponent {game.final.opponent}
       </p>
-      <p>{lineText(game.line)}</p>
+      <p>{gameLineText(game)}</p>
       <p>Plus/Minus {signed(game.line.plusMinus)}</p>
       <button disabled={image === undefined} onClick={shareCard}>
         Share card

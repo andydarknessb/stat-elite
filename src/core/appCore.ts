@@ -88,9 +88,16 @@ export interface PitchCount {
   strikeout?: StrikeKind;
 }
 
-/** A softball or baseball Game's batting: its At-Bats, and AVG, OBP and SLG (plan: Stats; GLOSSARY: At-Bat). */
+/** A softball or baseball Game's batting: its At-Bats, hits and RBI, and AVG, OBP and SLG (plan: Stats; GLOSSARY: At-Bat). The counts are kept so a season sums them. */
 export interface Batting {
   atBats: number;
+  hits: number;
+  rbi: number;
+  /** Total bases: 1 per single, 2 per double, 3 per triple, 4 per home run. */
+  bases: number;
+  walks: number;
+  hitByPitch: number;
+  sacFlies: number;
   /** H / AB, undefined before the first At-Bat. */
   avg?: number;
   /** (H + BB + HBP) / (AB + BB + HBP + SF), undefined while the denominator is zero. */
@@ -159,13 +166,18 @@ export interface FeedGame {
   group: 'today' | 'yesterday' | 'this-week' | 'earlier';
   final: Scores;
   line: Line;
+  /** The batting line: the stat line on softball and baseball (gameLineText). */
+  batting: Batting;
   tiles: Record<TileEventType, number>;
   playingShare: number;
 }
 
-/** The Games feed: the season line over the Athlete's finished basketball Games, and every finished Game, newest first. */
+/** One sport's season: the basketball Games' totals, or the softball or baseball Games' batting (plan: Home). */
+export type Season = { sport: 'basketball'; line: Line } | { sport: 'softball' | 'baseball'; batting: Batting };
+
+/** The Games feed: a season line for each sport the Athlete has finished Games in, and every finished Game, newest first. */
 export interface GameFeed {
-  season: Line;
+  seasons: Season[];
   games: FeedGame[];
 }
 
@@ -175,6 +187,13 @@ export const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 /** The totals a season or a Game shows, in words. */
 export const lineText = (line: Line) =>
   `${line.points} PTS · FG ${line.fg.made}/${line.fg.attempted} · FT ${line.ft.made}/${line.ft.attempted} · ${line.rebounds} REB · ${line.assists} AST`;
+
+/** A batting line in words: hits over At-Bats, and RBI. */
+export const battingText = (batting: Batting) => `H/AB ${batting.hits}/${batting.atBats} · ${batting.rbi} RBI`;
+
+/** A Game's stat line in words: the basketball line, or the batting line on softball and baseball. */
+export const gameLineText = (game: Pick<FeedGame, 'sport' | 'line' | 'batting'>) =>
+  game.sport === 'basketball' ? lineText(game.line) : battingText(game.batting);
 
 /** The hashtag a Game's copy text ends with, by sport (GLOSSARY: Game). */
 const SPORT_TAG: Record<GameRow['sport'], string> = { basketball: '#basketball', softball: '#softball', baseball: '#baseball' };
@@ -283,23 +302,33 @@ const countOf = (live: EventRow[]): Counts => {
   return counts;
 };
 
-// the batting line a list of live Events makes: each Plate Appearance counts once (plan: Stats); a rate is undefined over a zero denominator
-const battingOf = (live: EventRow[]): Batting => {
-  const outcomes = live.flatMap((e) => (e.type === 'plate_appearance' && e.outcome ? [e.outcome] : []));
-  const n = (...of: Outcome[]) => outcomes.filter((o) => of.includes(o)).length;
-  const hits = n('single', 'double', 'triple', 'home_run');
-  const walks = n('walk');
-  const hitByPitch = n('hit_by_pitch');
-  const sacFlies = n('sac_fly');
-  const atBats = outcomes.length - walks - hitByPitch - sacFlies - n('sac_bunt');
-  const bases = n('single') + 2 * n('double') + 3 * n('triple') + 4 * n('home_run');
+type BattingCounts = Omit<Batting, 'avg' | 'obp' | 'slg'>;
+
+// a batting line from its counts; a rate is undefined over a zero denominator (plan: Stats)
+const battingRates = (counts: BattingCounts): Batting => {
+  const { atBats, hits, bases, walks, hitByPitch, sacFlies } = counts;
   const rate = (top: number, bottom: number) => (bottom > 0 ? top / bottom : undefined);
   return {
-    atBats,
+    ...counts,
     avg: rate(hits, atBats),
     obp: rate(hits + walks + hitByPitch, atBats + walks + hitByPitch + sacFlies),
     slg: rate(bases, atBats),
   };
+};
+
+// the batting line a list of live Events makes: each Plate Appearance counts once (plan: Stats)
+const battingOf = (live: EventRow[]): Batting => {
+  const outcomes = live.flatMap((e) => (e.type === 'plate_appearance' && e.outcome ? [e.outcome] : []));
+  const n = (...of: Outcome[]) => outcomes.filter((o) => of.includes(o)).length;
+  return battingRates({
+    atBats: outcomes.length - n('walk', 'hit_by_pitch', 'sac_fly', 'sac_bunt'),
+    hits: n('single', 'double', 'triple', 'home_run'),
+    rbi: live.reduce((sum, e) => sum + (e.type === 'plate_appearance' ? (e.rbi ?? 0) : 0), 0),
+    bases: n('single') + 2 * n('double') + 3 * n('triple') + 4 * n('home_run'),
+    walks: n('walk'),
+    hitByPitch: n('hit_by_pitch'),
+    sacFlies: n('sac_fly'),
+  });
 };
 
 // the Outcomes that leave the Athlete on base, and the base each reaches; a home run scores the Athlete and holds no base
@@ -390,6 +419,20 @@ const lineOf = (games: LiveGame[]): Line => {
     line.plusMinus += game.plusMinus;
   }
   return line;
+};
+
+// a season's batting: its Games' counts summed, then the rates worked from the totals
+const battingOfGames = (games: LiveGame[]): Batting => {
+  const sum = (pick: (batting: Batting) => number) => games.reduce((total, game) => total + pick(game.batting), 0);
+  return battingRates({
+    atBats: sum((b) => b.atBats),
+    hits: sum((b) => b.hits),
+    rbi: sum((b) => b.rbi),
+    bases: sum((b) => b.bases),
+    walks: sum((b) => b.walks),
+    hitByPitch: sum((b) => b.hitByPitch),
+    sacFlies: sum((b) => b.sacFlies),
+  });
 };
 
 // Today, Yesterday, This Week (2 to 6 days back), else Earlier; both dates are local calendar days, so the difference is whole days
@@ -720,6 +763,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         group: groupOf(game.game_date, today),
         final,
         line: lineOf([live]),
+        batting: live.batting,
         tiles: live.tiles,
         playingShare: live.playingShare,
       },
@@ -993,7 +1037,14 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const finished = (await Promise.all(rows.map((row) => finishedGame(row, today)))).flatMap((f) => (f ? [f] : []));
       // the sort is stable, so Games on one date stay newest-started first
       const games = finished.map(({ row }) => row).sort((a, b) => b.gameDate.localeCompare(a.gameDate));
-      return { season: lineOf(finished.map(({ live }) => live).filter((live) => live.sport === 'basketball')), games };
+      const lives = finished.map(({ live }) => live);
+      // a season for each sport played; with no finished Game, the basketball season reads zero, as Home always has
+      const seasons: Season[] = (['basketball', 'softball', 'baseball'] as const).flatMap((sport) => {
+        const played = lives.filter((live) => live.sport === sport);
+        if (played.length === 0) return [];
+        return [sport === 'basketball' ? { sport, line: lineOf(played) } : { sport, batting: battingOfGames(played) }];
+      });
+      return { seasons: seasons.length > 0 ? seasons : [{ sport: 'basketball', line: lineOf([]) }], games };
     },
 
     /** A finished Game's summary; undefined while the Game is still in progress. */
@@ -1010,7 +1061,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const name = (await store.athletes.get(game.athlete_id))?.name ?? 'Athlete';
       return [
         `${name} vs ${summary.opponent}: ${summary.final.team}–${summary.final.opponent} final`,
-        `${name}: ${lineText(summary.line)} · Plus/Minus ${signed(summary.line.plusMinus)}`,
+        `${name}: ${gameLineText(summary)} · Plus/Minus ${signed(summary.line.plusMinus)}`,
         SPORT_TAG[game.sport],
       ].join('\n');
     },
@@ -1027,7 +1078,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         photo: photo?.photo,
         opponent: summary.opponent,
         final: summary.final,
-        line: lineText(summary.line),
+        line: gameLineText(summary),
       };
     },
 

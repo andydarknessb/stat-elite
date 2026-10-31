@@ -25,7 +25,7 @@ test('Home shows the season line, and the Games tab lists the finished Game, who
   await page.getByRole('button', { name: 'Done' }).click();
 
   // the Shift ran from 0–0 to 3–0 on the strip, so Plus/Minus is +3
-  await expect(page.getByText('Season: 3 PTS · FG 1/1 · FT 1/1 · 1 REB · 1 AST · Plus/Minus +3')).toBeVisible();
+  await expect(page.getByText('Season (basketball): 3 PTS · FG 1/1 · FT 1/1 · 1 REB · 1 AST · Plus/Minus +3')).toBeVisible();
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
@@ -36,4 +36,28 @@ test('Home shows the season line, and the Games tab lists the finished Game, who
 
   await page.getByRole('button', { name: 'Back' }).click();
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
+});
+
+test('a softball Game shows its batting line in Game Complete, its Games feed row and its own Home season line', async ({ page }) => {
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByLabel('Sport').selectOption('Softball');
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+
+  // a double with 2 RBI: one At-Bat, one hit
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await page.getByRole('button', { name: '2 RBI' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByLabel('Team final').fill('3');
+  await page.getByLabel('Opponent final').fill('1');
+  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+
+  await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
+  await expect(page.getByText('Team 3 – Opponent 1')).toBeVisible();
+  await expect(page.getByText('H/AB 1/1 · 2 RBI', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await expect(page.getByText('Season (softball): H/AB 1/1 · 2 RBI · AVG 1.000 · OBP 1.000 · SLG 2.000')).toBeVisible();
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await expect(page.getByRole('button', { name: /H\/AB 1\/1 · 2 RBI/ })).toBeVisible();
 });
