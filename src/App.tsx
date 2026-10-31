@@ -1,6 +1,6 @@
 import { liveQuery } from 'dexie';
 import { useEffect, useState, type FormEvent } from 'react';
-import type { AppCore, TileEventType } from './core/appCore';
+import type { AppCore, Home, TileEventType } from './core/appCore';
 
 /** Re-renders whenever the store data behind a read model changes. */
 function useReadModel<T>(read: () => Promise<T>, deps: unknown[]): T | undefined {
@@ -15,35 +15,84 @@ function useReadModel<T>(read: () => Promise<T>, deps: unknown[]): T | undefined
 export function App({ core }: { core: AppCore }) {
   const home = useReadModel(() => core.home(), [core]);
   if (!home) return null;
-  if (!home.athlete) return <AddAthlete core={core} />;
-  if (!home.liveGameId) return <StartGame core={core} athlete={home.athlete} />;
+  if (!home.athlete) return <AthleteForm core={core} />;
+  if (!home.liveGameId) return <HomeScreen core={core} athlete={home.athlete} next={home.next} />;
   return <LiveGame core={core} gameId={home.liveGameId} />;
 }
 
-function AddAthlete({ core }: { core: AppCore }) {
-  const [name, setName] = useState('');
+type AthleteFields = NonNullable<Home['athlete']>;
+
+/** Add Athlete (first run, or from Home) or, when given an Athlete, Edit Athlete. The photo is set only at add. */
+function AthleteForm({ core, athlete, onDone }: { core: AppCore; athlete?: AthleteFields; onDone?: () => void }) {
+  const [name, setName] = useState(athlete?.name ?? '');
+  const [number, setNumber] = useState(athlete?.jerseyNumber ?? '');
+  const [photo, setPhoto] = useState<File>();
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (name.trim()) void core.addAthlete({ name: name.trim() });
+    if (!name.trim()) return;
+    if (athlete) void core.editAthlete({ id: athlete.id, name: name.trim(), jerseyNumber: number });
+    else void core.addAthlete({ name: name.trim(), jerseyNumber: number, photo });
+    onDone?.();
   };
   return (
     <main>
-      <h1>Add Athlete</h1>
+      <h1>{athlete ? 'Edit Athlete' : 'Add Athlete'}</h1>
       <form onSubmit={submit}>
         <label>
           Athlete name
           <input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="off" />
         </label>
-        <button className="primary">Add Athlete</button>
+        <label>
+          Number
+          <input value={number} onChange={(e) => setNumber(e.target.value)} inputMode="numeric" autoComplete="off" />
+        </label>
+        {!athlete && (
+          <label>
+            Photo (optional)
+            <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files?.[0])} />
+          </label>
+        )}
+        <button className="primary">{athlete ? 'Save' : 'Add Athlete'}</button>
+        {onDone && (
+          <button type="button" onClick={onDone}>
+            Cancel
+          </button>
+        )}
       </form>
     </main>
   );
 }
 
-function StartGame({ core, athlete }: { core: AppCore; athlete: { id: string; name: string } }) {
+/** Draws a stored photo. Keyed by Athlete at the call site, so a switch never shows the previous photo. */
+function AthletePhoto({ photo }: { photo: Blob }) {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(photo);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [photo]);
+  return url ? <img src={url} alt="" /> : null;
+}
+
+function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
+  const [form, setForm] = useState<'add' | 'edit'>();
+  if (form) {
+    return <AthleteForm core={core} athlete={form === 'edit' ? athlete : undefined} onDone={() => setForm(undefined)} />;
+  }
   return (
     <main>
+      <button
+        className="photo"
+        disabled={!next}
+        aria-label={next ? `Switch to ${next.name}` : athlete.name}
+        onClick={() => {
+          if (next) void core.switchAthlete(next.id);
+        }}
+      >
+        {athlete.photo && <AthletePhoto key={athlete.id} photo={athlete.photo} />}
+      </button>
       <h1>{athlete.name}</h1>
+      {athlete.jerseyNumber && <p>#{athlete.jerseyNumber}</p>}
       {/* shortcut: always basketball in quarters, until Game setup exists (#14) */}
       <button
         className="primary"
@@ -51,6 +100,8 @@ function StartGame({ core, athlete }: { core: AppCore; athlete: { id: string; na
       >
         Start Game
       </button>
+      <button onClick={() => setForm('edit')}>Edit</button>
+      <button onClick={() => setForm('add')}>Add Athlete</button>
     </main>
   );
 }
