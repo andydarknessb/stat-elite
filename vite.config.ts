@@ -7,6 +7,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // a deploy takes over an installed app without waiting for every window to close
+      registerType: 'autoUpdate',
       manifest: {
         name: 'StatElite',
         short_name: 'StatElite',
