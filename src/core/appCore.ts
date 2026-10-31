@@ -124,6 +124,16 @@ export interface GameFeed {
   games: FeedGame[];
 }
 
+/** A count with its sign, as Plus/Minus reads: +3, 0, -2. */
+export const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
+
+/** The totals a season or a Game shows, in words. */
+export const lineText = (line: Line) =>
+  `${line.points} PTS · FG ${line.fg.made}/${line.fg.attempted} · FT ${line.ft.made}/${line.ft.attempted} · ${line.rebounds} REB · ${line.assists} AST`;
+
+/** The hashtag a Game's copy text ends with, by sport (GLOSSARY: Game). */
+const SPORT_TAG: Record<GameRow['sport'], string> = { basketball: '#basketball', softball: '#softball', baseball: '#baseball' };
+
 /** IDs of the Events that a Retraction in this list undoes. */
 const retractedIds = (events: EventRow[]) => new Set(events.flatMap((e) => (e.retracts_id ? [e.retracts_id] : [])));
 
@@ -796,6 +806,19 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     async gameSummary(gameId: string): Promise<FeedGame | undefined> {
       const game = await store.games.get(gameId);
       return game && (await finishedGame(game, localDate(clock())))?.row;
+    },
+
+    /** Game Complete's ready-to-paste text: the Final Score, the Athlete's line and Plus/Minus, and the sport's hashtag; undefined while the Game is in progress. Counts only un-retracted Events, as the summary does. */
+    async gameCopyText(gameId: string): Promise<string | undefined> {
+      const game = await store.games.get(gameId);
+      const summary = game && (await finishedGame(game, localDate(clock())))?.row;
+      if (!game || !summary) return undefined;
+      const name = (await store.athletes.get(game.athlete_id))?.name ?? 'Athlete';
+      return [
+        `${name} vs ${summary.opponent}: ${summary.final.team}–${summary.final.opponent} final`,
+        `${name}: ${lineText(summary.line)} · Plus/Minus ${signed(summary.line.plusMinus)}`,
+        SPORT_TAG[game.sport],
+      ].join('\n');
     },
 
     /** Signs the Recorder in with a magic link, then uploads everything recorded so far. An Invite's token rides in the link. */
