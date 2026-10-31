@@ -60,7 +60,7 @@ Interaction rules:
 **M2: basketball**
 - Game setup, prefilled from the last Game.
 - Live screen, Shot entry, Free Throws, stat tiles.
-- Periods: halves or quarters, plus overtime, advanced by "Next period".
+- Periods: halves or quarters, plus overtime; softball and baseball count innings, labelled "Inn N". All advance by "Next period".
 - Sub In/Out, score strip, Plus/Minus, Playing Share. An open Shift survives an app restart: a Sub In with no Sub Out means the Athlete is on court.
 - Bleacher two-page layout, Home, Games feed.
 

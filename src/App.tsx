@@ -1005,6 +1005,7 @@ function LiveGame({
   };
   const undo = () => {
     setToast(undefined);
+    setPending(undefined);
     void core.undo(gameId);
   };
   const sub = () => {
@@ -1014,6 +1015,7 @@ function LiveGame({
   };
   const nextPeriod = () => {
     setToast({ label: EVENT_LABELS.period_start });
+    setPending(undefined);
     void core.nextPeriod(gameId);
   };
   // the Shift on court, if any: its timer and Plus/Minus so far
@@ -1069,7 +1071,12 @@ function LiveGame({
       )}
       <div className="outcomes" role="group" aria-label="Outcome">
         {OUTCOMES.map((outcome) => (
-          <button key={outcome} className={pending === outcome ? 'primary' : undefined} onClick={() => setPending(outcome)}>
+          <button
+            key={outcome}
+            aria-pressed={pending === outcome}
+            className={pending === outcome ? 'primary' : undefined}
+            onClick={() => setPending(outcome)}
+          >
             {OUTCOME_LABELS[outcome]}
           </button>
         ))}
