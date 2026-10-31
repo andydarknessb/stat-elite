@@ -228,16 +228,16 @@ function NotSynced({ core }: { core: AppCore }) {
   return <p className="sync">{sync.notSynced} not synced</p>;
 }
 
-/** Save this game: a signed-out Recorder gets a magic link, and the rows upload once the account is signed in. */
+/** Save this game: a signed-out Recorder gets an email with a link and a code, and the rows upload once the account is signed in. */
 function SaveGame({ core }: { core: AppCore }) {
   const sync = useReadModel(() => core.sync(), [core]);
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
+  const [code, setCode] = useState('');
   const [error, setError] = useState<string>();
   if (!sync || sync.signedIn) return null;
   if (!open) return <button onClick={() => setOpen(true)}>Save this game</button>;
-  if (sent) return <p>Check your email for the link, then open it on this phone.</p>;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
@@ -247,6 +247,28 @@ function SaveGame({ core }: { core: AppCore }) {
       setError('Could not send the link. Check the connection and try again.');
     }
   };
+  // a Recorder in the installed app cannot open the link there, so the code signs in instead
+  const submitCode = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      await core.verifyCode(email.trim(), code.trim());
+    } catch {
+      setError('That code did not work. Check it and try again, or send a new link.');
+    }
+  };
+  if (sent) {
+    return (
+      <form onSubmit={submitCode}>
+        <p>Check your email. Open the link on this phone, or type the 6-digit code here.</p>
+        <label>
+          Code
+          <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" required autoComplete="one-time-code" />
+        </label>
+        <button className="primary">Sign in</button>
+        {error && <p role="alert">{error}</p>}
+      </form>
+    );
+  }
   return (
     <form onSubmit={submit}>
       <label>

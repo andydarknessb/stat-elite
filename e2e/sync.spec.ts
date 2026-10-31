@@ -28,6 +28,8 @@ test('a Game recorded offline uploads once it is saved, and the badge reaches 0'
   await page.getByRole('button', { name: 'Save this game' }).click();
   await page.getByLabel('Email').fill('casey@example.com');
   await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByLabel('Code').fill('123456');
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('0 not synced')).toBeVisible();
   expect(supabaseRequests).toEqual([]);
 });
@@ -45,6 +47,8 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
   await page.getByRole('button', { name: 'Save this game' }).click();
   await page.getByLabel('Email').fill('casey@example.com');
   await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByLabel('Code').fill('123456');
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('0 not synced')).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
 
