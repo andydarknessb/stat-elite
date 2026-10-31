@@ -1591,3 +1591,14 @@ test("a finished Game's share card names the Athlete, carries its photo, the Opp
   });
   expect((await core.gameCard(gameId))?.photo?.size).toBe(photo.size);
 });
+
+test('a plate appearance records its Outcome and RBI as one Event, and Undo names it', async () => {
+  const { core } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+
+  const event = await core.recordPlateAppearance(gameId, { outcome: 'double', rbi: 2 });
+
+  expect(event).toMatchObject({ type: 'plate_appearance', outcome: 'double', rbi: 2, game_id: gameId });
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: event.id, type: 'plate_appearance', outcome: 'double' });
+});

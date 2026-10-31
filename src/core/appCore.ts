@@ -1,10 +1,12 @@
 import type { Table } from 'dexie';
 import {
+  OUTCOMES,
   TILE_EVENT_TYPES,
   type AthleteRow,
   type EventRow,
   type GameRow,
   type OutboxRow,
+  type Outcome,
   type Store,
   type TileEventType,
 } from './store';
@@ -83,7 +85,7 @@ export interface LiveGame extends Counts {
   /** The Final Score, once End Game has closed the Game. */
   final?: Scores;
   /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot. */
-  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3 };
+  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3; outcome?: Outcome };
   /** Whether the Athlete is on court: the newest Sub Event not retracted is a Sub In. */
   onCourt: boolean;
   /** The Game's Shifts in order; the one on court, if any, runs to now, or to the End Game once it is over. */
@@ -311,6 +313,8 @@ const eventOf = ({
   made,
   team_score,
   opponent_score,
+  outcome,
+  rbi,
 }: EventRow): EventRow => ({
   id,
   game_id,
@@ -325,6 +329,8 @@ const eventOf = ({
   made,
   team_score,
   opponent_score,
+  outcome,
+  rbi,
 });
 
 // the downloaded rows the phone does not hold yet, given what the store already has under their ids
@@ -356,7 +362,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const nextEvent = async (
     gameId: string,
     fields: Pick<EventRow, 'type' | 'retracts_id'> &
-      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value'>>,
+      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value' | 'outcome' | 'rbi'>>,
   ): Promise<EventRow> => {
     const events = await gameEvents(gameId).toArray();
     const last = events.at(-1);
@@ -374,6 +380,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       made: null,
       team_score: null,
       opponent_score: null,
+      outcome: null,
+      rbi: null,
       ...fields,
     };
   };
@@ -541,6 +549,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         type: latest.type,
         made: latest.made ?? undefined,
         value: latest.shot_value ?? undefined,
+        outcome: latest.outcome ?? undefined,
       },
       onCourt: onCourtSince !== undefined,
       shifts,
@@ -654,6 +663,19 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     recordFreeThrow(gameId: string, made: boolean): Promise<EventRow> {
       return write([store.events], async () => {
         const event = await nextEvent(gameId, { type: 'free_throw', retracts_id: null, made });
+        await store.events.add(event);
+        await queue('events', event.id);
+        return event;
+      });
+    },
+
+    /** A Plate Appearance: its Outcome and RBI count, written together once the Recorder picks the RBI chip (GLOSSARY: Plate Appearance). */
+    recordPlateAppearance(gameId: string, { outcome, rbi }: { outcome: Outcome; rbi: number }): Promise<EventRow> {
+      if (!OUTCOMES.includes(outcome) || !Number.isInteger(rbi) || rbi < 0 || rbi > 4) {
+        throw new Error('A Plate Appearance needs an Outcome and an RBI count of 0 to 4');
+      }
+      return write([store.events], async () => {
+        const event = await nextEvent(gameId, { type: 'plate_appearance', retracts_id: null, outcome, rbi });
         await store.events.add(event);
         await queue('events', event.id);
         return event;
