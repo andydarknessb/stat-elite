@@ -343,6 +343,25 @@ button:disabled {
   gap: 8px;
 }
 
+/* softball and baseball: the Outcome grid, the RBI chips under it, and the batting line */
+.outcomes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.rbi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.batting {
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 600;
+}
+
 /* Bleacher: two swipe pages, Shots then Other stats, each the width of the phone. */
 .pages {
   display: grid;

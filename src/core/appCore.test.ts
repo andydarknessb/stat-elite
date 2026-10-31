@@ -3,7 +3,7 @@ import Dexie from 'dexie';
 import { expect, test, vi } from 'vitest';
 import { arcPreset, createAppCore, periodLabel, type GameFormat } from './appCore';
 import { createStandInServer, createSupabaseServer, InviteRefused, serverFor } from './server';
-import { openStore, type Store } from './store';
+import { openStore, type Outcome, type Store } from './store';
 
 let stores = 0;
 
@@ -208,6 +208,30 @@ test("a Shot's spot, value and result reach the server and a second phone", asyn
   await second.core.signIn('casey@example.com');
 
   expect(await second.inspect.events.get(shot.id)).toEqual(shot);
+});
+
+test("a Plate Appearance's Outcome and RBI reach a second phone at sign-in", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+  const hit = await core.recordPlateAppearance(gameId, { outcome: 'triple', rbi: 3 });
+  await core.signIn('casey@example.com');
+
+  const second = phoneOn(server);
+  await second.core.signIn('casey@example.com');
+
+  expect(await second.inspect.events.get(hit.id)).toEqual(hit);
+});
+
+test('a Plate Appearance refuses an unknown Outcome or an RBI count outside 0 to 4', async () => {
+  const { core } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+
+  await expect(core.recordPlateAppearance(gameId, { outcome: 'bunt' as Outcome, rbi: 0 })).rejects.toThrow();
+  await expect(core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 5 })).rejects.toThrow();
+  await expect(core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 1.5 })).rejects.toThrow();
+  expect((await core.liveGame(gameId))?.batting.atBats).toBe(0);
 });
 
 test('a Free Throw keeps its result when a second phone downloads it at sign-in', async () => {
@@ -625,12 +649,15 @@ test('a Shift runs across a Period break: Next period does not end it', async ()
   expect(await core.liveGame(gameId)).toMatchObject({ onCourt: false, shifts: [{ ms: 120_000 }] });
 });
 
-test('a softball Game names no basketball Period on its live Game', async () => {
+test('a softball Game names its inning on the live Game, and Next period advances it', async () => {
   const { core } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+  expect((await core.liveGame(gameId))?.periodLabel).toBe('Inn 1');
 
-  expect((await core.liveGame(gameId))?.periodLabel).toBeUndefined();
+  await core.nextPeriod(gameId);
+
+  expect((await core.liveGame(gameId))?.periodLabel).toBe('Inn 2');
 });
 
 test('the live Game splits its stats by Period, and the whole Game still sums them', async () => {
@@ -1590,4 +1617,76 @@ test("a finished Game's share card names the Athlete, carries its photo, the Opp
     line: '2 PTS · FG 1/1 · FT 0/0 · 0 REB · 0 AST',
   });
   expect((await core.gameCard(gameId))?.photo?.size).toBe(photo.size);
+});
+
+test('a plate appearance records its Outcome and RBI as one Event, and Undo names it', async () => {
+  const { core } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+
+  const event = await core.recordPlateAppearance(gameId, { outcome: 'double', rbi: 2 });
+
+  expect(event).toMatchObject({ type: 'plate_appearance', outcome: 'double', rbi: 2, game_id: gameId });
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: event.id, type: 'plate_appearance', outcome: 'double' });
+});
+
+test('each Outcome counts once toward At-Bats, AVG, OBP and SLG, by the plan formulas', async () => {
+  // [Outcome, At-Bats, AVG, OBP, SLG] for one Plate Appearance, worked by hand from docs/plan.md:
+  // AB = PA − BB − HBP − SF − SAC; AVG = H / AB; OBP = (H + BB + HBP) / (AB + BB + HBP + SF); SLG = total bases / AB.
+  // undefined where the denominator is zero.
+  const cases: [Outcome, number, number | undefined, number | undefined, number | undefined][] = [
+    ['single', 1, 1, 1, 1],
+    ['double', 1, 1, 1, 2],
+    ['triple', 1, 1, 1, 3],
+    ['home_run', 1, 1, 1, 4],
+    ['walk', 0, undefined, 1, undefined],
+    ['hit_by_pitch', 0, undefined, 1, undefined],
+    ['reached_on_error', 1, 0, 0, 0],
+    ['fielders_choice', 1, 0, 0, 0],
+    ['strikeout', 1, 0, 0, 0],
+    ['ground_out', 1, 0, 0, 0],
+    ['fly_out', 1, 0, 0, 0],
+    ['line_out', 1, 0, 0, 0],
+    ['sac_fly', 0, undefined, 0, undefined],
+    ['sac_bunt', 0, undefined, undefined, undefined],
+  ];
+  const { core } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+
+  for (const [outcome, atBats, avg, obp, slg] of cases) {
+    const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+    await core.recordPlateAppearance(gameId, { outcome, rbi: 0 });
+
+    expect((await core.liveGame(gameId))?.batting, outcome).toMatchObject({ atBats, avg, obp, slg });
+  }
+});
+
+test('a Game sums its Plate Appearances into one batting line, and Undo takes the newest one back out', async () => {
+  const { core } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+  const outcomes: Outcome[] = [
+    'single',
+    'walk',
+    'strikeout',
+    'sac_fly',
+    'double',
+    'hit_by_pitch',
+    'sac_bunt',
+    'ground_out',
+    'home_run',
+    'reached_on_error',
+  ];
+  for (const outcome of outcomes) await core.recordPlateAppearance(gameId, { outcome, rbi: 0 });
+
+  // 10 Plate Appearances: AB 6, H 3, total bases 7; OBP (3 + 1 + 1) / (6 + 1 + 1 + 1)
+  const ten = (await core.liveGame(gameId))?.batting;
+  expect(ten?.atBats).toBe(6);
+  expect(ten?.avg).toBeCloseTo(3 / 6, 10);
+  expect(ten?.obp).toBeCloseTo(5 / 9, 10);
+  expect(ten?.slg).toBeCloseTo(7 / 6, 10);
+
+  await core.undo(gameId); // retracts reached_on_error: 9 Plate Appearances, AB 5, H 3, total bases 7
+
+  expect(await core.liveGame(gameId)).toMatchObject({ batting: { atBats: 5, avg: 0.6, obp: 0.625, slg: 1.4 } });
 });

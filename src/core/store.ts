@@ -36,6 +36,25 @@ export interface GameRow {
 export const TILE_EVENT_TYPES = ['reb_off', 'reb_def', 'assist', 'steal', 'block', 'turnover', 'foul'] as const;
 export type TileEventType = (typeof TILE_EVENT_TYPES)[number];
 
+/** How a Plate Appearance ended (GLOSSARY: Outcome). Matches docs/schema.sql's outcome check. */
+export const OUTCOMES = [
+  'single',
+  'double',
+  'triple',
+  'home_run',
+  'walk',
+  'hit_by_pitch',
+  'reached_on_error',
+  'fielders_choice',
+  'strikeout',
+  'ground_out',
+  'fly_out',
+  'line_out',
+  'sac_fly',
+  'sac_bunt',
+] as const;
+export type Outcome = (typeof OUTCOMES)[number];
+
 export interface EventRow {
   id: string;
   game_id: string;
@@ -43,7 +62,7 @@ export interface EventRow {
   client_ts: string;
   period: number;
   /** A Period start: the Event that opens a Period, and carries it (GLOSSARY: Period). */
-  type: TileEventType | 'shot' | 'free_throw' | 'sub_in' | 'sub_out' | 'score' | 'game_end' | 'retraction' | 'period_start';
+  type: TileEventType | 'shot' | 'free_throw' | 'sub_in' | 'sub_out' | 'score' | 'game_end' | 'retraction' | 'period_start' | 'plate_appearance';
   /** The Event a Retraction cancels; null on every other Event. */
   retracts_id: string | null;
   /** A Shot's spot on the half court, each axis 0–100; null on every other Event. */
@@ -56,6 +75,9 @@ export interface EventRow {
   /** A Score Snapshot's absolute scores, on 'score' and 'game_end' Events; null on every other Event. */
   team_score: number | null;
   opponent_score: number | null;
+  /** A Plate Appearance's Outcome and RBI count (0–4); null on every other Event. */
+  outcome: Outcome | null;
+  rbi: number | null;
 }
 
 /** A row waiting for upload. It names the row, not a copy: the outbox reads the row as it is when it uploads. */

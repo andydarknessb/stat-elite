@@ -1,10 +1,12 @@
 import type { Table } from 'dexie';
 import {
+  OUTCOMES,
   TILE_EVENT_TYPES,
   type AthleteRow,
   type EventRow,
   type GameRow,
   type OutboxRow,
+  type Outcome,
   type Store,
   type TileEventType,
 } from './store';
@@ -71,11 +73,22 @@ export interface Counts {
   points: number;
 }
 
+/** A softball or baseball Game's batting: its At-Bats, and AVG, OBP and SLG (plan: Stats; GLOSSARY: At-Bat). */
+export interface Batting {
+  atBats: number;
+  /** H / AB, undefined before the first At-Bat. */
+  avg?: number;
+  /** (H + BB + HBP) / (AB + BB + HBP + SF), undefined while the denominator is zero. */
+  obp?: number;
+  /** Total bases / AB, undefined before the first At-Bat. */
+  slg?: number;
+}
+
 export interface LiveGame extends Counts {
   id: string;
   sport: GameRow['sport'];
-  /** The current Period's label in the Game's format (H1, Q3, OT1); absent for innings, which have no live Periods yet. */
-  periodLabel?: string;
+  /** The current Period's label in the Game's format (H1, Q3, OT1, Inn 4). */
+  periodLabel: string;
   /** The same stats split by Period: every Period up to the current one, a Period with no Events at zero. */
   byPeriod: Record<number, Counts>;
   /** The latest Score Snapshot not retracted; 0–0 before the first one. */
@@ -83,13 +96,15 @@ export interface LiveGame extends Counts {
   /** The Final Score, once End Game has closed the Game. */
   final?: Scores;
   /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot. */
-  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3 };
+  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3; outcome?: Outcome };
   /** Whether the Athlete is on court: the newest Sub Event not retracted is a Sub In. */
   onCourt: boolean;
   /** The Game's Shifts in order; the one on court, if any, runs to now, or to the End Game once it is over. */
   shifts: Shift[];
   /** Plus/Minus for the Game: the sum over its Shifts (ADR 0002). */
   plusMinus: number;
+  /** The Game's batting line: its Plate Appearances, not retracted (softball and baseball). */
+  batting: Batting;
   /** Total Shift time over the Game's elapsed time, from its start to now or the End Game; clamped to 0–1 if the clock steps back. */
   playingShare: number;
 }
@@ -207,8 +222,9 @@ const currentPeriod = (events: EventRow[]) => {
   return events.filter((e) => e.type === 'period_start' && !retracted.has(e.id)).at(-1)?.period ?? 1;
 };
 
-/** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, then OT1, OT2 past regulation (GLOSSARY: Period). */
-export function periodLabel(periodFormat: 'halves' | 'quarters', period: number): string {
+/** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, then OT1, OT2 past regulation; Inn 1, Inn 2 for innings (GLOSSARY: Period). */
+export function periodLabel(periodFormat: GameRow['period_format'], period: number): string {
+  if (periodFormat === 'innings') return `Inn ${period}`;
   const regulation = periodFormat === 'halves' ? 2 : 4;
   if (period > regulation) return `OT${period - regulation}`;
   return `${periodFormat === 'halves' ? 'H' : 'Q'}${period}`;
@@ -235,6 +251,25 @@ const countOf = (live: EventRow[]): Counts => {
     counts.points += pointsOf(event);
   }
   return counts;
+};
+
+// the batting line a list of live Events makes: each Plate Appearance counts once (plan: Stats); a rate is undefined over a zero denominator
+const battingOf = (live: EventRow[]): Batting => {
+  const outcomes = live.flatMap((e) => (e.type === 'plate_appearance' && e.outcome ? [e.outcome] : []));
+  const n = (...of: Outcome[]) => outcomes.filter((o) => of.includes(o)).length;
+  const hits = n('single', 'double', 'triple', 'home_run');
+  const walks = n('walk');
+  const hitByPitch = n('hit_by_pitch');
+  const sacFlies = n('sac_fly');
+  const atBats = outcomes.length - walks - hitByPitch - sacFlies - n('sac_bunt');
+  const bases = n('single') + 2 * n('double') + 3 * n('triple') + 4 * n('home_run');
+  const rate = (top: number, bottom: number) => (bottom > 0 ? top / bottom : undefined);
+  return {
+    atBats,
+    avg: rate(hits, atBats),
+    obp: rate(hits + walks + hitByPitch, atBats + walks + hitByPitch + sacFlies),
+    slg: rate(bases, atBats),
+  };
 };
 
 /** The phone's local calendar date, not UTC, as YYYY-MM-DD. */
@@ -311,6 +346,8 @@ const eventOf = ({
   made,
   team_score,
   opponent_score,
+  outcome,
+  rbi,
 }: EventRow): EventRow => ({
   id,
   game_id,
@@ -325,6 +362,8 @@ const eventOf = ({
   made,
   team_score,
   opponent_score,
+  outcome,
+  rbi,
 });
 
 // the downloaded rows the phone does not hold yet, given what the store already has under their ids
@@ -356,7 +395,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const nextEvent = async (
     gameId: string,
     fields: Pick<EventRow, 'type' | 'retracts_id'> &
-      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value'>>,
+      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value' | 'outcome' | 'rbi'>>,
   ): Promise<EventRow> => {
     const events = await gameEvents(gameId).toArray();
     const last = events.at(-1);
@@ -374,6 +413,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       made: null,
       team_score: null,
       opponent_score: null,
+      outcome: null,
+      rbi: null,
       ...fields,
     };
   };
@@ -532,7 +573,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       ...countOf(live),
       id: game.id,
       sport: game.sport,
-      periodLabel: game.period_format === 'innings' ? undefined : periodLabel(game.period_format, period),
+      periodLabel: periodLabel(game.period_format, period),
       byPeriod,
       score,
       final: last?.type === 'game_end' ? snapshotOf(last) : undefined,
@@ -541,10 +582,12 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         type: latest.type,
         made: latest.made ?? undefined,
         value: latest.shot_value ?? undefined,
+        outcome: latest.outcome ?? undefined,
       },
       onCourt: onCourtSince !== undefined,
       shifts,
       plusMinus: shifts.reduce((sum, shift) => sum + shift.plusMinus, 0),
+      batting: battingOf(live),
       playingShare: elapsed > 0 ? Math.min(1, Math.max(0, total / elapsed)) : 0,
     };
   };
@@ -654,6 +697,19 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     recordFreeThrow(gameId: string, made: boolean): Promise<EventRow> {
       return write([store.events], async () => {
         const event = await nextEvent(gameId, { type: 'free_throw', retracts_id: null, made });
+        await store.events.add(event);
+        await queue('events', event.id);
+        return event;
+      });
+    },
+
+    /** A Plate Appearance: its Outcome and RBI count, written together once the Recorder picks the RBI chip (GLOSSARY: Plate Appearance). */
+    async recordPlateAppearance(gameId: string, { outcome, rbi }: { outcome: Outcome; rbi: number }): Promise<EventRow> {
+      if (!OUTCOMES.includes(outcome) || !Number.isInteger(rbi) || rbi < 0 || rbi > 4) {
+        throw new Error('A Plate Appearance needs an Outcome and an RBI count of 0 to 4');
+      }
+      return write([store.events], async () => {
+        const event = await nextEvent(gameId, { type: 'plate_appearance', retracts_id: null, outcome, rbi });
         await store.events.add(event);
         await queue('events', event.id);
         return event;
