@@ -54,6 +54,7 @@ const BUTTON_SIZE = 'buttonSize';
 const DOWNLOADED_FOR = 'downloadedFor';
 /** Settings key prefix, one per Athlete another account owns and shared with this phone (ADR 0004). */
 const SHARED = 'shared:';
+const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
 
 /** Every Event type Undo can retract: all but a Retraction itself. */
 export type UndoableType = Exclude<EventRow['type'], 'retraction'>;
@@ -591,34 +592,68 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     return event && { row: event, athleteId: (await store.games.get(event.game_id))?.athlete_id };
   };
 
+  // the tables a download or a drop writes together, so each runs in one transaction over them
+  const phoneRows = [store.athletes, store.athletePhotos, store.games, store.events, store.settings];
+  // drops Athletes the phone no longer shares: their Games, Events, photo and marker go with them
+  const dropAthletes = async (ids: string[]) => {
+    const gone = new Set(await store.games.where('athlete_id').anyOf(ids).primaryKeys());
+    await store.events.filter((e) => gone.has(e.game_id)).delete();
+    await store.games.bulkDelete([...gone]);
+    await store.athletePhotos.bulkDelete(ids);
+    await store.athletes.bulkDelete(ids);
+    await store.settings.bulkDelete(ids.map((id) => SHARED + id));
+  };
+  // uploads one queued row as it is now; false when the server refuses it, and the row stays queued
+  const sendEntry = async (entry: OutboxRow): Promise<boolean> => {
+    const loaded = await loadRow(entry);
+    if (!loaded) {
+      await store.outbox.delete(entry.seq!);
+      return true;
+    }
+    const athlete = await store.athletes.get(loaded.athleteId ?? '');
+    try {
+      await server.upload(entry.table, { ...loaded.row, owner_id: athlete?.owner_id });
+    } catch {
+      return false;
+    }
+    await store.outbox.delete(entry.seq!);
+    return true;
+  };
+  const queuedOn = async (athleteId: string) => {
+    for (const entry of await store.outbox.toArray()) {
+      if ((await loadRow(entry))?.athleteId === athleteId) return true;
+    }
+    return false;
+  };
+
   // Brings the account's rows down: Athletes and Games the phone lacks or holds an older edit of, Events it lacks.
   // Fetched before the transaction, since Dexie cannot span the network. Nothing here is queued for upload.
   // shortcut: every visible Event is fetched on each sign-in, launch and reconnect, not only the missing ones, fine for one child's Games; upgrade with a per-Game seq cursor when a season's Events get slow to fetch
   const download = async () => {
-    const me = await server.session();
+    const before = await server.session();
     const [athletes, games, events] = await Promise.all([
       server.download('athletes'),
       server.download('games'),
       server.download('events'),
     ]);
-    await store.transaction('rw', [store.athletes, store.athletePhotos, store.games, store.events, store.settings], async () => {
+    // Athletes are dropped or marked only for an account signed in both before and after the downloads: a signed-out or lapsed session drops none
+    const me = before !== undefined && before === (await server.session()) ? before : undefined;
+    await store.transaction('rw', phoneRows, async () => {
       // a shared Athlete the server no longer sends was shared with this phone, so its Owner removed this account or it left (ADR 0004).
       // An Athlete this phone made is never marked, so a sign-in as another account cannot delete its unsynced rows.
+      // a marker names the account that downloaded the Athlete, so only that account's sign-in drops it; one still holding 'shared' is from before, and counts as this account's
       const sent = new Set(athletes.map((a) => a.id));
-      const departed = (await store.settings.where('key').startsWith(SHARED).primaryKeys())
-        .map((key) => key.slice(SHARED.length))
-        .filter((id) => !sent.has(id));
-      if (departed.length > 0) {
-        const gone = new Set(await store.games.where('athlete_id').anyOf(departed).primaryKeys());
-        await store.events.filter((e) => gone.has(e.game_id)).delete();
-        await store.games.bulkDelete([...gone]);
-        await store.athletePhotos.bulkDelete(departed);
-        await store.athletes.bulkDelete(departed);
-        await store.settings.bulkDelete(departed.map((id) => SHARED + id));
+      const departed =
+        me === undefined
+          ? []
+          : (await store.settings.where('key').startsWith(SHARED).toArray())
+              .filter(({ value }) => value === me || value === 'shared')
+              .map(({ key }) => key.slice(SHARED.length))
+              .filter((id) => !sent.has(id));
+      if (departed.length > 0) await dropAthletes(departed);
+      if (me !== undefined) {
+        await store.settings.bulkPut(athletes.filter((a) => a.owner_id !== me).map((a) => ({ key: SHARED + a.id, value: me })));
       }
-      await store.settings.bulkPut(
-        (me === undefined ? [] : athletes.filter((a) => a.owner_id !== me)).map((a) => ({ key: SHARED + a.id, value: 'shared' })),
-      );
       const athleteRows = athletes.map(athleteOf);
       const athleteHeld = await store.athletes.bulkGet(athleteRows.map((r) => r.id));
       await store.athletes.bulkPut(athleteRows.filter((r, i) => later(r, athleteHeld[i])));
@@ -659,18 +694,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       .and((g) => g.recorded_by === undefined)
       .modify({ recorded_by: owner });
     for (const entry of await store.outbox.orderBy('seq').toArray()) {
-      const loaded = await loadRow(entry);
-      if (!loaded) {
-        await store.outbox.delete(entry.seq!);
-        continue;
-      }
-      const athlete = await store.athletes.get(loaded.athleteId ?? '');
-      try {
-        await server.upload(entry.table, { ...loaded.row, owner_id: athlete?.owner_id });
-      } catch {
-        return;
-      }
-      await store.outbox.delete(entry.seq!);
+      if (!(await sendEntry(entry))) return;
     }
   };
   // one drain at a time, each starting after the one before it has finished
@@ -1128,11 +1152,22 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     async leave(athleteId: string): Promise<void> {
       // once the membership is gone the server refuses this phone's rows on the Athlete, so they upload first and the leave waits for them
       await flush();
-      for (const entry of await store.outbox.toArray()) {
-        if ((await loadRow(entry))?.athleteId === athleteId) throw new Error('Not everything on this Athlete has synced yet');
+      // this Athlete's rows go up past other Athletes' rows the server refuses, which stay queued
+      for (const entry of await store.outbox.orderBy('seq').toArray()) {
+        if ((await loadRow(entry))?.athleteId === athleteId) await sendEntry(entry);
+      }
+      if (await queuedOn(athleteId)) {
+        // a removed Member's download no longer sends the Athlete, so it drops it; if the download fails, the rows still wait
+        try {
+          await download();
+        } catch {
+          throw new Error(NOT_SYNCED);
+        }
+        if (await store.athletes.get(athleteId)) throw new Error(NOT_SYNCED);
+        return;
       }
       await server.leave(athleteId);
-      await download();
+      await store.transaction('rw', phoneRows, () => dropAthletes([athleteId]));
       void flush();
     },
 

@@ -1064,9 +1064,12 @@ test('an Athlete edited on one phone reaches the other at its next sign-in, and 
 });
 
 // a phone with its own session on the same backend: a different account from the Owner's
-function otherAccount(server: ReturnType<typeof createStandInServer>) {
+type Phone = ReturnType<ReturnType<typeof createStandInServer>['phone']>;
+
+// `wrap` rewrites this phone's server, for a test that refuses some uploads or fails some downloads
+function otherAccount(server: ReturnType<typeof createStandInServer>, wrap: (phone: Phone) => Phone = (phone) => phone) {
   const name = `test-${++stores}`;
-  const phoneServer = server.phone();
+  const phoneServer = wrap(server.phone());
   const core = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server: phoneServer });
   return { core, inspect: openStore(name), server: phoneServer };
 }
@@ -1259,6 +1262,150 @@ test("a Member cannot leave while a row on the Athlete waits to upload, and the 
   expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
 });
 
+test("a Member's leave uploads its own Athlete's rows past another Athlete's refused row, and the Athlete leaves the phone", async () => {
+  const { core, server, link } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  // the server refuses the Athlete row of Jordan, the Member's own Athlete, which waits first in the queue
+  const member = otherAccount(server, (phone) => ({
+    ...phone,
+    upload: async (table, row) => {
+      if (table === 'athletes' && (row as Record<string, unknown>).name === 'Jordan') throw new Error('refused');
+      return phone.upload(table, row);
+    },
+  }));
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  await member.core.addAthlete({ name: 'Jordan' });
+  link.up = false;
+  const gameId = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
+  const steal = await member.core.recordTile(gameId, 'steal');
+  link.up = true;
+
+  await member.core.leave(athleteId);
+
+  expect(server.rows.events.get(steal.id)).toBeDefined();
+  expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
+});
+
+test("the Owner removes a Member whose phone holds a queued Event on the Athlete, and the Member's leave drops the Athlete", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  // the server refuses every row of the Athlete, so the Member's Event waits on the phone
+  const member = otherAccount(server, (phone) => ({
+    ...phone,
+    upload: async (table, row) => {
+      const field = (name: string) => (row as Record<string, unknown>)[name];
+      if (row.id === athleteId || field('athlete_id') === athleteId || field('game_id') === gameId) throw new Error('refused');
+      return phone.upload(table, row);
+    },
+  }));
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const steal = await member.core.recordTile(gameId, 'steal');
+  // the refused Event is in the queue before the Owner removes the Member, not still uploading past it
+  await member.core.flush();
+  await core.removeMember(athleteId, (await member.server.session())!);
+
+  await member.core.leave(athleteId);
+
+  expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
+  expect(await member.inspect.games.count()).toBe(0);
+  expect(await member.inspect.events.get(steal.id)).toBeUndefined();
+});
+
+test("a download that answers nothing, and reads as signed out after it, keeps a shared Athlete and its Game on the phone", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  // once `emptied`, every download answers [], and the session reads as signed out after those downloads
+  let emptied = false;
+  let downloaded = false;
+  const member = otherAccount(server, (phone) => ({
+    ...phone,
+    download: async (table) => {
+      if (!emptied) return phone.download(table);
+      downloaded = true;
+      return [];
+    },
+    session: async () => (downloaded ? undefined : phone.session()),
+  }));
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  emptied = true;
+
+  await member.core.refresh();
+
+  expect(await member.inspect.athletes.get(athleteId)).toMatchObject({ name: 'Casey' });
+  expect(await member.inspect.games.get(gameId)).toBeDefined();
+});
+
+test('a sign-in as another account keeps an Athlete shared with a Member, with its Game and Events, on the phone', async () => {
+  const { core, server, link } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  // one store whose server is Member A's session, then a fresh account B's on the same server
+  let current = server.phone();
+  const shared = new Proxy({} as Phone, {
+    get: (_, key) => {
+      const value = Reflect.get(current, key);
+      return typeof value === 'function' ? value.bind(current) : value;
+    },
+  });
+  const name = `test-${++stores}`;
+  const member = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server: shared });
+  const memberStore = openStore(name);
+  await signInWithCode(member, 'sam@example.com');
+  await member.acceptInvite(token);
+  link.up = false;
+  const gameId = await member.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
+  const steal = await member.recordTile(gameId, 'steal');
+  link.up = true;
+
+  current = server.phone();
+  await signInWithCode(member, 'lee@example.com');
+
+  expect(await memberStore.athletes.get(athleteId)).toMatchObject({ name: 'Casey' });
+  expect(await memberStore.games.get(gameId)).toBeDefined();
+  expect(await memberStore.events.get(steal.id)).toBeDefined();
+});
+
+test("a Member's leave resolves and drops the Athlete when the download after it fails, and the Owner no longer lists the Member", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  // once leave is called, the server's downloads fail
+  let left = false;
+  const member = otherAccount(server, (phone) => ({
+    ...phone,
+    leave: async (id) => {
+      left = true;
+      return phone.leave(id);
+    },
+    download: async (table) => {
+      if (left) throw new Error('download failed');
+      return phone.download(table);
+    },
+  }));
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const memberId = (await member.server.session())!;
+  expect(await core.members(athleteId)).toEqual([expect.objectContaining({ member_id: memberId })]);
+
+  await member.core.leave(athleteId);
+
+  expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
+  expect(await core.members(athleteId)).toEqual([]);
+});
+
 test("an Athlete this phone made under an account is not dropped by a download, because no Owner shared it in", async () => {
   const { core, inspect } = setup();
   await signInWithCode(core, 'casey@example.com');
@@ -1305,6 +1452,27 @@ test('the Supabase server removes a Member as the Owner, and names a removal the
     ['members', 'athlete_id', 'a1', 'member_id', 'm1'],
     ['members', 'athlete_id', 'a1', 'member_id', 'm1'],
   ]);
+});
+
+test("the Supabase server leaves an Athlete as the signed-in Member, removing only that account's membership", async () => {
+  const removed: unknown[][] = [];
+  const client = {
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'member-1' } } } }) },
+    from: (table: string) => ({
+      delete: () => ({
+        eq: (athleteColumn: string, athleteId: unknown) => ({
+          eq: async (memberColumn: string, memberId: unknown) => {
+            removed.push([table, athleteColumn, athleteId, memberColumn, memberId]);
+            return { error: null };
+          },
+        }),
+      }),
+    }),
+  };
+
+  await createSupabaseServer(client as never).leave('a1');
+
+  expect(removed).toEqual([['members', 'athlete_id', 'a1', 'member_id', 'member-1']]);
 });
 
 test('the Supabase server makes an Invite as its Owner, sends it with the sign-in link, and names why an Invite was refused', async () => {
