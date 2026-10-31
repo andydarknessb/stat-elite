@@ -1,9 +1,11 @@
 import type { Table } from 'dexie';
 import {
+  BASES,
   OUTCOMES,
   PITCHES,
   TILE_EVENT_TYPES,
   type AthleteRow,
+  type BaseMove,
   type EventRow,
   type GameRow,
   type OutboxRow,
@@ -97,6 +99,15 @@ export interface Batting {
   slg?: number;
 }
 
+/** The Athlete's runs and stolen bases in a Game: a run is a Scored move or a home run, a stolen base a move marked as a steal (GLOSSARY: Baserunning). */
+export interface Baserunning {
+  runs: number;
+  stolenBases: number;
+}
+
+/** A base the Athlete holds once on base: the one their Outcome reached, then where they have moved (GLOSSARY: Baserunning). */
+export type Base = 'first' | 'second' | 'third';
+
 export interface LiveGame extends Counts {
   id: string;
   sport: GameRow['sport'];
@@ -108,8 +119,12 @@ export interface LiveGame extends Counts {
   score: Scores;
   /** The Final Score, once End Game has closed the Game. */
   final?: Scores;
-  /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot, pitch on a Pitch; strikeout on a strikeout Plate Appearance. */
-  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3; outcome?: Outcome; strikeout?: StrikeKind; pitch?: Pitch };
+  /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot, pitch on a Pitch; strikeout on a strikeout Plate Appearance; base and stolen on a baserunning move. */
+  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3; outcome?: Outcome; strikeout?: StrikeKind; pitch?: Pitch; base?: BaseMove; stolen?: boolean };
+  /** The base the Athlete holds, while they are on base; undefined off base, once they are out or scored (the Athlete-only diamond). */
+  onBase?: Base;
+  /** The Game's runs and stolen bases, not retracted (softball and baseball). */
+  baserunning: Baserunning;
   /** The count of the Plate Appearance in progress, once a Pitch is logged in it (GLOSSARY: Count); undefined before that. */
   count?: PitchCount;
   /** Whether the Athlete is on court: the newest Sub Event not retracted is a Sub In. */
@@ -287,6 +302,43 @@ const battingOf = (live: EventRow[]): Batting => {
   };
 };
 
+// the Outcomes that leave the Athlete on base, and the base each reaches; a home run scores the Athlete and holds no base
+const REACHED: Partial<Record<Outcome, Base>> = {
+  single: 'first',
+  double: 'second',
+  triple: 'third',
+  walk: 'first',
+  hit_by_pitch: 'first',
+  reached_on_error: 'first',
+  fielders_choice: 'first',
+};
+
+// the Athlete's base: the one the newest Plate Appearance reached, then each baserunning move after it; undefined once they are out or scored
+const onBaseOf = (live: EventRow[]): Base | undefined => {
+  let base: Base | undefined;
+  for (const event of live) {
+    if (event.type === 'plate_appearance') base = event.outcome ? REACHED[event.outcome] : undefined;
+    if (event.type === 'baserunning') base = event.base === 'second' || event.base === 'third' ? event.base : undefined;
+  }
+  return base;
+};
+
+const ORDER: Record<Base | 'home', number> = { first: 1, second: 2, third: 3, home: 4 };
+/** Where the Athlete on a base can move next: each base ahead of it, and Out (GLOSSARY: Baserunning). */
+export const movesFrom = (base: Base): BaseMove[] => BASES.filter((to) => to === 'out' || ORDER[to] > ORDER[base]);
+
+// the stats a list of live Events makes: a run is a Scored move or a home run; a stolen base is any move marked as a steal
+const baserunningOf = (live: EventRow[]): Baserunning => ({
+  runs: live.filter((e) => (e.type === 'baserunning' && e.base === 'home') || (e.type === 'plate_appearance' && e.outcome === 'home_run')).length,
+  stolenBases: live.filter((e) => e.type === 'baserunning' && e.stolen).length,
+});
+
+// the Events the stats count: none a Retraction and none retracted
+const liveOf = (events: EventRow[]) => {
+  const retracted = retractedIds(events);
+  return events.filter((e): e is EventRow & { type: UndoableType } => e.type !== 'retraction' && !retracted.has(e.id));
+};
+
 // the count Pitches make: a foul is a strike only while the count has fewer than two (GLOSSARY: Pitch)
 const pitchCountOf = (pitches: Pitch[]): PitchCount => {
   let balls = 0;
@@ -395,6 +447,8 @@ const eventOf = ({
   outcome,
   rbi,
   pitch,
+  base,
+  stolen,
 }: EventRow): EventRow => ({
   id,
   game_id,
@@ -412,6 +466,8 @@ const eventOf = ({
   outcome,
   rbi,
   pitch,
+  base,
+  stolen,
 });
 
 // the downloaded rows the phone does not hold yet, given what the store already has under their ids
@@ -443,7 +499,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const nextEvent = async (
     gameId: string,
     fields: Pick<EventRow, 'type' | 'retracts_id'> &
-      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value' | 'outcome' | 'rbi' | 'pitch'>>,
+      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value' | 'outcome' | 'rbi' | 'pitch' | 'base' | 'stolen'>>,
   ): Promise<EventRow> => {
     const events = await gameEvents(gameId).toArray();
     const last = events.at(-1);
@@ -464,6 +520,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       outcome: null,
       rbi: null,
       pitch: null,
+      base: null,
+      stolen: null,
       ...fields,
     };
   };
@@ -593,9 +651,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     const game = await store.games.get(gameId);
     if (!game) return undefined;
     const events = await gameEvents(gameId).toArray();
-    const retracted = retractedIds(events);
-    // the Events the stats count: none a Retraction and none retracted
-    const live = events.filter((e): e is EventRow & { type: UndoableType } => e.type !== 'retraction' && !retracted.has(e.id));
+    const live = liveOf(events);
     const shifts: Shift[] = [];
     let onCourtSince: EventRow | undefined;
     for (const event of live) {
@@ -635,12 +691,16 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         outcome: latest.outcome ?? undefined,
         strikeout: pitches.strikeouts.get(latest.id),
         pitch: latest.pitch ?? undefined,
+        base: latest.base ?? undefined,
+        stolen: latest.stolen ?? undefined,
       },
       count: pitches.current.length > 0 ? pitchCountOf(pitches.current) : undefined,
       onCourt: onCourtSince !== undefined,
       shifts,
       plusMinus: shifts.reduce((sum, shift) => sum + shift.plusMinus, 0),
       batting: battingOf(live),
+      onBase: onBaseOf(live),
+      baserunning: baserunningOf(live),
       playingShare: elapsed > 0 ? Math.min(1, Math.max(0, total / elapsed)) : 0,
     };
   };
@@ -774,6 +834,20 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       }
       return write([store.events], async () => {
         const event = await nextEvent(gameId, { type: 'plate_appearance', retracts_id: null, outcome, rbi });
+        await store.events.add(event);
+        await queue('events', event.id);
+        return event;
+      });
+    },
+
+    /** A baserunning move: where the Athlete on base goes, and whether it was a steal; the Athlete only, never a teammate (GLOSSARY: Baserunning). */
+    async recordBaserunning(gameId: string, { base, stolen }: { base: BaseMove; stolen: boolean }): Promise<EventRow> {
+      if (!BASES.includes(base) || typeof stolen !== 'boolean') throw new Error('A baserunning move needs a base and whether it was a steal');
+      return write([store.events], async () => {
+        const runner = onBaseOf(liveOf(await gameEvents(gameId).toArray()));
+        if (!runner) throw new Error('Only an Athlete on base can move');
+        if (!movesFrom(runner).includes(base)) throw new Error(`An Athlete on ${runner} cannot move to ${base}`);
+        const event = await nextEvent(gameId, { type: 'baserunning', retracts_id: null, base, stolen });
         await store.events.add(event);
         await queue('events', event.id);
         return event;

@@ -5,8 +5,10 @@ import {
   HALF_COURT,
   arcPreset,
   lineText,
+  movesFrom,
   signed,
   type AppCore,
+  type Base,
   type ButtonSize,
   type GameFormat,
   type GameSetup,
@@ -20,7 +22,7 @@ import {
 } from './core/appCore';
 import { InviteRefused, type MemberRow } from './core/server';
 import { renderShareCard } from './core/shareCard';
-import { OUTCOMES, PITCHES, type Outcome, type Pitch } from './core/store';
+import { OUTCOMES, PITCHES, type BaseMove, type Outcome, type Pitch } from './core/store';
 import { InstallPrompt } from './InstallPrompt';
 
 /** Re-renders whenever the store data behind a read model changes. */
@@ -477,6 +479,7 @@ const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw' | 'shot'>, string>
   period_start: 'Next period',
   plate_appearance: 'Plate Appearance',
   pitch: 'Pitch',
+  baserunning: 'Base',
 };
 
 /** Pitch button labels, in the order the plan lists them (plan: optional Pitches). */
@@ -512,6 +515,10 @@ const rateText = (rate?: number) => (rate === undefined ? '—' : rate.toFixed(3
 const outcomeLabel = (outcome: Outcome, strikeout?: StrikeKind) =>
   outcome === 'strikeout' && strikeout ? `Strikeout ${strikeout}` : OUTCOME_LABELS[outcome];
 
+/** Where the Athlete on base goes, as the diamond names it; a steal says so (GLOSSARY: Baserunning). */
+const BASE_LABELS: Record<BaseMove, string> = { second: '2nd', third: '3rd', home: 'Scored', out: 'Out' };
+const baseLabel = (base: BaseMove, stolen?: boolean) => `${BASE_LABELS[base]}${stolen ? ' (Stole)' : ''}`;
+
 const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
 const shotLabel = (value: 2 | 3 | undefined, made?: boolean) => `${made ? 'Made' : 'Missed'} ${value}PT`;
 /** A Shift's time as m:ss. */
@@ -525,11 +532,13 @@ const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
     ? freeThrowLabel(undoable.made)
     : undoable.type === 'shot'
       ? shotLabel(undoable.value, undoable.made)
-      : undoable.pitch
-        ? PITCH_LABELS[undoable.pitch]
-        : undoable.outcome
-          ? outcomeLabel(undoable.outcome, undoable.strikeout)
-          : EVENT_LABELS[undoable.type];
+      : undoable.base
+        ? baseLabel(undoable.base, undoable.stolen)
+        : undoable.pitch
+          ? PITCH_LABELS[undoable.pitch]
+          : undoable.outcome
+            ? outcomeLabel(undoable.outcome, undoable.strikeout)
+            : EVENT_LABELS[undoable.type];
 
 const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 'Standard', bleacher: 'Bleacher' };
 
@@ -857,6 +866,17 @@ function ShotEntry({
   );
 }
 
+/** The Athlete-only diamond: a dot on the base they hold (plan: softball and baseball live screen). */
+function Diamond({ onBase }: { onBase: Base }) {
+  const dot: Record<Base, [number, number]> = { first: [70, 40], second: [40, 10], third: [10, 40] };
+  return (
+    <svg className="diamond" viewBox="0 0 80 80" width="88" height="88" role="img" aria-label={`On ${onBase}`}>
+      <polygon points="40,70 70,40 40,10 10,40" fill="none" stroke="currentColor" strokeWidth="2" />
+      <circle cx={dot[onBase][0]} cy={dot[onBase][1]} r="7" fill="currentColor" />
+    </svg>
+  );
+}
+
 function LiveGame({
   core,
   gameId,
@@ -882,6 +902,8 @@ function LiveGame({
   const [ending, setEnding] = useState(false);
   // the Outcome picked on softball or baseball, waiting for its RBI chip
   const [pending, setPending] = useState<Outcome>();
+  // the Stole option: on while the next base move is a steal
+  const [stealing, setStealing] = useState(false);
   // bumped on each Sub, so the strip restarts its pulse
   const [pulse, setPulse] = useState(0);
   useEffect(() => {
@@ -918,6 +940,12 @@ function LiveGame({
     setPending(undefined);
     await core.recordPlateAppearance(gameId, { outcome: pending, rbi });
     setToast(outcomeLabel(pending, game.count?.strikeout));
+  };
+  const tapBase = async (base: BaseMove) => {
+    const stolen = stealing;
+    setStealing(false);
+    await core.recordBaserunning(gameId, { base, stolen });
+    setToast(baseLabel(base, stolen));
   };
   const adjust = (side: 'team' | 'opponent', delta: 1 | -1) => {
     setToast(EVENT_LABELS.score);
@@ -1000,6 +1028,19 @@ function LiveGame({
             </button>
           ))}
           <button onClick={() => setPending(undefined)}>Cancel</button>
+        </div>
+      )}
+      {game.onBase && (
+        <div className="base-moves" role="group" aria-label="Base">
+          <Diamond onBase={game.onBase} />
+          <button className={stealing ? 'primary' : undefined} aria-pressed={stealing} onClick={() => setStealing(!stealing)}>
+            Stole
+          </button>
+          {movesFrom(game.onBase).map((base) => (
+            <button key={base} onClick={() => void tapBase(base)}>
+              {BASE_LABELS[base]}
+            </button>
+          ))}
         </div>
       )}
       <p className="batting">

@@ -50,3 +50,24 @@ test('Pitches show a count once one is logged; a strikeout is marked by the last
   await page.getByRole('button', { name: 'Undo (last Event): Strikeout looking' }).click();
   await expect(page.getByText('Count 1-1', { exact: true })).toBeVisible();
 });
+
+test('a reach puts the Athlete on the diamond; Stole marks the next base move, and Out takes them off', async ({ page }) => {
+  await startSoftballGame(page);
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI' }).click();
+
+  await expect(page.getByRole('img', { name: 'On first' })).toBeVisible();
+  // the diamond joins the live screen after a reach: it must still fit the phone without scrolling
+  const overflow = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+  expect(overflow).toBeLessThanOrEqual(0);
+
+  await page.getByRole('button', { name: 'Stole', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Stole', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '2nd', exact: true }).click();
+
+  await expect(page.getByRole('img', { name: 'On second' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo (last Event): 2nd (Stole)' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Out', exact: true }).click();
+  await expect(page.getByRole('img', { name: /^On / })).toHaveCount(0);
+});
