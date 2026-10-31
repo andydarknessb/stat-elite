@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
 import { expect, test, vi } from 'vitest';
-import { createAppCore } from './appCore';
+import { arcPreset, createAppCore } from './appCore';
 import { createStandInServer, createSupabaseServer, InviteRefused, serverFor } from './server';
 import { openStore, type Store } from './store';
 
@@ -108,6 +108,106 @@ test('Undo takes a Free Throw out of the count, as it does a tile', async () => 
   await core.undo(gameId);
 
   expect((await core.liveGame(gameId))?.freeThrows).toEqual({ made: 1, attempted: 1 });
+});
+
+test('a Shot is one Event holding its spot, value and result', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+
+  const shot = await core.recordShot(gameId, { x: 40.5, y: 30, value: 2, made: true });
+
+  expect(await inspect.events.get(shot.id)).toMatchObject({
+    type: 'shot',
+    game_id: gameId,
+    court_x: 40.5,
+    court_y: 30,
+    shot_value: 2,
+    made: true,
+  });
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: shot.id, type: 'shot', made: true, value: 2 });
+});
+
+test('a Shot is refused without a spot on the court or a value of 2 or 3, and writes nothing', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  await expect(core.recordShot(gameId, { x: 101, y: 30, value: 2, made: true })).rejects.toThrow();
+  await expect(core.recordShot(gameId, { x: 50, y: NaN, value: 2, made: true })).rejects.toThrow();
+  await expect(core.recordShot(gameId, { x: 50, y: 30, value: 4 as never, made: true })).rejects.toThrow();
+  expect((await core.liveGame(gameId))?.undoable).toBeUndefined();
+});
+
+test('the arc presets a spot beyond it to 3 and a spot inside it to 2, corners included', () => {
+  expect(arcPreset(50, 40)).toBe(2); // the key
+  expect(arcPreset(50, 60)).toBe(2); // the arc's near edge
+  expect(arcPreset(50, 65)).toBe(3); // past the arc
+  expect(arcPreset(4, 20)).toBe(3); // corner: inside the arc's radius, but outside the line
+  expect(arcPreset(7, 20)).toBe(2); // just past the corner line, on the arc side
+  expect(arcPreset(96, 20)).toBe(3); // the other corner
+});
+
+test('the Recorder can flip the preset before the result, and the Shot keeps the value chosen', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+
+  // beyond the arc, so the preset is 3; the Recorder flips it to 2
+  const shot = await core.recordShot(gameId, { x: 50, y: 65, value: 2, made: true });
+
+  expect(await inspect.events.get(shot.id)).toMatchObject({ shot_value: 2 });
+  expect((await core.liveGame(gameId))?.score).toEqual({ team: 2, opponent: 0 });
+});
+
+test('made Shots and Free Throws add their points to the strip, and a miss adds none', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  await core.recordShot(gameId, { x: 50, y: 65, value: 3, made: true });
+  await core.recordShot(gameId, { x: 50, y: 40, value: 2, made: false });
+  await core.recordShot(gameId, { x: 50, y: 40, value: 2, made: true });
+  await core.recordFreeThrow(gameId, true);
+  await core.recordFreeThrow(gameId, false);
+
+  expect((await core.liveGame(gameId))?.score).toEqual({ team: 6, opponent: 0 });
+});
+
+test('Shots after a Score Snapshot add to it, and Undo takes their points back out', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+  await core.recordShot(gameId, { x: 50, y: 65, value: 3, made: true });
+  await core.adjustScore(gameId, 'team', 1);
+  await core.recordShot(gameId, { x: 50, y: 40, value: 2, made: true });
+  expect((await core.liveGame(gameId))?.score).toEqual({ team: 6, opponent: 0 });
+
+  await core.undo(gameId);
+  expect((await core.liveGame(gameId))?.score).toEqual({ team: 4, opponent: 0 });
+  await core.undo(gameId);
+  expect((await core.liveGame(gameId))?.score).toEqual({ team: 3, opponent: 0 });
+});
+
+test("the live Game counts made of attempted Shots by value, and the Athlete's points", async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  await core.recordShot(gameId, { x: 50, y: 65, value: 3, made: true });
+  await core.recordShot(gameId, { x: 50, y: 65, value: 3, made: false });
+  await core.recordShot(gameId, { x: 50, y: 40, value: 2, made: true });
+  await core.recordFreeThrow(gameId, true);
+
+  const live = await core.liveGame(gameId);
+  expect(live?.shots).toEqual({ 2: { made: 1, attempted: 1 }, 3: { made: 1, attempted: 2 } });
+  expect(live?.points).toBe(6);
+});
+
+test("a Shot's spot, value and result reach the server and a second phone", async () => {
+  const { core, server } = setup();
+  const gameId = await basketballGame(core);
+  const shot = await core.recordShot(gameId, { x: 12.5, y: 80, value: 3, made: false });
+  await core.signIn('casey@example.com');
+
+  const second = phoneOn(server);
+  await second.core.signIn('casey@example.com');
+
+  expect(await second.inspect.events.get(shot.id)).toEqual(shot);
 });
 
 test('a Free Throw keeps its result when a second phone downloads it at sign-in', async () => {

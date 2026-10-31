@@ -38,8 +38,8 @@ test('a Free Throw records MAKE or MISS with no spot, and the row reads made/att
   await addAthlete(page);
   await startGame(page);
   const row = page.getByRole('group', { name: 'Free Throw' });
-  const make = page.getByRole('button', { name: 'MAKE' });
-  const miss = page.getByRole('button', { name: 'MISS' });
+  const make = row.getByRole('button', { name: 'MAKE' });
+  const miss = row.getByRole('button', { name: 'MISS' });
 
   // green make, red miss: the colors carry meaning in light mode
   await expect(make).toHaveCSS('color', 'rgb(26, 127, 55)');

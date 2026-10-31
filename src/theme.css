@@ -202,19 +202,63 @@ button:disabled {
   gap: 8px;
 }
 
-/* Placeholders hold their place until Shifts (#17) and Shot entry (#16) fill them. */
-.shift,
-.court {
+/* A placeholder holds its place until Shifts (#17) fill it. */
+.shift {
+  min-height: 48px;
   border: 1px dashed var(--border);
   border-radius: 12px;
 }
 
-.shift {
-  min-height: 48px;
+/* The half court, drawn to scale (50 ft by 47 ft) so its arc is a true circle; Button Size sets its height. */
+.shot-entry {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
 }
 
+/* 128px is what Standard leaves room for beside the stat tiles on a 390×844 phone. */
 .court {
-  min-height: 96px;
+  height: 128px;
+  aspect-ratio: 50 / 47;
+  color: var(--muted);
+}
+
+.court * {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.4;
+}
+
+.court .spot {
+  fill: var(--accent);
+  stroke: none;
+}
+
+/* 3PT across the top, MAKE and MISS beneath it, the count under those. */
+.shot-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.shot-controls button[aria-pressed] {
+  grid-column: 1 / -1;
+}
+
+.shot-controls button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.shot-count {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  text-align: center;
 }
 
 .free-throws {
@@ -226,13 +270,15 @@ button:disabled {
 }
 
 /* Green make, red miss: color only carries meaning here. */
-.free-throws .make {
+.free-throws .make,
+.shot-controls .make {
   color: var(--make);
   border-color: var(--make);
   font-weight: 600;
 }
 
-.free-throws .miss {
+.free-throws .miss,
+.shot-controls .miss {
   color: var(--miss);
   border-color: var(--miss);
   font-weight: 600;
@@ -272,7 +318,7 @@ button:disabled {
 }
 
 .compact .court {
-  min-height: 72px;
+  height: 120px;
 }
 
 .compact .tile {
@@ -281,6 +327,10 @@ button:disabled {
 
 .compact .tile .count {
   font-size: 24px;
+}
+
+.bleacher .court {
+  height: 220px;
 }
 
 .bleacher .tile {

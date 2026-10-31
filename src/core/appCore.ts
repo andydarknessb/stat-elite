@@ -60,8 +60,12 @@ export interface LiveGame {
   score: Scores;
   /** The Final Score, once End Game has closed the Game. */
   final?: Scores;
-  /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Free Throw. */
-  undoable?: { id: string; type: UndoableType; made?: boolean };
+  /** Shots not retracted, by value: how many went in, of how many were attempted. */
+  shots: Record<2 | 3, { made: number; attempted: number }>;
+  /** The Athlete's points: made Shots and Free Throws not retracted. */
+  points: number;
+  /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot. */
+  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3 };
 }
 
 /** IDs of the Events that a Retraction in this list undoes. */
@@ -74,6 +78,40 @@ const snapshotOf = (event: EventRow): Scores | undefined =>
 
 /** A Score Snapshot takes whole, non-negative scores. */
 const isScore = (n: number) => Number.isInteger(n) && n >= 0;
+
+// The half court in feet: x across the 50 ft width, y from the baseline (the basket end) down the 47 ft to the half-court line.
+const widthFt = 50;
+const basketFt = 5.25;
+const arcFt = 23.75;
+const cornerFt = 3;
+// the corner line runs from the baseline to where it meets the arc
+const cornerEndFt = basketFt + Math.sqrt(arcFt ** 2 - (widthFt / 2 - cornerFt) ** 2);
+export const HALF_COURT = { widthFt, lengthFt: 47, basketFt, arcFt, cornerFt, cornerEndFt };
+
+/**
+ * The value a spot presets: 3 beyond the three-point line, which is the arc from the basket plus the corners
+ * (3 ft in from each sideline, out to where they meet the arc), else 2. A spot is 0–100 on each axis.
+ * shortcut: NBA lines, so the arc is 23.75 ft; FIBA's 6.75 m arc is 22.1 ft, upgrade when a league is picked
+ */
+export function arcPreset(x: number, y: number): 2 | 3 {
+  const fx = (x / 100) * HALF_COURT.widthFt;
+  const fy = (y / 100) * HALF_COURT.lengthFt;
+  const fromBasket = Math.hypot(fx - widthFt / 2, fy - basketFt);
+  const inCorner = (fx < cornerFt || fx > widthFt - cornerFt) && fy < cornerEndFt;
+  return fromBasket > arcFt || inCorner ? 3 : 2;
+}
+
+/** A spot on the half court is 0–100 on each axis. */
+const isSpot = (n: number) => Number.isFinite(n) && n >= 0 && n <= 100;
+/** Rounds to the 2 decimal places the schema keeps (numeric(5,2)), so the phone's copy matches the server's. */
+const spot = (n: number) => Math.round(n * 100) / 100;
+
+/** The points an Event adds to the Athlete's total: a made Shot's value, a made Free Throw's one. */
+const pointsOf = (event: EventRow): number => {
+  if (!event.made) return 0;
+  if (event.type === 'shot') return event.shot_value ?? 0;
+  return event.type === 'free_throw' ? 1 : 0;
+};
 
 const isTile = (type: EventRow['type']): type is TileEventType =>
   (TILE_EVENT_TYPES as readonly string[]).includes(type);
@@ -120,10 +158,27 @@ const eventOf = ({
   period,
   type,
   retracts_id,
+  court_x,
+  court_y,
+  shot_value,
   made,
   team_score,
   opponent_score,
-}: EventRow): EventRow => ({ id, game_id, seq, client_ts, period, type, retracts_id, made, team_score, opponent_score });
+}: EventRow): EventRow => ({
+  id,
+  game_id,
+  seq,
+  client_ts,
+  period,
+  type,
+  retracts_id,
+  court_x,
+  court_y,
+  shot_value,
+  made,
+  team_score,
+  opponent_score,
+});
 
 // the downloaded rows the phone does not hold yet, given what the store already has under their ids
 const lacking = <T>(rows: T[], held: (T | undefined)[]): T[] => rows.filter((_, i) => held[i] === undefined);
@@ -135,20 +190,26 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const now = () => clock().toISOString();
   // a Game's Events in seq order
   const gameEvents = (gameId: string) => store.events.where('[game_id+seq]').between([gameId, 0], [gameId, Infinity]);
-  // the latest Score Snapshot not retracted, or 0–0 before the first one
+  // the strip: the latest Score Snapshot not retracted, plus the points of the made Shots and Free Throws after it (ADR 0002); 0–0 before the first one
   const latestScores = (events: EventRow[]): Scores => {
     const retracted = retractedIds(events);
-    let scores: Scores = { team: 0, opponent: 0 };
+    let base: Scores = { team: 0, opponent: 0 };
+    let added = 0;
     for (const event of events) {
+      if (retracted.has(event.id)) continue;
       const snapshot = snapshotOf(event);
-      if (snapshot && !retracted.has(event.id)) scores = snapshot;
+      if (snapshot) {
+        base = snapshot;
+        added = 0;
+      } else added += pointsOf(event);
     }
-    return scores;
+    return { team: base.team + added, opponent: base.opponent };
   };
   // the next Event in a Game, appended to its log
   const nextEvent = async (
     gameId: string,
-    fields: Pick<EventRow, 'type' | 'retracts_id'> & Partial<Pick<EventRow, 'made' | 'team_score' | 'opponent_score'>>,
+    fields: Pick<EventRow, 'type' | 'retracts_id'> &
+      Partial<Pick<EventRow, 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value'>>,
   ): Promise<EventRow> => {
     const last = await gameEvents(gameId).last();
     // End Game is always the last Event of a Game, so nothing is appended after it
@@ -160,6 +221,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       client_ts: now(),
       // shortcut: every Event is in Period 1 until Next period exists (#18)
       period: 1,
+      court_x: null,
+      court_y: null,
+      shot_value: null,
       made: null,
       team_score: null,
       opponent_score: null,
@@ -330,6 +394,26 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
+    /** A Shot: its spot, value and result, written together when the Recorder taps MAKE or MISS (GLOSSARY: Shot). */
+    async recordShot(gameId: string, shot: { x: number; y: number; value: 2 | 3; made: boolean }): Promise<EventRow> {
+      if (!isSpot(shot.x) || !isSpot(shot.y) || (shot.value !== 2 && shot.value !== 3)) {
+        throw new Error('A Shot needs a spot on the court and a value of 2 or 3');
+      }
+      return write([store.events], async () => {
+        const event = await nextEvent(gameId, {
+          type: 'shot',
+          retracts_id: null,
+          court_x: spot(shot.x),
+          court_y: spot(shot.y),
+          shot_value: shot.value,
+          made: shot.made,
+        });
+        await store.events.add(event);
+        await queue('events', event.id);
+        return event;
+      });
+    },
+
     /** A Free Throw: its result, and no spot (GLOSSARY: Free Throw). */
     recordFreeThrow(gameId: string, made: boolean): Promise<EventRow> {
       return write([store.events], async () => {
@@ -448,6 +532,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const retracted = retractedIds(events);
       const tiles = Object.fromEntries(TILE_EVENT_TYPES.map((type) => [type, 0])) as Record<TileEventType, number>;
       const freeThrows = { made: 0, attempted: 0 };
+      const shots: LiveGame['shots'] = { 2: { made: 0, attempted: 0 }, 3: { made: 0, attempted: 0 } };
+      let points = 0;
       let undoable: LiveGame['undoable'];
       for (const event of events) {
         if (event.type === 'retraction' || retracted.has(event.id)) continue;
@@ -456,7 +542,12 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
           freeThrows.attempted++;
           if (event.made) freeThrows.made++;
         }
-        undoable = { id: event.id, type: event.type, made: event.made ?? undefined };
+        if (event.type === 'shot' && event.shot_value) {
+          shots[event.shot_value].attempted++;
+          if (event.made) shots[event.shot_value].made++;
+        }
+        points += pointsOf(event);
+        undoable = { id: event.id, type: event.type, made: event.made ?? undefined, value: event.shot_value ?? undefined };
       }
       // End Game is always the last Event, so a finished Game ends on its game_end
       const last = events.at(-1);
@@ -465,6 +556,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         sport: game.sport,
         tiles,
         freeThrows,
+        shots,
+        points,
         score: latestScores(events),
         final: last?.type === 'game_end' ? snapshotOf(last) : undefined,
         undoable,
