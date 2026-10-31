@@ -9,6 +9,12 @@ type GameFormat =
   | { sport: 'basketball'; periodFormat: 'halves' | 'quarters' }
   | { sport: 'softball' | 'baseball'; periodFormat: 'innings' };
 
+/** A Score Snapshot's Team and Opponent scores. */
+export interface Scores {
+  team: number;
+  opponent: number;
+}
+
 export interface Home {
   athlete?: { id: string; name: string; jerseyNumber: string | null; photo?: Blob };
   /** The Athlete a tap on the photo switches to; present only when there is more than one. */
@@ -18,24 +24,57 @@ export interface Home {
 
 const SELECTED_ATHLETE = 'selectedAthleteId';
 
+/** Every Event type Undo can retract: all but a Retraction itself. */
+export type UndoableType = Exclude<EventRow['type'], 'retraction'>;
+
 export interface LiveGame {
   id: string;
   sport: GameRow['sport'];
   tiles: Record<TileEventType, number>;
+  /** The latest Score Snapshot not retracted; 0–0 before the first one. */
+  score: Scores;
+  /** The Final Score, once End Game has closed the Game. */
+  final?: Scores;
   /** The Event the next Undo retracts: the newest one not already retracted. */
-  undoable?: { id: string; type: TileEventType };
+  undoable?: { id: string; type: UndoableType };
 }
 
 /** IDs of the Events that a Retraction in this list undoes. */
 const retractedIds = (events: EventRow[]) => new Set(events.flatMap((e) => (e.retracts_id ? [e.retracts_id] : [])));
 
+const snapshotOf = (event: EventRow): Scores | undefined =>
+  event.team_score !== null && event.opponent_score !== null
+    ? { team: event.team_score, opponent: event.opponent_score }
+    : undefined;
+
+/** A Score Snapshot takes whole, non-negative scores. */
+const isScore = (n: number) => Number.isInteger(n) && n >= 0;
+
+const isTile = (type: EventRow['type']): type is TileEventType =>
+  (TILE_EVENT_TYPES as readonly string[]).includes(type);
+
 export function createAppCore({ clock, store }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
   // a Game's Events in seq order
   const gameEvents = (gameId: string) => store.events.where('[game_id+seq]').between([gameId, 0], [gameId, Infinity]);
+  // the latest Score Snapshot not retracted, or 0–0 before the first one
+  const latestScores = (events: EventRow[]): Scores => {
+    const retracted = retractedIds(events);
+    let scores: Scores = { team: 0, opponent: 0 };
+    for (const event of events) {
+      const snapshot = snapshotOf(event);
+      if (snapshot && !retracted.has(event.id)) scores = snapshot;
+    }
+    return scores;
+  };
   // the next Event in a Game, appended to its log
-  const nextEvent = async (gameId: string, fields: Pick<EventRow, 'type' | 'retracts_id'>): Promise<EventRow> => {
+  const nextEvent = async (
+    gameId: string,
+    fields: Pick<EventRow, 'type' | 'retracts_id'> & Partial<Pick<EventRow, 'team_score' | 'opponent_score'>>,
+  ): Promise<EventRow> => {
     const last = await gameEvents(gameId).last();
+    // End Game is always the last Event of a Game, so nothing is appended after it
+    if (last?.type === 'game_end') throw new Error('This Game has ended');
     return {
       id: crypto.randomUUID(),
       game_id: gameId,
@@ -43,6 +82,8 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
       client_ts: now(),
       // shortcut: every Event is in Period 1 until Next period exists (#18)
       period: 1,
+      team_score: null,
+      opponent_score: null,
       ...fields,
     };
   };
@@ -90,6 +131,34 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
       });
     },
 
+    /** Moves one side of the strip one point and records the new absolute scores as a Score Snapshot (ADR 0002). */
+    adjustScore(gameId: string, side: 'team' | 'opponent', delta: 1 | -1): Promise<EventRow | undefined> {
+      return store.transaction('rw', store.events, async () => {
+        const scores = latestScores(await gameEvents(gameId).toArray());
+        const team = scores.team + (side === 'team' ? delta : 0);
+        const opponent = scores.opponent + (side === 'opponent' ? delta : 0);
+        if (!isScore(team) || !isScore(opponent)) return undefined;
+        const event = await nextEvent(gameId, { type: 'score', retracts_id: null, team_score: team, opponent_score: opponent });
+        await store.events.add(event);
+        return event;
+      });
+    },
+
+    /** End Game: the Final Score, recorded as a game_end Event, closes the Game. Refused without whole scores. */
+    async endGame(gameId: string, final: { teamScore: number; opponentScore: number }): Promise<EventRow> {
+      if (!isScore(final.teamScore) || !isScore(final.opponentScore)) throw new Error('End Game needs a Final Score');
+      return store.transaction('rw', store.events, async () => {
+        const event = await nextEvent(gameId, {
+          type: 'game_end',
+          retracts_id: null,
+          team_score: final.teamScore,
+          opponent_score: final.opponentScore,
+        });
+        await store.events.add(event);
+        return event;
+      });
+    },
+
     /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. */
     undo(gameId: string): Promise<EventRow | undefined> {
       return store.transaction('rw', store.events, async () => {
@@ -119,12 +188,19 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
       const athlete = athletes[index];
       const photo = await store.athletePhotos.get(athlete.id);
       const next = athletes[(index + 1) % athletes.length];
-      // shortcut: the Athlete's latest Game is the one in progress, until End Game exists (#7)
+      // the newest Game that End Game has not closed is the one in progress
       const games = await store.games.where('athlete_id').equals(athlete.id).sortBy('created_at');
+      let liveGameId: string | undefined;
+      for (const game of [...games].reverse()) {
+        if ((await gameEvents(game.id).last())?.type !== 'game_end') {
+          liveGameId = game.id;
+          break;
+        }
+      }
       return {
         athlete: { id: athlete.id, name: athlete.name, jerseyNumber: athlete.jersey_number, photo: photo?.photo },
         next: athletes.length > 1 ? { id: next.id, name: next.name } : undefined,
-        liveGameId: games.at(-1)?.id,
+        liveGameId,
       };
     },
 
@@ -137,10 +213,19 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
       let undoable: LiveGame['undoable'];
       for (const event of events) {
         if (event.type === 'retraction' || retracted.has(event.id)) continue;
-        tiles[event.type]++;
+        if (isTile(event.type)) tiles[event.type]++;
         undoable = { id: event.id, type: event.type };
       }
-      return { id: game.id, sport: game.sport, tiles, undoable };
+      // End Game is always the last Event, so a finished Game ends on its game_end
+      const last = events.at(-1);
+      return {
+        id: game.id,
+        sport: game.sport,
+        tiles,
+        score: latestScores(events),
+        final: last?.type === 'game_end' ? snapshotOf(last) : undefined,
+        undoable,
+      };
     },
   };
 }
