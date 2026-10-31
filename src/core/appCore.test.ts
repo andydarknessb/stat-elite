@@ -409,6 +409,22 @@ test('editing an Athlete changes its name and number and stamps updated_at with 
   });
 });
 
+test('editing an Athlete with a photo sets it on this phone; an edit with no photo keeps the stored one', async () => {
+  const { core, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey', jerseyNumber: '12' });
+  const first = new Blob(['jpeg bytes'], { type: 'image/jpeg' });
+  const second = new Blob(['a larger jpeg'], { type: 'image/jpeg' });
+
+  await core.editAthlete({ id: athleteId, name: 'Casey', jerseyNumber: '12', photo: first });
+  expect((await inspect.athletePhotos.get(athleteId))?.photo.size).toBe(first.size);
+
+  await core.editAthlete({ id: athleteId, name: 'Casey', jerseyNumber: '12', photo: second });
+  expect((await inspect.athletePhotos.get(athleteId))?.photo.size).toBe(second.size);
+
+  await core.editAthlete({ id: athleteId, name: 'Casey Jones', jerseyNumber: '7' });
+  expect((await inspect.athletePhotos.get(athleteId))?.photo.size).toBe(second.size);
+});
+
 test('switching Athletes changes whose Games Home shows and whom Start Game records; the choice survives a reload', async () => {
   const { core, inspect, reopen } = setup();
   const firstId = await core.addAthlete({ name: 'Casey' });

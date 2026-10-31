@@ -79,6 +79,22 @@ test('editing an Athlete changes name and number on Home and keeps them after a 
   await expect(page.getByText('#7')).toBeVisible();
 });
 
+test('an Athlete added with no photo takes one in Edit Athlete, and nothing is uploaded', async ({ page }) => {
+  const writes: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'GET') writes.push(request.url());
+  });
+
+  await firstRunAdd(page, 'Casey', '12');
+  await page.getByRole('button', { name: 'Edit' }).click();
+  await page.getByLabel('Photo (optional)').setInputFiles(PHOTO);
+  await page.getByRole('button', { name: 'Save' }).click();
+
+  await expect(page.locator('.photo img')).toBeVisible();
+  await expect(page.locator('.photo-placeholder')).toBeHidden();
+  expect(writes).toEqual([]);
+});
+
 test('with two Athletes, Add Athlete from Home shows the new one, tapping the photo switches, and Start Game records the one shown', async ({ page }) => {
   await firstRunAdd(page, 'Casey');
 

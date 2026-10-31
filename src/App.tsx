@@ -293,7 +293,7 @@ function FirstRun({ core }: { core: AppCore }) {
 
 type AthleteFields = NonNullable<Home['athlete']>;
 
-/** Add Athlete (first run, or from Home) or, when given an Athlete, Edit Athlete. The photo is set only at add. */
+/** Add Athlete (first run, or from Home) or, when given an Athlete, Edit Athlete. A photo picked in either sets this phone's photo; none picked keeps it. */
 function AthleteForm({ core, athlete, onDone }: { core: AppCore; athlete?: AthleteFields; onDone?: () => void }) {
   const [name, setName] = useState(athlete?.name ?? '');
   const [number, setNumber] = useState(athlete?.jerseyNumber ?? '');
@@ -301,7 +301,7 @@ function AthleteForm({ core, athlete, onDone }: { core: AppCore; athlete?: Athle
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    if (athlete) void core.editAthlete({ id: athlete.id, name: name.trim(), jerseyNumber: number });
+    if (athlete) void core.editAthlete({ id: athlete.id, name: name.trim(), jerseyNumber: number, photo });
     else void core.addAthlete({ name: name.trim(), jerseyNumber: number, photo });
     onDone?.();
   };
@@ -317,12 +317,10 @@ function AthleteForm({ core, athlete, onDone }: { core: AppCore; athlete?: Athle
           Number
           <input value={number} onChange={(e) => setNumber(e.target.value)} inputMode="numeric" autoComplete="off" />
         </label>
-        {!athlete && (
-          <label>
-            Photo (optional)
-            <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files?.[0])} />
-          </label>
-        )}
+        <label>
+          Photo (optional)
+          <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files?.[0])} />
+        </label>
         <button className="primary">{athlete ? 'Save' : 'Add Athlete'}</button>
         {onDone && (
           <button type="button" onClick={onDone}>
