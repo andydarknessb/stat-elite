@@ -21,4 +21,19 @@ test.describe('on Android', () => {
     await page.goto('/');
     await expect(page.getByRole('region', { name: 'Add to Home Screen' })).toBeVisible();
   });
+
+  test('with the browser install prompt, the card offers Install and shows the prompt', async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(() => {
+      const event = Object.assign(new Event('beforeinstallprompt', { cancelable: true }), {
+        prompt: async () => {
+          (window as unknown as { promptShown: boolean }).promptShown = true;
+        },
+      });
+      window.dispatchEvent(event);
+    });
+    await page.getByRole('button', { name: 'Install', exact: true }).click();
+    const shown = await page.evaluate(() => (window as unknown as { promptShown?: boolean }).promptShown);
+    expect(shown).toBe(true);
+  });
 });

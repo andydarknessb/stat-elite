@@ -3,15 +3,19 @@ import { installHint } from './pwa';
 
 type InstallPromptEvent = Event & { prompt: () => Promise<unknown> };
 
+// Captured at import, before any screen mounts: the browser fires beforeinstallprompt once, and the card may be off screen then.
+let deferred: InstallPromptEvent | undefined;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferred = e as InstallPromptEvent;
+});
+
 /** Add to Home Screen: iOS gets the share-sheet steps, Android the install prompt once the browser offers it. */
 export function InstallPrompt() {
-  const [event, setEvent] = useState<InstallPromptEvent>();
+  const [event, setEvent] = useState(() => deferred);
   const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
-    const onPrompt = (e: Event) => {
-      e.preventDefault();
-      setEvent(e as InstallPromptEvent);
-    };
+    const onPrompt = () => setEvent(deferred);
     window.addEventListener('beforeinstallprompt', onPrompt);
     return () => window.removeEventListener('beforeinstallprompt', onPrompt);
   }, []);
@@ -30,6 +34,8 @@ export function InstallPrompt() {
           <button
             className="primary"
             onClick={() => {
+              // a prompt event can be shown once, so a later mount must not offer it again
+              deferred = undefined;
               setDismissed(true);
               void event.prompt();
             }}
