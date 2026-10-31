@@ -519,6 +519,9 @@ const lacking = <T>(rows: T[], held: (T | undefined)[]): T[] => rows.filter((_, 
 const later = (row: { updated_at: string }, held?: { updated_at: string }) =>
   !held || Date.parse(row.updated_at) > Date.parse(held.updated_at);
 
+/** A Member as the Owner's list shows it: named by its sign-in email, or by when it joined when none was recorded. */
+export type Member = MemberRow & { label: string };
+
 export function createAppCore({ clock, store, server }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
   // a Game's Events in seq order
@@ -1137,9 +1140,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       await download();
     },
 
-    /** The Owner's Members list for one of its Athletes (ADR 0004). */
-    members(athleteId: string): Promise<MemberRow[]> {
-      return server.members(athleteId);
+    /** The Owner's Members list for one of its Athletes, each named for the screen (ADR 0004). */
+    async members(athleteId: string): Promise<Member[]> {
+      const members = await server.members(athleteId);
+      return members.map((member) => ({
+        ...member,
+        label: member.email ?? `Joined ${new Date(member.joined_at).toLocaleDateString()}`,
+      }));
     },
 
     /** The Owner removes a Member; the Member's phone drops the Athlete at its next download (ADR 0004). */
