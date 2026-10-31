@@ -946,6 +946,8 @@ function LiveGame({
   const [stealing, setStealing] = useState(false);
   // bumped on each Sub, so the strip restarts its pulse
   const [pulse, setPulse] = useState(0);
+  // the Game line opens into the closed Shifts list; closed by default
+  const [shiftsOpen, setShiftsOpen] = useState(false);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(undefined), 3000);
@@ -1006,6 +1008,8 @@ function LiveGame({
   };
   // the Shift on court, if any: its timer and Plus/Minus so far
   const current = game.onCourt ? game.shifts.at(-1) : undefined;
+  // the closed Shifts, for the Game line's list; the Shift on court is on the timer line
+  const closed = game.onCourt ? game.shifts.slice(0, -1) : game.shifts;
   const shots = (
     <>
       <ShotEntry
@@ -1099,10 +1103,25 @@ function LiveGame({
             <p className="timer">
               {current ? `On court ${clockOf(current.ms)} · ${signed(current.plusMinus)}` : 'On bench'}
             </p>
-            <p className="game">
-              {Math.round(game.playingShare * 100)}% · {game.shifts.length}{' '}
-              {game.shifts.length === 1 ? 'Shift' : 'Shifts'} · Plus/Minus {signed(game.plusMinus)}
-            </p>
+            <div className="game-line">
+              <button
+                className="game"
+                aria-expanded={shiftsOpen}
+                aria-controls={shiftsOpen ? 'shift-list' : undefined}
+                onClick={() => setShiftsOpen(!shiftsOpen)}
+              >
+                {shiftsOpen
+                  ? 'Shifts'
+                  : `${Math.round(game.playingShare * 100)}% · ${game.shifts.length} ${game.shifts.length === 1 ? 'Shift' : 'Shifts'} · Plus/Minus ${signed(game.plusMinus)}`}
+              </button>
+              {shiftsOpen && (
+                <ol id="shift-list" aria-label="Shifts" className="shift-list">
+                  {closed.map((shift, i) => (
+                    <li key={i}>{`Shift ${i + 1} · ${clockOf(shift.ms)} · ${signed(shift.plusMinus)}`}</li>
+                  ))}
+                </ol>
+              )}
+            </div>
           </div>
         </section>
       )}
