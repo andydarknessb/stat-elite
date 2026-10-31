@@ -680,23 +680,24 @@ function EndGameForm({
 /** Game Complete, shown once End Game closes the Game: the Final Score, the Athlete's line and Plus/Minus, and Copy text. */
 function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
   const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
-  // the button names the outcome for 2 seconds, in place: no modal
-  const [copied, setCopied] = useState<string>();
+  // the text is read before the tap, so the click reaches the clipboard with no await in between (iOS drops the gesture across one)
+  const text = useReadModel(() => core.gameCopyText(gameId), [core, gameId]);
+  // the outcome shows for 2 seconds in place, no modal; a new object per tap restarts the timer
+  const [copied, setCopied] = useState<{ label: string }>();
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(undefined), 2000);
     return () => clearTimeout(timer);
   }, [copied]);
   if (!game) return null;
-  const copy = async () => {
-    try {
-      const text = await core.gameCopyText(gameId);
-      if (text === undefined) return;
-      await navigator.clipboard.writeText(text);
-      setCopied('Copied');
-    } catch {
-      setCopied('Copy failed');
-    }
+  const copy = () => {
+    if (text === undefined) return;
+    // a missing clipboard API lands on the same Copy failed label as a refused write
+    const written = navigator.clipboard?.writeText(text) ?? Promise.reject(new Error('no clipboard'));
+    written.then(
+      () => setCopied({ label: 'Copied' }),
+      () => setCopied({ label: 'Copy failed' }),
+    );
   };
   return (
     <section aria-label="Game Complete">
@@ -706,7 +707,10 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
       </p>
       <p>{lineText(game.line)}</p>
       <p>Plus/Minus {signed(game.line.plusMinus)}</p>
-      <button onClick={() => void copy()}>{copied ?? 'Copy text'}</button>
+      <button disabled={text === undefined} onClick={copy}>
+        Copy text
+      </button>
+      <p role="status">{copied?.label}</p>
     </section>
   );
 }

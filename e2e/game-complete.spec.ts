@@ -27,7 +27,7 @@ test('ending a Game opens Game Complete with the Final Score, the line and Plus/
   await expect(page.getByText('Plus/Minus +3', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Copy text' }).click();
-  await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('Copied');
   // Windows clipboards hold CRLF, so the line breaks are compared as LF
   const pasted = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
   expect(pasted).toBe(
