@@ -8,7 +8,7 @@ import {
   type Store,
   type TileEventType,
 } from './store';
-import type { Server, SyncedTable, UploadRow } from './server';
+import type { MemberRow, Server, SyncedTable, UploadRow } from './server';
 
 export type { TileEventType };
 
@@ -46,6 +46,8 @@ const SELECTED_ATHLETE = 'selectedAthleteId';
 const BUTTON_SIZE = 'buttonSize';
 /** The account whose rows this phone last downloaded: a sign-in clears it, so the next one downloads again. */
 const DOWNLOADED_FOR = 'downloadedFor';
+/** Settings key prefix, one per Athlete another account owns and shared with this phone (ADR 0004). */
+const SHARED = 'shared:';
 
 /** Every Event type Undo can retract: all but a Retraction itself. */
 export type UndoableType = Exclude<EventRow['type'], 'retraction'>;
@@ -392,12 +394,30 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   // Fetched before the transaction, since Dexie cannot span the network. Nothing here is queued for upload.
   // shortcut: every visible Event is fetched on each sign-in, launch and reconnect, not only the missing ones, fine for one child's Games; upgrade with a per-Game seq cursor when a season's Events get slow to fetch
   const download = async () => {
+    const me = await server.session();
     const [athletes, games, events] = await Promise.all([
       server.download('athletes'),
       server.download('games'),
       server.download('events'),
     ]);
-    await store.transaction('rw', [store.athletes, store.games, store.events], async () => {
+    await store.transaction('rw', [store.athletes, store.athletePhotos, store.games, store.events, store.settings], async () => {
+      // a shared Athlete the server no longer sends was shared with this phone, so its Owner removed this account or it left (ADR 0004).
+      // An Athlete this phone made is never marked, so a sign-in as another account cannot delete its unsynced rows.
+      const sent = new Set(athletes.map((a) => a.id));
+      const departed = (await store.settings.where('key').startsWith(SHARED).primaryKeys())
+        .map((key) => key.slice(SHARED.length))
+        .filter((id) => !sent.has(id));
+      if (departed.length > 0) {
+        const gone = new Set(await store.games.where('athlete_id').anyOf(departed).primaryKeys());
+        await store.events.filter((e) => gone.has(e.game_id)).delete();
+        await store.games.bulkDelete([...gone]);
+        await store.athletePhotos.bulkDelete(departed);
+        await store.athletes.bulkDelete(departed);
+        await store.settings.bulkDelete(departed.map((id) => SHARED + id));
+      }
+      await store.settings.bulkPut(
+        (me === undefined ? [] : athletes.filter((a) => a.owner_id !== me)).map((a) => ({ key: SHARED + a.id, value: 'shared' })),
+      );
       const athleteRows = athletes.map(athleteOf);
       const athleteHeld = await store.athletes.bulkGet(athleteRows.map((r) => r.id));
       await store.athletes.bulkPut(athleteRows.filter((r, i) => later(r, athleteHeld[i])));
@@ -805,6 +825,28 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       await store.settings.delete(DOWNLOADED_FOR);
       await server.acceptInvite(token);
       await download();
+    },
+
+    /** The Owner's Members list for one of its Athletes (ADR 0004). */
+    members(athleteId: string): Promise<MemberRow[]> {
+      return server.members(athleteId);
+    },
+
+    /** The Owner removes a Member; the Member's phone drops the Athlete at its next download (ADR 0004). */
+    removeMember(athleteId: string, memberId: string): Promise<void> {
+      return server.removeMember(athleteId, memberId);
+    },
+
+    /** A Member leaves an Athlete: the Athlete drops from this phone now, and the Games it recorded stay with the Athlete (ADR 0004). */
+    async leave(athleteId: string): Promise<void> {
+      // once the membership is gone the server refuses this phone's rows on the Athlete, so they upload first and the leave waits for them
+      await flush();
+      for (const entry of await store.outbox.toArray()) {
+        if ((await loadRow(entry))?.athleteId === athleteId) throw new Error('Not everything on this Athlete has synced yet');
+      }
+      await server.leave(athleteId);
+      await download();
+      void flush();
     },
 
     /** The "N not synced" badge: whether the Recorder is signed in, and how many rows still live only on the phone. */

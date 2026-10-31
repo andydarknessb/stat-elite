@@ -212,3 +212,23 @@ begin
 end $$;
 
 create trigger games_keep_recorder before update on games for each row execute function keep_recorder();
+-- ADR 0004: the Owner removes a Member, and a Member leaves. Each deletes a membership row and nothing else, so the
+-- Games a Member recorded stay with the Athlete.
+
+-- Whether the account owns the Athlete. Security definer, so the policies on members do not recurse through athletes' policies.
+create function owns_athlete(athlete uuid) returns boolean
+language sql stable security definer set search_path = ''
+as $$ select exists (select 1 from public.athletes a where a.id = athlete and a.owner_id = (select auth.uid())) $$;
+
+revoke execute on function owns_athlete(uuid) from public, anon;
+grant execute on function owns_athlete(uuid) to authenticated;
+
+grant delete on members to authenticated;
+
+-- The Owner sees its Athlete's Members, for the Members list, and removes one; a Member deletes only its own membership.
+create policy owner_reads_members on members for select to authenticated
+  using (owns_athlete(members.athlete_id));
+create policy owner_removes_members on members for delete to authenticated
+  using (owns_athlete(members.athlete_id));
+create policy member_leaves on members for delete to authenticated
+  using (member_id = (select auth.uid()));

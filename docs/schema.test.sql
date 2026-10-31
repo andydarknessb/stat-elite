@@ -170,6 +170,80 @@ begin
   if n <> 1 then raise exception 'a stranger should see only its own Event, saw %', n; end if;
 end $$;
 
+-- Removing a Member and leaving (ADR 0004). D joins Casey the way an Invite makes a Member, so Casey has two: C and D.
+reset role;
+insert into auth.users values ('00000000-0000-0000-0000-00000000000d');
+insert into members (athlete_id, member_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000d');
+set role authenticated;
+
+-- Only the Owner removes a Member: a stranger and a Member remove nothing, and the Owner sees both Members.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+do $$
+declare n int;
+begin
+  delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a stranger removed % Members', n; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000d', false);
+do $$
+declare n int;
+begin
+  delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000c';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a Member removed another Member: % rows', n; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  if n <> 2 then raise exception 'the Owner should see its 2 Members, saw %', n; end if;
+  delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000d';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'the Owner should remove its Member, removed % rows', n; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000d', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from athletes;
+  if n <> 0 then raise exception 'a removed Member should see no Athlete, saw %', n; end if;
+end $$;
+
+-- C leaves Casey: a Member deletes its own membership and nothing of its Athlete's.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+do $$
+declare n int;
+begin
+  delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should leave, removed % rows', n; end if;
+  select count(*) into n from athletes;
+  if n <> 0 then raise exception 'a departed Member should see no Athlete, saw %', n; end if;
+  select count(*) into n from games;
+  if n <> 0 then raise exception 'a departed Member should see no Game, saw %', n; end if;
+  select count(*) into n from events;
+  if n <> 0 then raise exception 'a departed Member should see no Event, saw %', n; end if;
+end $$;
+-- A departed Member records nothing more, not even on a Game it recorded before it left.
+select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000c4', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000c1', 3, now(), 1, 'steal')$$, 'a departed Member adding an Event to the Game it recorded');
+
+-- The Games a Member recorded stay with the Athlete; the Owner keeps them and their Recorder link (ADR 0004).
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  if n <> 0 then raise exception 'the Owner should see no Members left, saw %', n; end if;
+  select count(*) into n from games where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  if n <> 3 then raise exception 'the Owner should keep its 3 Games, saw %', n; end if;
+  if (select recorded_by from games where id = '20000000-0000-0000-0000-0000000000c1') <> '00000000-0000-0000-0000-00000000000c' then
+    raise exception 'a departed Member''s Game should keep its Recorder';
+  end if;
+end $$;
+set role authenticated;
+
 -- A Member deleting its account clears the Recorder link on the Games it recorded; the Games stay with the Athlete (ADR 0004).
 reset role;
 delete from auth.users where id = '00000000-0000-0000-0000-00000000000c';
