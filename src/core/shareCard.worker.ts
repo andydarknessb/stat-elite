@@ -15,18 +15,30 @@ function drawLine(ctx: OffscreenCanvasRenderingContext2D, text: string, y: numbe
   ctx.fillText(text, SIDE / 2, y);
 }
 
+// a photo the browser cannot decode leaves the card photo-less rather than failing it
+async function decode(photo: Blob): Promise<ImageBitmap | undefined> {
+  try {
+    return await createImageBitmap(photo);
+  } catch {
+    return undefined;
+  }
+}
+
 async function drawCard({ athlete, photo, opponent, final, line }: CardInput): Promise<Blob> {
   const canvas = new OffscreenCanvas(SIDE, SIDE);
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('no 2d context');
   ctx.fillStyle = '#0f1216';
   ctx.fillRect(0, 0, SIDE, SIDE);
-  if (photo) {
-    const bitmap = await createImageBitmap(photo);
-    // a square crop from the middle, so a portrait or landscape photo loses its edges, not its subject
-    const side = Math.min(bitmap.width, bitmap.height);
-    ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, SIDE, SIDE);
-    bitmap.close();
+  const bitmap = photo ? await decode(photo) : undefined;
+  if (bitmap) {
+    try {
+      // a square crop from the middle, so a portrait or landscape photo loses its edges, not its subject
+      const side = Math.min(bitmap.width, bitmap.height);
+      ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, SIDE, SIDE);
+    } finally {
+      bitmap.close();
+    }
     // a dark band under the text keeps it readable over any photo
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.fillRect(0, SIDE * 0.55, SIDE, SIDE * 0.45);

@@ -776,34 +776,43 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
   // the card is drawn as the sheet opens, so a tap on Share card reaches the share sheet with no await in between (iOS drops the gesture across one)
   const card = useReadModel(() => core.gameCard(gameId), [core, gameId]);
   const [image, setImage] = useState<File>();
+  const [drawFailed, setDrawFailed] = useState(false);
   useEffect(() => {
     if (!card) return;
-    let stale = false;
-    renderShareCard(card).then(
-      (png) => {
-        if (!stale) setImage(new File([png], 'statelite-final.png', { type: 'image/png' }));
+    // a card that re-emits aborts the render it supersedes; that abort is not a failure
+    const controller = new AbortController();
+    setImage(undefined);
+    setDrawFailed(false);
+    renderShareCard(card, controller.signal).then(
+      (png) => setImage(new File([png], 'statelite-final.png', { type: 'image/png' })),
+      (error: Error) => {
+        if (error.name === 'AbortError') return;
+        console.error(error);
+        setDrawFailed(true);
       },
-      console.error,
     );
-    return () => {
-      stale = true;
-    };
+    return () => controller.abort();
   }, [card]);
   if (!game) return null;
+  // the phone cannot share files: the image downloads instead
+  const download = (file: File) => {
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = file.name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const shareCard = () => {
     if (!image) return;
     if (navigator.canShare?.({ files: [image] })) {
-      // a cancelled share is not an error
-      void navigator.share({ files: [image] }).catch(() => undefined);
+      // a cancelled share is not an error; any other refusal downloads the image
+      void navigator.share({ files: [image] }).catch((error: Error) => {
+        if (error.name !== 'AbortError') download(image);
+      });
       return;
     }
-    // no file sharing on this phone: the image downloads instead
-    const url = URL.createObjectURL(image);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = image.name;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    download(image);
   };
   const copy = () => {
     if (text === undefined) return;
@@ -825,6 +834,7 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
       <button disabled={image === undefined} onClick={shareCard}>
         Share card
       </button>
+      {drawFailed && <p role="status">Share card could not be drawn</p>}
       <button disabled={text === undefined} onClick={copy}>
         Copy text
       </button>
