@@ -783,10 +783,12 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       return id;
     },
 
-    async editAthlete({ id, name, jerseyNumber }: { id: string; name: string; jerseyNumber: string }): Promise<void> {
-      await write([store.athletes], async () => {
+    async editAthlete({ id, name, jerseyNumber, photo }: { id: string; name: string; jerseyNumber: string; photo?: Blob }): Promise<void> {
+      await write([store.athletes, store.athletePhotos], async () => {
         await store.athletes.update(id, { name, jersey_number: jerseyNumber.trim() || null, updated_at: now() });
         await queue('athletes', id);
+        // a photo picked here replaces this phone's; none picked keeps the stored one
+        if (photo) await store.athletePhotos.put({ athlete_id: id, photo });
       });
     },
 
