@@ -6,7 +6,7 @@ const deployed = process.env.BASE_URL;
 export default defineConfig({
   testDir: 'e2e',
   use: {
-    baseURL: deployed ?? 'http://localhost:4173',
+    baseURL: deployed || 'http://localhost:4173',
     viewport: { width: 390, height: 844 },
   },
   webServer: deployed ? undefined : {
