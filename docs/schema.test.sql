@@ -170,6 +170,53 @@ begin
   if n <> 1 then raise exception 'a stranger should see only its own Event, saw %', n; end if;
 end $$;
 
+-- A Member edits its Athlete's name and number, and cannot hand the Athlete to itself (ADR 0004). C is Casey's Member here.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+do $$
+declare n int;
+begin
+  update athletes set name = 'Casey Member' where id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should rename its Athlete, updated % rows', n; end if;
+  if (select name from athletes where id = '10000000-0000-0000-0000-00000000000a') <> 'Casey Member' then
+    raise exception 'a Member''s rename should read back';
+  end if;
+end $$;
+-- Casey has Games, and a Game's foreign key refuses an owner_id change under any policy, so the owner check runs on an
+-- Athlete of A's with none, that C is a Member of.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-00000000000a', 'Riley');
+reset role;
+insert into members (athlete_id, member_id) values ('10000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-00000000000c');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+select pg_temp.expect_fail($$update athletes set owner_id = '00000000-0000-0000-0000-00000000000c' where id = '10000000-0000-0000-0000-0000000000e1'$$, 'a Member taking over its Athlete''s owner_id');
+do $$
+begin
+  if (select owner_id from athletes where id = '10000000-0000-0000-0000-0000000000e1') <> '00000000-0000-0000-0000-00000000000a' then
+    raise exception 'a Member''s refused owner_id change should leave the Owner in place';
+  end if;
+end $$;
+-- A stranger renames nothing: B is not a Member of Casey.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+do $$
+declare n int;
+begin
+  update athletes set name = 'Casey Stranger' where id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a stranger renamed % Athletes', n; end if;
+end $$;
+-- The Owner renames its own Athlete, and removes the Athlete it made for the check (its Member goes with it).
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$
+declare n int;
+begin
+  update athletes set name = 'Casey Owner' where id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'the Owner should rename its Athlete, updated % rows', n; end if;
+  delete from athletes where id = '10000000-0000-0000-0000-0000000000e1';
+end $$;
+
 -- Removing a Member and leaving (ADR 0004). D joins Casey the way an Invite makes a Member, so Casey has two: C and D.
 reset role;
 insert into auth.users values ('00000000-0000-0000-0000-00000000000d');
