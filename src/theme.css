@@ -101,6 +101,21 @@ button:disabled {
   opacity: 0.5;
 }
 
+/* The Add to Home Screen card, under the screen's own content. */
+.install {
+  display: grid;
+  gap: 12px;
+  margin: 0 16px 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.install p {
+  margin: 0;
+}
+
 /* Taps pass through the toast, except on its own Undo button. */
 .toast {
   position: fixed;
