@@ -165,3 +165,89 @@ test('switching Athletes changes whose Games Home shows and whom Start Game reco
   await core.switchAthlete(shownAtStart!);
   expect((await core.home()).liveGameId).toBeUndefined();
 });
+
+test('adjusting the strip records a score Event holding absolute Team and Opponent scores', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+
+  await core.adjustScore(gameId, 'team', 1);
+  const opponent = await core.adjustScore(gameId, 'opponent', 1);
+  const team = await core.adjustScore(gameId, 'team', 1);
+
+  expect(opponent).toMatchObject({ type: 'score', seq: 2, team_score: 1, opponent_score: 1 });
+  expect(await inspect.events.get(team?.id ?? '')).toMatchObject({ type: 'score', team_score: 2, opponent_score: 1 });
+});
+
+test('the strip never goes below zero, and a refused adjustment writes no Event', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  expect(await core.adjustScore(gameId, 'team', -1)).toBeUndefined();
+  expect((await core.liveGame(gameId))?.score).toEqual({ team: 0, opponent: 0 });
+  expect(await core.undo(gameId)).toBeUndefined();
+});
+
+test('after a reload the strip shows the latest Score Snapshot', async () => {
+  const { core, reopen } = setup();
+  const gameId = await basketballGame(core);
+  await core.adjustScore(gameId, 'team', 1);
+  await core.adjustScore(gameId, 'team', 1);
+  await core.adjustScore(gameId, 'opponent', 1);
+
+  expect((await reopen().liveGame(gameId))?.score).toEqual({ team: 2, opponent: 1 });
+});
+
+test('Undo of a score Event takes the strip back to the Snapshot before it', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+  await core.adjustScore(gameId, 'team', 1);
+  await core.adjustScore(gameId, 'team', 1);
+
+  await core.undo(gameId);
+
+  expect((await core.liveGame(gameId))?.score).toEqual({ team: 1, opponent: 0 });
+});
+
+test('End Game records a game_end Event with the Final Score, and is refused without one', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+  await core.adjustScore(gameId, 'team', 1);
+
+  await expect(core.endGame(gameId, { teamScore: 1 } as never)).rejects.toThrow();
+  await expect(core.endGame(gameId, { teamScore: -1, opponentScore: 0 })).rejects.toThrow();
+  expect((await core.liveGame(gameId))?.final).toBeUndefined();
+
+  const end = await core.endGame(gameId, { teamScore: 9, opponentScore: 7 });
+  expect(await inspect.events.get(end.id)).toMatchObject({ type: 'game_end', team_score: 9, opponent_score: 7 });
+  expect((await core.liveGame(gameId))?.final).toEqual({ team: 9, opponent: 7 });
+});
+
+test('a finished Game accepts no new Events, and Home stops showing it as the Game in progress', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+  await core.recordTile(gameId, 'steal');
+  await core.endGame(gameId, { teamScore: 5, opponentScore: 3 });
+
+  await expect(core.recordTile(gameId, 'block')).rejects.toThrow();
+  await expect(core.adjustScore(gameId, 'team', 1)).rejects.toThrow();
+  await expect(core.undo(gameId)).rejects.toThrow();
+  await expect(core.endGame(gameId, { teamScore: 6, opponentScore: 3 })).rejects.toThrow();
+  expect(await core.liveGame(gameId)).toMatchObject({ final: { team: 5, opponent: 3 }, tiles: { steal: 1 } });
+  expect((await core.home()).liveGameId).toBeUndefined();
+
+  const athleteId = (await core.home()).athlete!.id;
+  const nextGame = await core.startGame({ athleteId, sport: 'basketball', periodFormat: 'quarters' });
+  expect((await core.home()).liveGameId).toBe(nextGame);
+});
+
+test('a softball Game takes the same strip and End Game as basketball', async () => {
+  const { core } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, sport: 'softball', periodFormat: 'innings' });
+
+  await core.adjustScore(gameId, 'opponent', 1);
+  expect((await core.liveGame(gameId))?.score).toEqual({ team: 0, opponent: 1 });
+
+  await core.endGame(gameId, { teamScore: 4, opponentScore: 1 });
+  expect((await core.liveGame(gameId))?.final).toEqual({ team: 4, opponent: 1 });
+});

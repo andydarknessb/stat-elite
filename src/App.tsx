@@ -1,6 +1,6 @@
 import { liveQuery } from 'dexie';
 import { useEffect, useState, type FormEvent } from 'react';
-import type { AppCore, Home, TileEventType } from './core/appCore';
+import type { AppCore, Home, Scores, TileEventType, UndoableType } from './core/appCore';
 
 /** Re-renders whenever the store data behind a read model changes. */
 function useReadModel<T>(read: () => Promise<T>, deps: unknown[]): T | undefined {
@@ -14,10 +14,13 @@ function useReadModel<T>(read: () => Promise<T>, deps: unknown[]): T | undefined
 
 export function App({ core }: { core: AppCore }) {
   const home = useReadModel(() => core.home(), [core]);
+  // the Game the Recorder just ended stays on screen, showing its Final Score, until Done
+  const [ended, setEnded] = useState<string>();
   if (!home) return null;
   if (!home.athlete) return <AthleteForm core={core} />;
-  if (!home.liveGameId) return <HomeScreen core={core} athlete={home.athlete} next={home.next} />;
-  return <LiveGame core={core} gameId={home.liveGameId} />;
+  const gameId = home.liveGameId ?? ended;
+  if (!gameId) return <HomeScreen core={core} athlete={home.athlete} next={home.next} />;
+  return <LiveGame core={core} gameId={gameId} onEnded={setEnded} onDone={() => setEnded(undefined)} />;
 }
 
 type AthleteFields = NonNullable<Home['athlete']>;
@@ -116,19 +119,112 @@ const TILE_LABELS: Record<TileEventType, string> = {
   foul: 'FOUL',
 };
 
-function LiveGame({ core, gameId }: { core: AppCore; gameId: string }) {
+/** Labels for every Event Undo can retract. */
+const EVENT_LABELS: Record<UndoableType, string> = { ...TILE_LABELS, score: 'Score', game_end: 'End Game' };
+
+/** One side of the Team–Opponent strip: its label, a − count + row. */
+function ScoreSide({ label, value, onAdjust }: { label: string; value: number; onAdjust: (delta: 1 | -1) => void }) {
+  return (
+    <div className="side" role="group" aria-label={label}>
+      <span>{label}</span>
+      <div>
+        <button aria-label={`${label} -1`} disabled={value === 0} onClick={() => onAdjust(-1)}>
+          −
+        </button>
+        <span className="count">{value}</span>
+        <button aria-label={`${label} +1`} onClick={() => onAdjust(1)}>
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** End Game: the Final Score, prefilled from the strip. Submit stays disabled until both sides have a whole number. */
+function EndGameForm({
+  core,
+  gameId,
+  score,
+  onEnded,
+  onCancel,
+}: {
+  core: AppCore;
+  gameId: string;
+  score: Scores;
+  onEnded: () => void;
+  onCancel: () => void;
+}) {
+  const [team, setTeam] = useState(String(score.team));
+  const [opponent, setOpponent] = useState(String(score.opponent));
+  const valid = /^\d+$/.test(team) && /^\d+$/.test(opponent);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    // leaves the Game on screen before the store closes it, so Home does not flash in between
+    onEnded();
+    void core.endGame(gameId, { teamScore: Number(team), opponentScore: Number(opponent) });
+  };
+  return (
+    <form onSubmit={submit}>
+      <label>
+        Team final
+        <input value={team} onChange={(e) => setTeam(e.target.value)} inputMode="numeric" autoComplete="off" />
+      </label>
+      <label>
+        Opponent final
+        <input value={opponent} onChange={(e) => setOpponent(e.target.value)} inputMode="numeric" autoComplete="off" />
+      </label>
+      <button className="primary" disabled={!valid}>
+        End Game
+      </button>
+      <button type="button" onClick={onCancel}>
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+function LiveGame({
+  core,
+  gameId,
+  onEnded,
+  onDone,
+}: {
+  core: AppCore;
+  gameId: string;
+  onEnded: (gameId: string) => void;
+  onDone: () => void;
+}) {
   const game = useReadModel(() => core.liveGame(gameId), [core, gameId]);
   // the label of the Event a tap just recorded, shown for 3 seconds
   const [toast, setToast] = useState<string>();
+  const [ending, setEnding] = useState(false);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(undefined), 3000);
     return () => clearTimeout(timer);
   }, [toast]);
   if (!game) return null;
+  if (game.final) {
+    return (
+      <main>
+        <h1>Final</h1>
+        <p className="final">
+          Team {game.final.team} – Opponent {game.final.opponent}
+        </p>
+        <button className="primary" onClick={onDone}>
+          Done
+        </button>
+      </main>
+    );
+  }
   const tap = async (type: TileEventType) => {
     await core.recordTile(gameId, type);
     setToast(TILE_LABELS[type]);
+  };
+  const adjust = (side: 'team' | 'opponent', delta: 1 | -1) => {
+    setToast(EVENT_LABELS.score);
+    void core.adjustScore(gameId, side, delta);
   };
   const undo = () => {
     setToast(undefined);
@@ -136,13 +232,31 @@ function LiveGame({ core, gameId }: { core: AppCore; gameId: string }) {
   };
   return (
     <main>
+      <section className="strip" aria-label="Score">
+        <ScoreSide label="Team" value={game.score.team} onAdjust={(delta) => adjust('team', delta)} />
+        <ScoreSide label="Opponent" value={game.score.opponent} onAdjust={(delta) => adjust('opponent', delta)} />
+      </section>
       {/* shortcut: only the STL tile, until the full basketball live screen (#15) */}
       <button className="tile" onClick={() => void tap('steal')}>
         STL <span className="count">{game.tiles.steal}</span>
       </button>
       <button className="undo" disabled={!game.undoable} onClick={undo}>
-        {game.undoable ? `Undo (last Event): ${TILE_LABELS[game.undoable.type]}` : 'Undo (last Event)'}
+        {game.undoable ? `Undo (last Event): ${EVENT_LABELS[game.undoable.type]}` : 'Undo (last Event)'}
       </button>
+      {ending ? (
+        <EndGameForm
+          core={core}
+          gameId={gameId}
+          score={game.score}
+          onCancel={() => setEnding(false)}
+          onEnded={() => {
+            setEnding(false);
+            onEnded(gameId);
+          }}
+        />
+      ) : (
+        <button onClick={() => setEnding(true)}>End Game</button>
+      )}
       {toast && (
         <div className="toast" role="status">
           <span>{toast}</span>

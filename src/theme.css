@@ -118,6 +118,43 @@ button:disabled {
   pointer-events: none;
 }
 
+/* The Team–Opponent strip: each side is a label over − count +. */
+.strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  text-align: center;
+}
+
+.strip .side {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.strip .side > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.strip button {
+  width: 56px;
+  font-size: 24px;
+}
+
+.strip .count {
+  min-width: 48px;
+  font-size: 32px;
+  font-weight: 600;
+}
+
+.final {
+  font-size: 32px;
+  font-weight: 600;
+  text-align: center;
+}
+
 .toast button {
   pointer-events: auto;
   background: var(--bg);
