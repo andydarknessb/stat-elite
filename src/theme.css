@@ -343,11 +343,17 @@ button:disabled {
   gap: 8px;
 }
 
-/* softball and baseball: the Outcome grid, the RBI chips under it, and the batting line */
+/* softball and baseball: the Pitch row and Outcome grid, the count, the RBI chips under them, and the batting line */
+.pitches,
 .outcomes {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
+}
+
+.pitch-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 .rbi {

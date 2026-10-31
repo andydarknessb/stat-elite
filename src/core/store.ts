@@ -55,6 +55,10 @@ export const OUTCOMES = [
 ] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
+/** One Pitch thrown during a Plate Appearance (GLOSSARY: Pitch). Matches docs/schema.sql's pitch check. */
+export const PITCHES = ['ball', 'called_strike', 'swinging_strike', 'foul'] as const;
+export type Pitch = (typeof PITCHES)[number];
+
 export interface EventRow {
   id: string;
   game_id: string;
@@ -62,7 +66,7 @@ export interface EventRow {
   client_ts: string;
   period: number;
   /** A Period start: the Event that opens a Period, and carries it (GLOSSARY: Period). */
-  type: TileEventType | 'shot' | 'free_throw' | 'sub_in' | 'sub_out' | 'score' | 'game_end' | 'retraction' | 'period_start' | 'plate_appearance';
+  type: TileEventType | 'shot' | 'free_throw' | 'sub_in' | 'sub_out' | 'score' | 'game_end' | 'retraction' | 'period_start' | 'plate_appearance' | 'pitch';
   /** The Event a Retraction cancels; null on every other Event. */
   retracts_id: string | null;
   /** A Shot's spot on the half court, each axis 0–100; null on every other Event. */
@@ -78,6 +82,8 @@ export interface EventRow {
   /** A Plate Appearance's Outcome and RBI count (0–4); null on every other Event. */
   outcome: Outcome | null;
   rbi: number | null;
+  /** A Pitch's result, on 'pitch' Events; null on every other Event. */
+  pitch: Pitch | null;
 }
 
 /** A row waiting for upload. It names the row, not a copy: the outbox reads the row as it is when it uploads. */

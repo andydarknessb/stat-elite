@@ -1,12 +1,14 @@
 import type { Table } from 'dexie';
 import {
   OUTCOMES,
+  PITCHES,
   TILE_EVENT_TYPES,
   type AthleteRow,
   type EventRow,
   type GameRow,
   type OutboxRow,
   type Outcome,
+  type Pitch,
   type Store,
   type TileEventType,
 } from './store';
@@ -73,6 +75,17 @@ export interface Counts {
   points: number;
 }
 
+/** How a strikeout is marked: looking or swinging, by the last called or swinging strike (GLOSSARY: Pitch). */
+export type StrikeKind = 'looking' | 'swinging';
+
+/** A Plate Appearance's count from its Pitches: balls and strikes, and how a strikeout would be marked now. */
+export interface PitchCount {
+  balls: number;
+  strikes: number;
+  /** Undefined without a called or swinging strike: a strikeout then stays unmarked. */
+  strikeout?: StrikeKind;
+}
+
 /** A softball or baseball Game's batting: its At-Bats, and AVG, OBP and SLG (plan: Stats; GLOSSARY: At-Bat). */
 export interface Batting {
   atBats: number;
@@ -95,8 +108,10 @@ export interface LiveGame extends Counts {
   score: Scores;
   /** The Final Score, once End Game has closed the Game. */
   final?: Scores;
-  /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot. */
-  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3; outcome?: Outcome };
+  /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot; strikeout on a strikeout Plate Appearance. */
+  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3; outcome?: Outcome; strikeout?: StrikeKind };
+  /** The count of the Plate Appearance in progress, once a Pitch is logged in it (GLOSSARY: Pitch); undefined before that. */
+  count?: PitchCount;
   /** Whether the Athlete is on court: the newest Sub Event not retracted is a Sub In. */
   onCourt: boolean;
   /** The Game's Shifts in order; the one on court, if any, runs to now, or to the End Game once it is over. */
@@ -272,6 +287,36 @@ const battingOf = (live: EventRow[]): Batting => {
   };
 };
 
+// the count Pitches make: a foul is a strike only while the count has fewer than two (a batter cannot strike out on a foul)
+const pitchCountOf = (pitches: Pitch[]): PitchCount => {
+  let balls = 0;
+  let strikes = 0;
+  for (const pitch of pitches) {
+    if (pitch === 'ball') balls++;
+    else if (pitch === 'foul') {
+      if (strikes < 2) strikes++;
+    } else strikes++;
+  }
+  // fouls never mark a strikeout: only the last called or swinging strike does
+  const last = pitches.filter((pitch) => pitch === 'called_strike' || pitch === 'swinging_strike').at(-1);
+  if (last === undefined) return { balls, strikes };
+  return { balls, strikes, strikeout: last === 'called_strike' ? 'looking' : 'swinging' };
+};
+
+// each Plate Appearance's strikeout mark (undefined for every other Outcome), and the Pitches logged since the newest Plate Appearance
+const pitchesOf = (live: EventRow[]) => {
+  const strikeouts = new Map<string, StrikeKind | undefined>();
+  let pitches: Pitch[] = [];
+  for (const event of live) {
+    if (event.type === 'pitch' && event.pitch) pitches.push(event.pitch);
+    if (event.type === 'plate_appearance') {
+      if (event.outcome === 'strikeout') strikeouts.set(event.id, pitchCountOf(pitches).strikeout);
+      pitches = [];
+    }
+  }
+  return { strikeouts, current: pitches };
+};
+
 /** The phone's local calendar date, not UTC, as YYYY-MM-DD. */
 const localDate = (date: Date) =>
   new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
@@ -348,6 +393,7 @@ const eventOf = ({
   opponent_score,
   outcome,
   rbi,
+  pitch,
 }: EventRow): EventRow => ({
   id,
   game_id,
@@ -364,6 +410,7 @@ const eventOf = ({
   opponent_score,
   outcome,
   rbi,
+  pitch,
 });
 
 // the downloaded rows the phone does not hold yet, given what the store already has under their ids
@@ -395,7 +442,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const nextEvent = async (
     gameId: string,
     fields: Pick<EventRow, 'type' | 'retracts_id'> &
-      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value' | 'outcome' | 'rbi'>>,
+      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value' | 'outcome' | 'rbi' | 'pitch'>>,
   ): Promise<EventRow> => {
     const events = await gameEvents(gameId).toArray();
     const last = events.at(-1);
@@ -415,6 +462,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       opponent_score: null,
       outcome: null,
       rbi: null,
+      pitch: null,
       ...fields,
     };
   };
@@ -562,6 +610,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     const byPeriod: Record<number, Counts> = {};
     for (let p = 1; p <= period; p++) byPeriod[p] = countOf(live.filter((e) => e.period === p));
     const latest = live.at(-1);
+    const pitches = pitchesOf(live);
     const score = latestScores(events);
     // the Shift still on court runs to the strip's latest scores, and to the End Game once the Game is over
     const endAt = last?.type === 'game_end' ? last.client_ts : now();
@@ -583,7 +632,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         made: latest.made ?? undefined,
         value: latest.shot_value ?? undefined,
         outcome: latest.outcome ?? undefined,
+        strikeout: pitches.strikeouts.get(latest.id),
       },
+      count: pitches.current.length > 0 ? pitchCountOf(pitches.current) : undefined,
       onCourt: onCourtSince !== undefined,
       shifts,
       plusMinus: shifts.reduce((sum, shift) => sum + shift.plusMinus, 0),
@@ -697,6 +748,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     recordFreeThrow(gameId: string, made: boolean): Promise<EventRow> {
       return write([store.events], async () => {
         const event = await nextEvent(gameId, { type: 'free_throw', retracts_id: null, made });
+        await store.events.add(event);
+        await queue('events', event.id);
+        return event;
+      });
+    },
+
+    /** A Pitch: one ball, strike or foul in the Plate Appearance in progress; Pitches are optional (GLOSSARY: Pitch). */
+    async recordPitch(gameId: string, pitch: Pitch): Promise<EventRow> {
+      if (!PITCHES.includes(pitch)) throw new Error('A Pitch is a ball, a called or swinging strike, or a foul');
+      return write([store.events], async () => {
+        const event = await nextEvent(gameId, { type: 'pitch', retracts_id: null, pitch });
         await store.events.add(event);
         await queue('events', event.id);
         return event;
