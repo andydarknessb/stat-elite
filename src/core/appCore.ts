@@ -38,7 +38,12 @@ export interface Home {
   liveGameId?: string;
 }
 
+/** How large the live-game buttons are (GLOSSARY: Button Size). */
+export const BUTTON_SIZES = ['compact', 'standard', 'bleacher'] as const;
+export type ButtonSize = (typeof BUTTON_SIZES)[number];
+
 const SELECTED_ATHLETE = 'selectedAthleteId';
+const BUTTON_SIZE = 'buttonSize';
 /** The account whose rows this phone last downloaded: a sign-in clears it, so the next one downloads again. */
 const DOWNLOADED_FOR = 'downloadedFor';
 
@@ -49,12 +54,14 @@ export interface LiveGame {
   id: string;
   sport: GameRow['sport'];
   tiles: Record<TileEventType, number>;
+  /** Free Throws not retracted: how many went in, of how many were attempted. */
+  freeThrows: { made: number; attempted: number };
   /** The latest Score Snapshot not retracted; 0–0 before the first one. */
   score: Scores;
   /** The Final Score, once End Game has closed the Game. */
   final?: Scores;
-  /** The Event the next Undo retracts: the newest one not already retracted. */
-  undoable?: { id: string; type: UndoableType };
+  /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Free Throw. */
+  undoable?: { id: string; type: UndoableType; made?: boolean };
 }
 
 /** IDs of the Events that a Retraction in this list undoes. */
@@ -113,9 +120,10 @@ const eventOf = ({
   period,
   type,
   retracts_id,
+  made,
   team_score,
   opponent_score,
-}: EventRow): EventRow => ({ id, game_id, seq, client_ts, period, type, retracts_id, team_score, opponent_score });
+}: EventRow): EventRow => ({ id, game_id, seq, client_ts, period, type, retracts_id, made, team_score, opponent_score });
 
 // the downloaded rows the phone does not hold yet, given what the store already has under their ids
 const lacking = <T>(rows: T[], held: (T | undefined)[]): T[] => rows.filter((_, i) => held[i] === undefined);
@@ -140,7 +148,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   // the next Event in a Game, appended to its log
   const nextEvent = async (
     gameId: string,
-    fields: Pick<EventRow, 'type' | 'retracts_id'> & Partial<Pick<EventRow, 'team_score' | 'opponent_score'>>,
+    fields: Pick<EventRow, 'type' | 'retracts_id'> & Partial<Pick<EventRow, 'made' | 'team_score' | 'opponent_score'>>,
   ): Promise<EventRow> => {
     const last = await gameEvents(gameId).last();
     // End Game is always the last Event of a Game, so nothing is appended after it
@@ -152,6 +160,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       client_ts: now(),
       // shortcut: every Event is in Period 1 until Next period exists (#18)
       period: 1,
+      made: null,
       team_score: null,
       opponent_score: null,
       ...fields,
@@ -321,6 +330,16 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
+    /** A Free Throw: its result, and no spot (GLOSSARY: Free Throw). */
+    recordFreeThrow(gameId: string, made: boolean): Promise<EventRow> {
+      return write([store.events], async () => {
+        const event = await nextEvent(gameId, { type: 'free_throw', retracts_id: null, made });
+        await store.events.add(event);
+        await queue('events', event.id);
+        return event;
+      });
+    },
+
     /** Moves one side of the strip one point and records the new absolute scores as a Score Snapshot (ADR 0002). */
     adjustScore(gameId: string, side: 'team' | 'opponent', delta: 1 | -1): Promise<EventRow | undefined> {
       return write([store.events], async () => {
@@ -383,6 +402,16 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       await store.settings.put({ key: SELECTED_ATHLETE, value: athleteId });
     },
 
+    /** Button Size is a phone setting: Standard until a Recorder picks one. */
+    async buttonSize(): Promise<ButtonSize> {
+      const value = (await store.settings.get(BUTTON_SIZE))?.value;
+      return BUTTON_SIZES.find((size) => size === value) ?? 'standard';
+    },
+
+    async setButtonSize(size: ButtonSize): Promise<void> {
+      await store.settings.put({ key: BUTTON_SIZE, value: size });
+    },
+
     async home(): Promise<Home> {
       const athletes = await store.athletes.orderBy('created_at').toArray();
       if (athletes.length === 0) return {};
@@ -418,11 +447,16 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const events = await gameEvents(gameId).toArray();
       const retracted = retractedIds(events);
       const tiles = Object.fromEntries(TILE_EVENT_TYPES.map((type) => [type, 0])) as Record<TileEventType, number>;
+      const freeThrows = { made: 0, attempted: 0 };
       let undoable: LiveGame['undoable'];
       for (const event of events) {
         if (event.type === 'retraction' || retracted.has(event.id)) continue;
         if (isTile(event.type)) tiles[event.type]++;
-        undoable = { id: event.id, type: event.type };
+        if (event.type === 'free_throw') {
+          freeThrows.attempted++;
+          if (event.made) freeThrows.made++;
+        }
+        undoable = { id: event.id, type: event.type, made: event.made ?? undefined };
       }
       // End Game is always the last Event, so a finished Game ends on its game_end
       const last = events.at(-1);
@@ -430,6 +464,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         id: game.id,
         sport: game.sport,
         tiles,
+        freeThrows,
         score: latestScores(events),
         final: last?.type === 'game_end' ? snapshotOf(last) : undefined,
         undoable,

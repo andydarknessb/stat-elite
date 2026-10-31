@@ -1,6 +1,17 @@
 import { liveQuery } from 'dexie';
 import { useEffect, useState, type FormEvent } from 'react';
-import type { AppCore, GameFormat, GameSetup, Home, Scores, TileEventType, UndoableType } from './core/appCore';
+import {
+  BUTTON_SIZES,
+  type AppCore,
+  type ButtonSize,
+  type GameFormat,
+  type GameSetup,
+  type Home,
+  type LiveGame,
+  type Scores,
+  type TileEventType,
+  type UndoableType,
+} from './core/appCore';
 import { InviteRefused } from './core/server';
 import { InstallPrompt } from './InstallPrompt';
 
@@ -330,12 +341,13 @@ function SetupFields({
 }
 
 function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
-  const [form, setForm] = useState<'add' | 'edit' | 'setup'>();
+  const [form, setForm] = useState<'add' | 'edit' | 'setup' | 'settings'>();
   // a Member records Games on the Athlete too; Edit stays the Owner's
   const owner = useReadModel(() => core.isOwner(athlete.id), [core, athlete.id]);
   if (form === 'setup') {
     return <GameSetupForm core={core} athleteId={athlete.id} onCancel={() => setForm(undefined)} />;
   }
+  if (form === 'settings') return <SettingsScreen core={core} onDone={() => setForm(undefined)} />;
   if (form) {
     return <AthleteForm core={core} athlete={form === 'edit' ? athlete : undefined} onDone={() => setForm(undefined)} />;
   }
@@ -366,6 +378,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         </button>
         {owner && <button onClick={() => setForm('edit')}>Edit</button>}
         <button onClick={() => setForm('add')}>Add Athlete</button>
+        <button onClick={() => setForm('settings')}>Settings</button>
         <InviteCoParent core={core} athleteId={athlete.id} />
       </main>
       <InstallPrompt />
@@ -383,8 +396,45 @@ const TILE_LABELS: Record<TileEventType, string> = {
   foul: 'FOUL',
 };
 
-/** Labels for every Event Undo can retract. */
-const EVENT_LABELS: Record<UndoableType, string> = { ...TILE_LABELS, score: 'Score', game_end: 'End Game' };
+/** Labels for every Event Undo can retract, except a Free Throw, which names its result (see undoLabel). */
+const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw'>, string> = {
+  ...TILE_LABELS,
+  score: 'Score',
+  game_end: 'End Game',
+};
+
+const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
+
+const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
+  undoable.type === 'free_throw' ? freeThrowLabel(undoable.made) : EVENT_LABELS[undoable.type];
+
+const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 'Standard', bleacher: 'Bleacher' };
+
+/** Settings: Button Size, the phone setting the live screen reads (GLOSSARY: Button Size). */
+function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void }) {
+  const size = useReadModel(() => core.buttonSize(), [core]);
+  if (!size) return null;
+  return (
+    <main>
+      <h1>Settings</h1>
+      <div className="sizes" role="group" aria-label="Button Size">
+        {BUTTON_SIZES.map((option) => (
+          <button
+            key={option}
+            aria-pressed={option === size}
+            className={option === size ? 'primary' : undefined}
+            onClick={() => void core.setButtonSize(option)}
+          >
+            {SIZE_LABELS[option]}
+          </button>
+        ))}
+      </div>
+      <button className="primary" onClick={onDone}>
+        Done
+      </button>
+    </main>
+  );
+}
 
 /** One side of the Team–Opponent strip: its label, a − count + row. */
 function ScoreSide({ label, value, onAdjust }: { label: string; value: number; onAdjust: (delta: 1 | -1) => void }) {
@@ -460,6 +510,7 @@ function LiveGame({
   onDone: () => void;
 }) {
   const game = useReadModel(() => core.liveGame(gameId), [core, gameId]);
+  const size = useReadModel(() => core.buttonSize(), [core]) ?? 'standard';
   // the label of the Event a tap just recorded, shown for 3 seconds
   const [toast, setToast] = useState<string>();
   const [ending, setEnding] = useState(false);
@@ -487,6 +538,10 @@ function LiveGame({
     await core.recordTile(gameId, type);
     setToast(TILE_LABELS[type]);
   };
+  const tapFreeThrow = async (made: boolean) => {
+    await core.recordFreeThrow(gameId, made);
+    setToast(freeThrowLabel(made));
+  };
   const adjust = (side: 'team' | 'opponent', delta: 1 | -1) => {
     setToast(EVENT_LABELS.score);
     void core.adjustScore(gameId, side, delta);
@@ -495,18 +550,57 @@ function LiveGame({
     setToast(undefined);
     void core.undo(gameId);
   };
+  const shots = (
+    <>
+      {/* shortcut: an empty court until Shot entry draws on it (#16) */}
+      <section className="court" aria-label="Half court" />
+      <div className="free-throws" role="group" aria-label="Free Throw">
+        <button className="make" onClick={() => void tapFreeThrow(true)}>
+          MAKE
+        </button>
+        <span className="count">
+          {game.freeThrows.made}/{game.freeThrows.attempted}
+        </span>
+        <button className="miss" onClick={() => void tapFreeThrow(false)}>
+          MISS
+        </button>
+      </div>
+    </>
+  );
+  const otherStats = (
+    <div className="tiles">
+      {(Object.keys(TILE_LABELS) as TileEventType[]).map((type) => (
+        <button key={type} className="tile" onClick={() => void tap(type)}>
+          {TILE_LABELS[type]} <span className="count">{game.tiles[type]}</span>
+        </button>
+      ))}
+    </div>
+  );
   return (
-    <main>
+    <main className={`live ${size}`}>
+      {/* shortcut: an empty Shift bar until Shifts and Sub In/Out land (#17) */}
+      <section className="shift" aria-label="Shift" />
       <section className="strip" aria-label="Score">
         <ScoreSide label="Team" value={game.score.team} onAdjust={(delta) => adjust('team', delta)} />
         <ScoreSide label="Opponent" value={game.score.opponent} onAdjust={(delta) => adjust('opponent', delta)} />
       </section>
-      {/* shortcut: only the STL tile, until the full basketball live screen (#15) */}
-      <button className="tile" onClick={() => void tap('steal')}>
-        STL <span className="count">{game.tiles.steal}</span>
-      </button>
+      {size === 'bleacher' ? (
+        <div className="pages">
+          <section className="page" aria-label="Shots">
+            {shots}
+          </section>
+          <section className="page" aria-label="Other stats">
+            {otherStats}
+          </section>
+        </div>
+      ) : (
+        <>
+          {shots}
+          {otherStats}
+        </>
+      )}
       <button className="undo" disabled={!game.undoable} onClick={undo}>
-        {game.undoable ? `Undo (last Event): ${EVENT_LABELS[game.undoable.type]}` : 'Undo (last Event)'}
+        {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
       </button>
       {ending ? (
         <EndGameForm
