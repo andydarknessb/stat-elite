@@ -1,6 +1,6 @@
 import { liveQuery } from 'dexie';
 import { useEffect, useState, type FormEvent } from 'react';
-import type { AppCore, Home, Scores, TileEventType, UndoableType } from './core/appCore';
+import type { AppCore, GameFormat, GameSetup, Home, Scores, TileEventType, UndoableType } from './core/appCore';
 import { InstallPrompt } from './InstallPrompt';
 import { requestPersistence } from './pwa';
 
@@ -92,8 +92,89 @@ function AthletePhoto({ photo }: { photo: Blob }) {
   return url ? <img src={url} alt="" /> : null;
 }
 
+/** Game setup: the Athlete's last Game prefills it, so starting is usually one tap. */
+function GameSetupForm({ core, athleteId, onCancel }: { core: AppCore; athleteId: string; onCancel: () => void }) {
+  const setup = useReadModel(() => core.gameSetup(athleteId), [core, athleteId]);
+  if (!setup) return null;
+  return <SetupFields core={core} athleteId={athleteId} setup={setup} onCancel={onCancel} />;
+}
+
+/** The fields hold what the user types from the first render on; the prefill only seeds them. */
+function SetupFields({
+  core,
+  athleteId,
+  setup,
+  onCancel,
+}: {
+  core: AppCore;
+  athleteId: string;
+  setup: GameSetup;
+  onCancel: () => void;
+}) {
+  const [sport, setSport] = useState(setup.sport);
+  const [periods, setPeriods] = useState(setup.basketballPeriods);
+  const [opponent, setOpponent] = useState(setup.opponentName);
+  const [gameDate, setGameDate] = useState(setup.gameDate);
+  // a second tap before the Game shows on screen would start a second Game
+  const [starting, setStarting] = useState(false);
+  const valid = opponent.trim() !== '' && gameDate !== '';
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!valid || starting) return;
+    setStarting(true);
+    const format: GameFormat =
+      sport === 'basketball' ? { sport, periodFormat: periods } : { sport, periodFormat: 'innings' };
+    void core.startGame({ athleteId, opponentName: opponent, gameDate, ...format });
+  };
+  return (
+    <main>
+      <h1>Game setup</h1>
+      <form onSubmit={submit}>
+        <label>
+          Sport
+          <select value={sport} onChange={(e) => setSport(e.target.value as GameFormat['sport'])}>
+            <option value="basketball">Basketball</option>
+            <option value="softball">Softball</option>
+            <option value="baseball">Baseball</option>
+          </select>
+        </label>
+        <label>
+          Period format
+          {sport === 'basketball' ? (
+            <select value={periods} onChange={(e) => setPeriods(e.target.value === 'halves' ? 'halves' : 'quarters')}>
+              <option value="quarters">Quarters</option>
+              <option value="halves">Halves</option>
+            </select>
+          ) : (
+            <select value="innings" disabled>
+              <option value="innings">Innings</option>
+            </select>
+          )}
+        </label>
+        <label>
+          Opponent
+          <input value={opponent} onChange={(e) => setOpponent(e.target.value)} required autoComplete="off" />
+        </label>
+        <label>
+          Date
+          <input type="date" value={gameDate} onChange={(e) => setGameDate(e.target.value)} required />
+        </label>
+        <button className="primary" disabled={!valid || starting}>
+          Start
+        </button>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </form>
+    </main>
+  );
+}
+
 function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
-  const [form, setForm] = useState<'add' | 'edit'>();
+  const [form, setForm] = useState<'add' | 'edit' | 'setup'>();
+  if (form === 'setup') {
+    return <GameSetupForm core={core} athleteId={athlete.id} onCancel={() => setForm(undefined)} />;
+  }
   if (form) {
     return <AthleteForm core={core} athlete={form === 'edit' ? athlete : undefined} onDone={() => setForm(undefined)} />;
   }
@@ -112,11 +193,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         </button>
         <h1>{athlete.name}</h1>
         {athlete.jerseyNumber && <p>#{athlete.jerseyNumber}</p>}
-        {/* shortcut: always basketball in quarters, until Game setup exists (#14) */}
-        <button
-          className="primary"
-          onClick={() => void core.startGame({ athleteId: athlete.id, sport: 'basketball', periodFormat: 'quarters' })}
-        >
+        <button className="primary" onClick={() => setForm('setup')}>
           Start Game
         </button>
         <button onClick={() => setForm('edit')}>Edit</button>

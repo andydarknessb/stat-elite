@@ -75,5 +75,6 @@ test('with two Athletes, tapping the photo switches Home, and Start Game records
   await expect(page.getByRole('heading', { name: 'Sam' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();
 });

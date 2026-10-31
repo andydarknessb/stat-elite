@@ -5,6 +5,7 @@ test('a Recorder adjusts the strip, reloads and still sees the score, then ends 
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
 
   await page.getByRole('button', { name: 'Team +1' }).click();
   await page.getByRole('button', { name: 'Team +1' }).click();
