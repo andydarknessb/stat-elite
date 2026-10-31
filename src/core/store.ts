@@ -23,6 +23,8 @@ export interface AthletePhotoRow {
 export interface GameRow {
   id: string;
   athlete_id: string;
+  /** The Recorder's account: set at sign-in for a Game recorded before it; null once that account is deleted (ADR 0004). */
+  recorded_by?: string | null;
   sport: 'basketball' | 'softball' | 'baseball';
   period_format: 'halves' | 'quarters' | 'innings';
   opponent_name: string;
