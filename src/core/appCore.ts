@@ -821,6 +821,22 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       ].join('\n');
     },
 
+    /** Game Complete's share card: the Athlete's name and photo, the Opponent, the Final Score and the line; undefined while the Game is in progress. The photo only leaves the phone inside the image. */
+    async gameCard(gameId: string) {
+      const game = await store.games.get(gameId);
+      const summary = game && (await finishedGame(game, localDate(clock())))?.row;
+      if (!game || !summary) return undefined;
+      const athlete = await store.athletes.get(game.athlete_id);
+      const photo = await store.athletePhotos.get(game.athlete_id);
+      return {
+        athlete: athlete?.name ?? 'Athlete',
+        photo: photo?.photo,
+        opponent: summary.opponent,
+        final: summary.final,
+        line: lineText(summary.line),
+      };
+    },
+
     /** Signs the Recorder in with a magic link, then uploads everything recorded so far. An Invite's token rides in the link. */
     async signIn(email: string, invite?: string): Promise<void> {
       await server.signIn(email, invite);
