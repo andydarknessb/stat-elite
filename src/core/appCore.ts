@@ -44,10 +44,13 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
   };
 
   return {
-    async addAthlete({ name }: { name: string }): Promise<string> {
+    async addAthlete({ name, jerseyNumber, photo }: { name: string; jerseyNumber?: string; photo?: Blob }): Promise<string> {
       const id = crypto.randomUUID();
       const ts = now();
-      await store.athletes.add({ id, name, created_at: ts, updated_at: ts });
+      await store.transaction('rw', store.athletes, store.athletePhotos, async () => {
+        await store.athletes.add({ id, name, jersey_number: jerseyNumber?.trim() || null, created_at: ts, updated_at: ts });
+        if (photo) await store.athletePhotos.add({ athlete_id: id, photo });
+      });
       return id;
     },
 

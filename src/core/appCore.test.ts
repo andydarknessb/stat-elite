@@ -113,3 +113,35 @@ test('after a reload Undo still steps back from the same Event', async () => {
   expect(await reloaded.undo(gameId)).toMatchObject({ type: 'retraction', seq: 4 });
   expect((await reloaded.recordTile(gameId, 'steal')).seq).toBe(5);
 });
+
+test('an Athlete row holds only its synced columns; the photo is stored apart from it and never uploaded', async () => {
+  const { core, inspect } = setup();
+  const photo = new Blob(['jpeg bytes'], { type: 'image/jpeg' });
+
+  const athleteId = await core.addAthlete({ name: 'Casey', jerseyNumber: '12', photo });
+
+  const row = await inspect.athletes.get(athleteId);
+  expect(Object.keys(row ?? {}).sort()).toEqual(['created_at', 'id', 'jersey_number', 'name', 'updated_at']);
+  expect(row).toMatchObject({ name: 'Casey', jersey_number: '12' });
+  expect((await inspect.athletePhotos.get(athleteId))?.photo.size).toBe(photo.size);
+});
+
+test('editing an Athlete changes its name and number and stamps updated_at with the edit time', async () => {
+  const { core, inspect, now } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey', jerseyNumber: '12' });
+  const later = new Date('2026-10-30T19:00:00Z');
+
+  await createAppCore({ clock: () => later, store: inspect, server: {} }).editAthlete({
+    id: athleteId,
+    name: 'Casey Jones',
+    jerseyNumber: '7',
+  });
+
+  expect(await inspect.athletes.get(athleteId)).toEqual({
+    id: athleteId,
+    name: 'Casey Jones',
+    jersey_number: '7',
+    created_at: now.toISOString(),
+    updated_at: later.toISOString(),
+  });
+});
