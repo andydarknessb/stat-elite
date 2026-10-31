@@ -1,16 +1,16 @@
 import { expect, test } from 'vitest';
 import { syncOnLaunchAndOnline } from './syncTriggers';
 
-test('wiring the sync triggers flushes once at launch', () => {
-  let flushes = 0;
-  syncOnLaunchAndOnline({ flush: async () => void flushes++ }, new EventTarget());
-  expect(flushes).toBe(1);
+test('wiring the sync triggers refreshes once at launch', () => {
+  let refreshes = 0;
+  syncOnLaunchAndOnline({ refresh: async () => void refreshes++ }, new EventTarget());
+  expect(refreshes).toBe(1);
 });
 
-test('the connection returning flushes again', () => {
-  let flushes = 0;
+test('the connection returning refreshes again', () => {
+  let refreshes = 0;
   const target = new EventTarget();
-  syncOnLaunchAndOnline({ flush: async () => void flushes++ }, target);
+  syncOnLaunchAndOnline({ refresh: async () => void refreshes++ }, target);
   target.dispatchEvent(new Event('online'));
-  expect(flushes).toBe(2);
+  expect(refreshes).toBe(2);
 });

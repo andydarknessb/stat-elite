@@ -93,7 +93,18 @@ const gameOf = ({
   game_date,
   created_at,
   updated_at,
-}: GameRow): GameRow => ({ id, athlete_id, sport, period_format, opponent_name, game_date, created_at, updated_at });
+  recorded_by,
+}: GameRow): GameRow => ({
+  id,
+  athlete_id,
+  sport,
+  period_format,
+  opponent_name,
+  game_date,
+  created_at,
+  updated_at,
+  recorded_by,
+});
 const eventOf = ({
   id,
   game_id,
@@ -171,7 +182,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
   // Brings the account's rows down: Athletes and Games the phone lacks or holds an older edit of, Events it lacks.
   // Fetched before the transaction, since Dexie cannot span the network. Nothing here is queued for upload.
-  // shortcut: every visible Event is fetched on each sign-in, not only the missing ones, fine for one child's Games; upgrade with a per-Game seq cursor when a season's Events get slow to fetch
+  // shortcut: every visible Event is fetched on each sign-in, launch and reconnect, not only the missing ones, fine for one child's Games; upgrade with a per-Game seq cursor when a season's Events get slow to fetch
   const download = async () => {
     const [athletes, games, events] = await Promise.all([
       server.download('athletes'),
@@ -206,11 +217,15 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         console.error(error);
       }
     }
-    // signing in makes the account the Owner of the phone's Athletes
+    // signing in makes the account the Owner of the phone's Athletes, and the Recorder of the Games recorded before it
     await store.athletes
       .toCollection()
       .filter((a) => a.owner_id === undefined)
       .modify({ owner_id: owner });
+    await store.games
+      .toCollection()
+      .filter((g) => g.recorded_by === undefined)
+      .modify({ recorded_by: owner });
     for (const entry of await store.outbox.orderBy('seq').toArray()) {
       const loaded = await loadRow(entry);
       if (!loaded) {
@@ -228,9 +243,16 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   };
   // one drain at a time, each starting after the one before it has finished
   let draining: Promise<void> = Promise.resolve();
-  const flush = (): Promise<void> => (draining = draining.then(drain).catch(console.error));
+  const after = (task: () => Promise<void>): Promise<void> => (draining = draining.then(task).catch(console.error));
+  const flush = () => after(drain);
+  // launch and reconnect: the download runs again, after any drain in flight, then the queue uploads (ADR 0004)
+  const refresh = () =>
+    after(async () => {
+      await store.settings.delete(DOWNLOADED_FOR);
+      await drain();
+    });
 
-  // a Member's phone reads its Athlete and records nothing on it: only the Owner's (or a signed-out Recorder's) phone writes
+  // whether the phone's account owns the Athlete, or the phone is signed out: Edit and Invite are the Owner's (ADR 0004)
   const isOwner = async (athleteId: string) => {
     const owner = (await store.athletes.get(athleteId))?.owner_id;
     return owner === undefined || owner === (await server.session());
@@ -266,6 +288,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       if (!opponent || !/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) throw new Error('A Game needs an Opponent and a date');
       const id = crypto.randomUUID();
       const date = clock();
+      // the signed-in account records the Game; a signed-out phone's Game takes its Recorder at sign-in
+      const recorder = await server.session();
       await write([store.games], async () => {
         await store.games.add({
           id,
@@ -276,6 +300,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
           game_date: gameDate,
           created_at: date.toISOString(),
           updated_at: date.toISOString(),
+          recorded_by: recorder,
         });
         await queue('games', id);
       });
@@ -364,10 +389,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const athlete = athletes[index];
       const photo = await store.athletePhotos.get(athlete.id);
       const next = athletes[(index + 1) % athletes.length];
-      // the newest Game that End Game has not closed is the one in progress, and only the Owner's phone records on it
+      // the newest Game that End Game has not closed is the one in progress, and only its Recorder's phone records on it
       const games = await store.games.where('athlete_id').equals(athlete.id).sortBy('created_at');
+      const session = await server.session();
       let liveGameId: string | undefined;
-      for (const game of (await isOwner(athlete.id)) ? [...games].reverse() : []) {
+      for (const game of [...games].reverse()) {
+        // a Game from before sign-in has no Recorder yet, and this phone recorded it
+        if (game.recorded_by !== undefined && game.recorded_by !== session) continue;
         if ((await gameEvents(game.id).last())?.type !== 'game_end') {
           liveGameId = game.id;
           break;
@@ -442,8 +470,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
-    /** Uploads whatever is queued. Called on launch, on reconnect, and after every write. */
+    /** Uploads whatever is queued. Called after every write. */
     flush,
+
+    /** Launch and reconnect: brings the account's rows down again, then uploads whatever is queued. */
+    refresh,
   };
 }
 

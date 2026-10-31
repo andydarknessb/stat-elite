@@ -365,7 +365,7 @@ test("signing in makes the account the Owner of the phone's Athletes and uploads
   expect(await inspect.athletes.get(athleteId)).toMatchObject({ owner_id: owner });
   expect(server.uploads).toEqual([`athletes:${athleteId}`, `games:${gameId}`, `events:${steal.id}`, `events:${end.id}`]);
   expect(server.rows.athletes.get(athleteId)).toMatchObject({ owner_id: owner });
-  expect(server.rows.games.get(gameId)).toMatchObject({ owner_id: owner, athlete_id: athleteId });
+  expect(server.rows.games.get(gameId)).toMatchObject({ owner_id: owner, athlete_id: athleteId, recorded_by: owner });
   expect(server.rows.events.get(steal.id)).toMatchObject({ owner_id: owner, game_id: gameId });
   expect(await core.sync()).toEqual({ signedIn: true, notSynced: 0 });
 });
@@ -837,4 +837,67 @@ test('a Member whose download fails on accepting has the Athlete and its Games a
 
   expect(await member.inspect.athletes.get(athleteId)).toMatchObject({ name: 'Casey' });
   expect(await member.inspect.games.get(gameId)).toMatchObject({ athlete_id: athleteId });
+});
+
+test("a Game a Member records reaches the Owner's phone at its next launch, under the Owner, with the Member as its Recorder", async () => {
+  const { core, server, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const ownerGame = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.endGame(ownerGame, { teamScore: 5, opponentScore: 3 });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+
+  const gameId = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
+  const steal = await member.core.recordTile(gameId, 'steal');
+  await member.core.flush();
+
+  const owner = await server.session();
+  const memberAccount = await member.server.session();
+  expect(server.rows.games.get(gameId)).toMatchObject({ owner_id: owner, athlete_id: athleteId, recorded_by: memberAccount });
+  expect(server.rows.events.get(steal.id)).toMatchObject({ owner_id: owner, game_id: gameId });
+
+  await core.refresh();
+
+  expect(await inspect.games.get(gameId)).toMatchObject({ athlete_id: athleteId, recorded_by: memberAccount });
+  expect(await inspect.events.get(steal.id)).toEqual(steal);
+  expect((await core.home()).liveGameId).toBeUndefined();
+});
+
+test("a Game the Owner records while offline reaches a Member's phone once both are back online, and the Member does not record on it", async () => {
+  const { core, server, link } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+
+  link.up = false;
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  const steal = await core.recordTile(gameId, 'steal');
+  link.up = true;
+  await core.flush();
+  await member.core.refresh();
+
+  expect(await member.inspect.games.get(gameId)).toMatchObject({ athlete_id: athleteId, recorded_by: await server.session() });
+  expect(await member.inspect.events.get(steal.id)).toEqual(steal);
+  expect((await member.core.home()).liveGameId).toBeUndefined();
+});
+
+test("a launch on a phone already signed in downloads the Games another phone of the account recorded", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const second = phoneOn(server);
+  await second.core.signIn('casey@example.com');
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.flush();
+
+  expect(await second.inspect.games.get(gameId)).toBeUndefined();
+  await second.core.refresh();
+
+  expect(await second.inspect.games.get(gameId)).toMatchObject({ athlete_id: athleteId });
 });

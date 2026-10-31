@@ -331,7 +331,7 @@ function SetupFields({
 
 function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
   const [form, setForm] = useState<'add' | 'edit' | 'setup'>();
-  // a Member reads the Athlete and records nothing on it, so Start Game and Edit are the Owner's
+  // a Member records Games on the Athlete too; Edit stays the Owner's
   const owner = useReadModel(() => core.isOwner(athlete.id), [core, athlete.id]);
   if (form === 'setup') {
     return <GameSetupForm core={core} athleteId={athlete.id} onCancel={() => setForm(undefined)} />;
@@ -361,14 +361,10 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         </button>
         <h1>{athlete.name}</h1>
         {athlete.jerseyNumber && <p>#{athlete.jerseyNumber}</p>}
-        {owner && (
-          <>
-            <button className="primary" onClick={() => setForm('setup')}>
-              Start Game
-            </button>
-            <button onClick={() => setForm('edit')}>Edit</button>
-          </>
-        )}
+        <button className="primary" onClick={() => setForm('setup')}>
+          Start Game
+        </button>
+        {owner && <button onClick={() => setForm('edit')}>Edit</button>}
         <button onClick={() => setForm('add')}>Add Athlete</button>
         <InviteCoParent core={core} athleteId={athlete.id} />
       </main>
