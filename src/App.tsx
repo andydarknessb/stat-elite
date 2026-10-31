@@ -401,12 +401,20 @@ const TILE_LABELS: Record<TileEventType, string> = {
 /** Labels for every Event Undo can retract, except a Free Throw or Shot, which name their result (see undoLabel). */
 const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw' | 'shot'>, string> = {
   ...TILE_LABELS,
+  sub_in: 'Sub In',
+  sub_out: 'Sub Out',
   score: 'Score',
   game_end: 'End Game',
 };
 
 const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
 const shotLabel = (value: 2 | 3 | undefined, made?: boolean) => `${made ? 'Made' : 'Missed'} ${value}PT`;
+/** A Shift's time as m:ss. */
+const clockOf = (ms: number) => {
+  const seconds = Math.floor(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+};
+const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
 const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
   undoable.type === 'free_throw'
@@ -582,11 +590,20 @@ function LiveGame({
   onEnded: (gameId: string) => void;
   onDone: () => void;
 }) {
-  const game = useReadModel(() => core.liveGame(gameId), [core, gameId]);
+  // the live Game re-reads each second, so the Shift timer and Playing Share keep running
+  // shortcut: re-reads every Event of the Game each second, fine for one Game; upgrade to a UI-side clock if a Game's read gets slow
+  const [second, setSecond] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setSecond((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const game = useReadModel(() => core.liveGame(gameId), [core, gameId, second]);
   const size = useReadModel(() => core.buttonSize(), [core]) ?? 'standard';
   // the label of the Event a tap just recorded, shown for 3 seconds
   const [toast, setToast] = useState<string>();
   const [ending, setEnding] = useState(false);
+  // bumped on each Sub, so the strip restarts its pulse
+  const [pulse, setPulse] = useState(0);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(undefined), 3000);
@@ -623,6 +640,13 @@ function LiveGame({
     setToast(undefined);
     void core.undo(gameId);
   };
+  const sub = () => {
+    setToast(game.onCourt ? EVENT_LABELS.sub_out : EVENT_LABELS.sub_in);
+    setPulse((n) => n + 1);
+    void core.toggleSub(gameId);
+  };
+  // the Shift on court, if any: its timer and Plus/Minus so far
+  const current = game.onCourt ? game.shifts.at(-1) : undefined;
   const shots = (
     <>
       <ShotEntry
@@ -656,9 +680,23 @@ function LiveGame({
   );
   return (
     <main className={`live ${size}`}>
-      {/* shortcut: an empty Shift bar until Shifts and Sub In/Out land (#17) */}
-      <section className="shift" aria-label="Shift" />
-      <section className="strip" aria-label="Score">
+      {game.sport === 'basketball' && (
+        <section className="shift" aria-label="Shift">
+          <button className={game.onCourt ? 'primary' : undefined} onClick={sub}>
+            {game.onCourt ? 'Sub Out' : 'Sub In'}
+          </button>
+          <div>
+            <p className="timer">
+              {current ? `On court ${clockOf(current.ms)} · ${signed(current.plusMinus)}` : 'On bench'}
+            </p>
+            <p className="game">
+              {Math.round(game.playingShare * 100)}% · {game.shifts.length}{' '}
+              {game.shifts.length === 1 ? 'Shift' : 'Shifts'} · Plus/Minus {signed(game.plusMinus)}
+            </p>
+          </div>
+        </section>
+      )}
+      <section key={pulse} className={pulse ? 'strip pulse' : 'strip'} aria-label="Score">
         <ScoreSide label="Team" value={game.score.team} onAdjust={(delta) => adjust('team', delta)} />
         <ScoreSide label="Opponent" value={game.score.opponent} onAdjust={(delta) => adjust('opponent', delta)} />
       </section>

@@ -202,11 +202,46 @@ button:disabled {
   gap: 8px;
 }
 
-/* A placeholder holds its place until Shifts (#17) fill it. */
+/* The Shift bar: the Sub In/Out toggle, then the running Shift timer over the Game's Playing Share. It is one button tall, so the live screen still fits a 390×844 phone. */
 .shift {
-  min-height: 48px;
-  border: 1px dashed var(--border);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.shift p {
+  margin: 0;
+}
+
+.shift .timer {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.shift .game {
+  font-size: 13px;
+}
+
+/* The strip pulses on each Sub, so the Recorder checks it against the scoreboard; no motion for reduced-motion users. */
+@keyframes strip-pulse {
+  from {
+    box-shadow: 0 0 0 6px var(--border);
+  }
+  to {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.strip.pulse {
+  animation: strip-pulse 0.6s ease-out;
   border-radius: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip.pulse {
+    animation: none;
+  }
 }
 
 /* The half court, drawn to scale (50 ft by 47 ft) so its arc is a true circle; Button Size sets its height. */

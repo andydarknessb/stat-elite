@@ -487,6 +487,143 @@ test('a softball Game takes the same strip and End Game as basketball', async ()
   expect((await core.liveGame(gameId))?.final).toEqual({ team: 4, opponent: 1 });
 });
 
+// a phone whose clock the test moves on with `tick`, so Shift times are exact
+function clocked() {
+  const name = `test-${++stores}`;
+  const at = { now: new Date('2026-10-30T18:00:00Z') };
+  const server = createStandInServer(() => true);
+  const open = () => createAppCore({ clock: () => at.now, store: openStore(name), server });
+  const tick = (seconds: number) => {
+    at.now = new Date(at.now.getTime() + seconds * 1000);
+  };
+  return { core: open(), reopen: open, tick };
+}
+
+test('Sub In and Sub Out Events carry the scores on the strip at that moment', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+
+  await core.adjustScore(gameId, 'team', 1);
+  const subIn = await core.toggleSub(gameId);
+  await core.adjustScore(gameId, 'opponent', 1);
+  const subOut = await core.toggleSub(gameId);
+
+  expect(await inspect.events.get(subIn.id)).toMatchObject({ type: 'sub_in', team_score: 1, opponent_score: 0 });
+  expect(await inspect.events.get(subOut.id)).toMatchObject({ type: 'sub_out', team_score: 1, opponent_score: 1 });
+});
+
+test('Plus/Minus for a Shift is the change in each side between its Sub In and Sub Out, and the Game sums them', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  await core.toggleSub(gameId);
+  await core.recordShot(gameId, { x: 50, y: 65, value: 3, made: true });
+  await core.adjustScore(gameId, 'opponent', 1);
+  await core.toggleSub(gameId); // Sub Out at 3–1: +2
+  await core.toggleSub(gameId); // Sub In at 3–1
+  await core.adjustScore(gameId, 'opponent', 1);
+  await core.adjustScore(gameId, 'opponent', 1);
+  await core.adjustScore(gameId, 'team', 1);
+  await core.toggleSub(gameId); // Sub Out at 4–3: 1 − 2 = −1
+
+  const game = await core.liveGame(gameId);
+  expect(game?.shifts.map((s) => s.plusMinus)).toEqual([2, -1]);
+  expect(game?.plusMinus).toBe(1);
+});
+
+test("Playing Share is total Shift time over the Game's elapsed time, shown with the Shift count", async () => {
+  const { core, tick } = clocked();
+  const gameId = await basketballGame(core);
+
+  await core.toggleSub(gameId); // on court at 0s
+  tick(60);
+  await core.toggleSub(gameId); // off at 60s: Shift 1 is 60s
+  tick(60);
+  await core.recordTile(gameId, 'steal'); // bench, 120s
+  tick(60);
+  await core.toggleSub(gameId); // on at 180s
+  tick(120);
+  await core.endGame(gameId, { teamScore: 0, opponentScore: 0 }); // Game ends at 300s, closing Shift 2 at 120s
+
+  const game = await core.liveGame(gameId);
+  expect(game?.shifts.map((s) => s.ms)).toEqual([60_000, 120_000]);
+  expect(game?.playingShare).toBeCloseTo(180 / 300);
+  await expect(core.toggleSub(gameId)).rejects.toThrow();
+});
+
+test('a Sub In with no Sub Out survives a restart: the Athlete is still on court and the timer is right', async () => {
+  const { core, reopen, tick } = clocked();
+  const gameId = await basketballGame(core);
+
+  tick(30); // on the bench first, so the share is not 100%
+  await core.toggleSub(gameId);
+  tick(90);
+
+  expect(await reopen().liveGame(gameId)).toMatchObject({ onCourt: true, shifts: [{ ms: 90_000 }], playingShare: 0.75 });
+});
+
+test('Playing Share counts from the Game start, so a bench Athlete whose first Sub In is late does not read 100%', async () => {
+  const { core, tick } = clocked();
+  const gameId = await basketballGame(core);
+
+  tick(120); // on the bench from the Game's start
+  await core.toggleSub(gameId); // Sub In at 120s
+  tick(60);
+
+  expect((await core.liveGame(gameId))?.playingShare).toBeCloseTo(60 / 180);
+});
+
+test('Playing Share stays at most 100% when the device clock steps back', async () => {
+  const { core, tick } = clocked();
+  const gameId = await basketballGame(core);
+
+  tick(60);
+  await core.toggleSub(gameId); // Sub In at 60s
+  tick(140);
+  await core.toggleSub(gameId); // Sub Out at 200s: Shift is 140s
+  tick(-100); // the clock reads 100s now, under the 140s Shift
+
+  expect((await core.liveGame(gameId))?.playingShare).toBe(1);
+});
+
+test("the open Shift's Plus/Minus runs to the strip now, Shots included, and Undo moves it", async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  await core.toggleSub(gameId); // Sub In at 0–0
+  await core.recordShot(gameId, { x: 50, y: 65, value: 3, made: true }); // 3–0
+  await core.adjustScore(gameId, 'opponent', 1); // 3–1
+  expect(await core.liveGame(gameId)).toMatchObject({ plusMinus: 2, shifts: [{ plusMinus: 2 }] });
+
+  await core.undo(gameId); // retracts the opponent point: 3–0
+  expect(await core.liveGame(gameId)).toMatchObject({ plusMinus: 3, shifts: [{ plusMinus: 3 }] });
+});
+
+test('a strip correction mid-Shift lands in that Shift once, with the Shot already on the strip', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  await core.toggleSub(gameId); // Sub In at 0–0
+  await core.recordShot(gameId, { x: 50, y: 65, value: 2, made: true }); // the strip adds 2: 2–0
+  await core.adjustScore(gameId, 'team', -1); // the scoreboard says 1
+  await core.toggleSub(gameId); // Sub Out at 1–0
+
+  expect((await core.liveGame(gameId))?.shifts.map((s) => s.plusMinus)).toEqual([1]);
+});
+
+test('Undo of a Sub Out puts the Athlete back on court, and Undo of a Sub In takes the Shift away', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  await core.toggleSub(gameId);
+  await core.toggleSub(gameId);
+  await core.undo(gameId); // retracts the Sub Out
+  expect(await core.liveGame(gameId)).toMatchObject({ onCourt: true, shifts: [{}] });
+
+  await core.undo(gameId); // retracts the Sub In
+  expect(await core.liveGame(gameId)).toMatchObject({ onCourt: false, shifts: [] });
+});
+
 test('with no account, writes stay on the phone, and the badge counts each row not yet uploaded', async () => {
   const { core, server } = setup();
   const gameId = await basketballGame(core);
