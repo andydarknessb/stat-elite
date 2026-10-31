@@ -36,6 +36,18 @@ test('an Athlete with no photo shows its initial in place of one', async ({ page
   await expect(page.locator('.photo img')).toBeHidden();
 });
 
+test('an Athlete with no photo shows the initials of its first two names', async ({ page }) => {
+  await firstRunAdd(page, 'Casey Jones');
+
+  await expect(page.locator('.photo-placeholder')).toHaveText('CJ');
+});
+
+test('initials come from the first two names, upper-cased, whatever the rest', async ({ page }) => {
+  await firstRunAdd(page, 'casey ann jones');
+
+  await expect(page.locator('.photo-placeholder')).toHaveText('CA');
+});
+
 test('the photo shows on Home and nothing is uploaded', async ({ page }) => {
   const writes: string[] = [];
   page.on('request', (request) => {
@@ -67,19 +79,20 @@ test('editing an Athlete changes name and number on Home and keeps them after a 
   await expect(page.getByText('#7')).toBeVisible();
 });
 
-test('with two Athletes, tapping the photo switches Home, and Start Game records the one shown', async ({ page }) => {
+test('with two Athletes, Add Athlete from Home shows the new one, tapping the photo switches, and Start Game records the one shown', async ({ page }) => {
   await firstRunAdd(page, 'Casey');
 
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByLabel('Athlete name').fill('Sam');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await expect(page.getByRole('heading', { name: 'Sam' })).toBeVisible();
+  await expect(page.locator('.photo-placeholder')).toHaveText('S');
+
+  await page.getByRole('button', { name: 'Switch to Casey' }).click();
   await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Switch to Sam' }).click();
-  await expect(page.getByRole('heading', { name: 'Sam' })).toBeVisible();
-
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Sam' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Start', exact: true }).click();

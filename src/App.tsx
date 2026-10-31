@@ -345,6 +345,10 @@ function AthletePhoto({ photo }: { photo: Blob }) {
   return url ? <img src={url} alt="" /> : null;
 }
 
+/** The first letter of each of the first two names, upper-cased: "Casey Jones" is CJ. */
+const initials = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => [...word][0].toUpperCase()).join('');
+
 /** Game setup: the Athlete's last Game prefills it, so starting is usually one tap. */
 function GameSetupForm({ core, athleteId, onCancel }: { core: AppCore; athleteId: string; onCancel: () => void }) {
   const setup = useReadModel(() => core.gameSetup(athleteId), [core, athleteId]);
@@ -462,7 +466,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
           ) : (
             // a downloaded Athlete has no photo here: photos stay on the phone that picked them
             <span className="photo-placeholder" aria-hidden="true">
-              {[...athlete.name][0]}
+              {initials(athlete.name)}
             </span>
           )}
         </button>
