@@ -42,7 +42,8 @@ export interface EventRow {
   seq: number;
   client_ts: string;
   period: number;
-  type: TileEventType | 'shot' | 'free_throw' | 'sub_in' | 'sub_out' | 'score' | 'game_end' | 'retraction';
+  /** A Period start: the Event that opens a Period, and carries it (GLOSSARY: Period). */
+  type: TileEventType | 'shot' | 'free_throw' | 'sub_in' | 'sub_out' | 'score' | 'game_end' | 'retraction' | 'period_start';
   /** The Event a Retraction cancels; null on every other Event. */
   retracts_id: string | null;
   /** A Shot's spot on the half court, each axis 0–100; null on every other Event. */

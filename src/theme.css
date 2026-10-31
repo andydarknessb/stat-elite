@@ -223,6 +223,18 @@ button:disabled {
   font-size: 13px;
 }
 
+.period-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.period {
+  font-size: 20px;
+  font-weight: 600;
+}
+
 /* The strip pulses on each Sub, so the Recorder checks it against the scoreboard; no motion for reduced-motion users. */
 @keyframes strip-pulse {
   from {

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
 import { expect, test, vi } from 'vitest';
-import { arcPreset, createAppCore } from './appCore';
+import { arcPreset, createAppCore, periodLabel } from './appCore';
 import { createStandInServer, createSupabaseServer, InviteRefused, serverFor } from './server';
 import { openStore, type Store } from './store';
 
@@ -584,6 +584,84 @@ test('Playing Share stays at most 100% when the device clock steps back', async 
   tick(-100); // the clock reads 100s now, under the 140s Shift
 
   expect((await core.liveGame(gameId))?.playingShare).toBe(1);
+});
+
+test('Next period records a period_start Event, and every Event after it carries the new Period', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+  const before = await core.recordTile(gameId, 'steal');
+
+  const start = await core.nextPeriod(gameId);
+  const after = await core.recordTile(gameId, 'assist');
+
+  expect(await inspect.events.get(before.id)).toMatchObject({ period: 1 });
+  expect(await inspect.events.get(start.id)).toMatchObject({ type: 'period_start', period: 2, game_id: gameId });
+  expect(await inspect.events.get(after.id)).toMatchObject({ type: 'assist', period: 2 });
+});
+
+test('Period labels follow the Game format: H1 and H2 for halves, Q1 to Q4 for quarters, then OT1, OT2 past regulation', async () => {
+  expect([1, 2, 3, 4, 5, 6].map((p) => periodLabel('quarters', p))).toEqual(['Q1', 'Q2', 'Q3', 'Q4', 'OT1', 'OT2']);
+  expect([1, 2, 3, 4].map((p) => periodLabel('halves', p))).toEqual(['H1', 'H2', 'OT1', 'OT2']);
+
+  // the live Game names its Period in its own format, and a reload keeps it
+  const { core, reopen } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
+  await core.nextPeriod(gameId);
+  await core.nextPeriod(gameId);
+
+  expect(await reopen().liveGame(gameId)).toMatchObject({ periodLabel: 'OT1' });
+});
+
+test('a Shift runs across a Period break: Next period does not end it', async () => {
+  const { core, tick } = clocked();
+  const gameId = await basketballGame(core);
+  await core.toggleSub(gameId); // Sub In at 0s
+  tick(60);
+  await core.nextPeriod(gameId);
+  tick(60);
+  await core.toggleSub(gameId); // Sub Out at 120s
+
+  expect(await core.liveGame(gameId)).toMatchObject({ onCourt: false, shifts: [{ ms: 120_000 }] });
+});
+
+test('a softball Game names no basketball Period on its live Game', async () => {
+  const { core } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+
+  expect((await core.liveGame(gameId))?.periodLabel).toBeUndefined();
+});
+
+test('the live Game splits its stats by Period, and the whole Game still sums them', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+  await core.recordTile(gameId, 'steal'); // Period 1
+  await core.nextPeriod(gameId);
+  await core.recordShot(gameId, { x: 50, y: 65, value: 3, made: true }); // Period 2
+  await core.recordFreeThrow(gameId, false); // Period 2
+
+  const game = await core.liveGame(gameId);
+  expect(game?.byPeriod[1]).toMatchObject({ tiles: { steal: 1 }, points: 0, freeThrows: { made: 0, attempted: 0 } });
+  expect(game?.byPeriod[2]).toMatchObject({
+    tiles: { steal: 0 },
+    shots: { 3: { made: 1, attempted: 1 } },
+    points: 3,
+    freeThrows: { made: 0, attempted: 1 },
+  });
+  expect(game).toMatchObject({ tiles: { steal: 1 }, points: 3, freeThrows: { made: 0, attempted: 1 } });
+});
+
+test('Undo of Next period takes the Period back, and the next Event falls in the earlier one', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+  const start = await core.nextPeriod(gameId);
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: start.id, type: 'period_start' });
+
+  await core.undo(gameId);
+
+  expect((await core.liveGame(gameId))?.periodLabel).toBe('Q1');
+  expect((await core.recordTile(gameId, 'steal')).period).toBe(1);
 });
 
 test("the open Shift's Plus/Minus runs to the strip now, Shots included, and Undo moves it", async () => {
