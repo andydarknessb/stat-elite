@@ -6,7 +6,7 @@ A phone web app a parent uses on the sideline to record one child's games (baske
 
 M1 in progress. The app is scaffolded on React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7) and Dexie 4; supabase-js arrives with sign-in (`docs/plan.md:79`).
 
-`npm test` runs everything: typecheck, Vitest (App Core tests and the schema self-check on PGlite), then Playwright at 390×844. GitHub Actions runs it on every pull request into `integration`.
+`npm test` runs everything: typecheck, Vitest (App Core tests and the schema self-check on PGlite), then Playwright at 390×844. GitHub Actions runs it on every pull request into `integration`. Netlify deploys `integration` to https://stat-elite.netlify.app; `BASE_URL=https://stat-elite.netlify.app npx playwright test e2e/install.spec.ts e2e/offline.spec.ts` checks the deployed app.
 
 ## Where things live
 
