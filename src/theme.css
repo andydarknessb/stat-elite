@@ -69,7 +69,7 @@ button.primary {
 
 .tile {
   display: grid;
-  min-height: 88px;
+  min-height: 64px;
   font-weight: 600;
 }
 
@@ -195,4 +195,104 @@ button:disabled {
   padding: 16px 16px 0;
   color: var(--muted);
   text-align: right;
+}
+
+/* The basketball live screen, top to bottom: Shift bar, score strip, half court, Free Throw row, stat tiles, then Undo and End Game. */
+.live {
+  gap: 8px;
+}
+
+/* Placeholders hold their place until Shifts (#17) and Shot entry (#16) fill them. */
+.shift,
+.court {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.shift {
+  min-height: 48px;
+}
+
+.court {
+  min-height: 96px;
+}
+
+.free-throws {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+  text-align: center;
+}
+
+/* Green make, red miss: color only carries meaning here. */
+.free-throws .make {
+  color: var(--make);
+  border-color: var(--make);
+  font-weight: 600;
+}
+
+.free-throws .miss {
+  color: var(--miss);
+  border-color: var(--miss);
+  font-weight: 600;
+}
+
+.free-throws .count {
+  min-width: 64px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* Bleacher: two swipe pages, Shots then Other stats, each the width of the phone. */
+.pages {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 100%;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+}
+
+.page {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  scroll-snap-align: start;
+}
+
+/* Button Size: Compact is smaller, Bleacher bigger for the far seats. */
+.compact button {
+  min-height: 44px;
+}
+
+.compact .court {
+  min-height: 72px;
+}
+
+.compact .tile {
+  min-height: 52px;
+}
+
+.compact .tile .count {
+  font-size: 24px;
+}
+
+.bleacher .tile {
+  min-height: 112px;
+}
+
+.bleacher .tile .count {
+  font-size: 40px;
+}
+
+.sizes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }

@@ -86,6 +86,51 @@ test('a stat tile tap counts on the live Game', async () => {
   expect(live?.tiles.assist).toBe(0);
 });
 
+test('a Free Throw is an Event with a result and no spot, and the live Game counts made of attempted', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+
+  const make = await core.recordFreeThrow(gameId, true);
+  const miss = await core.recordFreeThrow(gameId, false);
+
+  expect(await inspect.events.get(make.id)).toMatchObject({ type: 'free_throw', made: true, game_id: gameId });
+  expect(await inspect.events.get(miss.id)).toMatchObject({ type: 'free_throw', made: false });
+  expect((await core.liveGame(gameId))?.freeThrows).toEqual({ made: 1, attempted: 2 });
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: miss.id, type: 'free_throw', made: false });
+});
+
+test('Undo takes a Free Throw out of the count, as it does a tile', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+  await core.recordFreeThrow(gameId, true);
+  await core.recordFreeThrow(gameId, false);
+
+  await core.undo(gameId);
+
+  expect((await core.liveGame(gameId))?.freeThrows).toEqual({ made: 1, attempted: 1 });
+});
+
+test('a Free Throw keeps its result when a second phone downloads it at sign-in', async () => {
+  const { core, server } = setup();
+  const gameId = await basketballGame(core);
+  const make = await core.recordFreeThrow(gameId, true);
+  await core.signIn('casey@example.com');
+
+  const second = phoneOn(server);
+  await second.core.signIn('casey@example.com');
+
+  expect(await second.inspect.events.get(make.id)).toEqual(make);
+});
+
+test('Button Size is Standard until a Recorder picks one, and the pick survives a reload', async () => {
+  const { core, reopen } = setup();
+  expect(await core.buttonSize()).toBe('standard');
+
+  await core.setButtonSize('bleacher');
+
+  expect(await reopen().buttonSize()).toBe('bleacher');
+});
+
 test('each tap is an Event with its own ID, the next sequence number in its Game and the clock time', async () => {
   const { core, now } = setup();
   const gameA = await basketballGame(core);

@@ -42,9 +42,11 @@ export interface EventRow {
   seq: number;
   client_ts: string;
   period: number;
-  type: TileEventType | 'score' | 'game_end' | 'retraction';
+  type: TileEventType | 'free_throw' | 'score' | 'game_end' | 'retraction';
   /** The Event a Retraction cancels; null on every other Event. */
   retracts_id: string | null;
+  /** A Free Throw's result: made or missed; null on every other Event. */
+  made: boolean | null;
   /** A Score Snapshot's absolute scores, on 'score' and 'game_end' Events; null on every other Event. */
   team_score: number | null;
   opponent_score: number | null;
