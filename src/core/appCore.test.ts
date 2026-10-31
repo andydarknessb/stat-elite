@@ -637,8 +637,9 @@ test('an Athlete edited on one phone reaches the other at its next sign-in, and 
 // a phone with its own session on the same backend: a different account from the Owner's
 function otherAccount(server: ReturnType<typeof createStandInServer>) {
   const name = `test-${++stores}`;
-  const core = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server: server.phone() });
-  return { core, inspect: openStore(name) };
+  const phoneServer = server.phone();
+  const core = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server: phoneServer });
+  return { core, inspect: openStore(name), server: phoneServer };
 }
 
 test('only the Owner can make an Invite, and it names one Athlete', async () => {
@@ -784,4 +785,56 @@ test('the Supabase server makes an Invite as its Owner, sends it with the sign-i
       { email: 'casey@example.com', options: { emailRedirectTo: 'https://stat-elite.netlify.app/?invite=t1' } },
     ],
   ]);
+});
+
+test("the Owner opening its own Invite is refused, and the link still works for a co-parent", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+
+  await expect(core.acceptInvite(token)).rejects.toMatchObject({ reason: 'own' });
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+
+  expect((await member.core.home()).athlete?.id).toBe(athleteId);
+});
+
+test("a Member's phone is not the Owner, and offers no Game in progress to record on", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+
+  expect(await member.core.isOwner(athleteId)).toBe(false);
+  expect(await core.isOwner(athleteId)).toBe(true);
+  expect((await member.core.home()).liveGameId).toBeUndefined();
+  expect((await core.home()).liveGameId).toBe(gameId);
+});
+
+test('a Member whose download fails on accepting has the Athlete and its Games at the next flush', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  // this sign-in downloads too, and marks the download done for the account
+  await member.core.signIn('sam@example.com');
+  const download = member.server.download;
+  member.server.download = async () => {
+    throw new Error('select refused');
+  };
+
+  await expect(member.core.acceptInvite(token)).rejects.toThrow('select refused');
+  member.server.download = download;
+  await member.core.flush();
+
+  expect(await member.inspect.athletes.get(athleteId)).toMatchObject({ name: 'Casey' });
+  expect(await member.inspect.games.get(gameId)).toMatchObject({ athlete_id: athleteId });
 });

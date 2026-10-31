@@ -13,8 +13,8 @@ export type UploadRow = { id: string; owner_id?: string; updated_at?: string };
 /** The stand-in's copy of a row: the Athlete a Game or Event belongs to is what Member access checks. */
 type StoredRow = UploadRow & { athlete_id?: string; game_id?: string };
 
-/** Why an Invite cannot be taken: unknown, used by another account, or past its 7 days (ADR 0004). */
-export type InviteReason = 'unknown' | 'used' | 'expired';
+/** Why an Invite cannot be taken: unknown, the Owner's own, used by another account, or past its 7 days (ADR 0004). */
+export type InviteReason = 'unknown' | 'own' | 'used' | 'expired';
 
 export class InviteRefused extends Error {
   readonly reason: InviteReason;
@@ -100,6 +100,7 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
         if (account === undefined) throw new Error('Sign in before accepting an Invite');
         const invite = invites.get(token);
         if (!invite) throw new InviteRefused('unknown');
+        if (invite.owner_id === account) throw new InviteRefused('own');
         // the account that accepted it may accept again: a retry after a failed download
         if (invite.used_by === account) return;
         if (invite.used_by !== undefined) throw new InviteRefused('used');
@@ -155,7 +156,7 @@ export function createSupabaseServer(client: SupabaseClient): Server {
     async acceptInvite(token) {
       const { error } = await client.rpc('accept_invite', { invite_token: token });
       if (!error) return;
-      const refusal = /^invite_(unknown|used|expired)$/.exec(error.message);
+      const refusal = /^invite_(unknown|own|used|expired)$/.exec(error.message);
       if (refusal) throw new InviteRefused(refusal[1] as InviteReason);
       throw error;
     },

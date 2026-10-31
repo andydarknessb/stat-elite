@@ -107,6 +107,7 @@ function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; o
 /** What a link that cannot be accepted says, in the words the invitee needs. */
 function refusalMessage(error: unknown): string {
   if (!(error instanceof InviteRefused)) return 'Could not join. Check the connection and try again.';
+  if (error.reason === 'own') return 'This is your own invite link.';
   if (error.reason === 'used') return 'This invite link has already been used.';
   if (error.reason === 'expired') return 'This invite link has expired. Ask for a new one.';
   return 'This invite link is not valid.';
@@ -330,6 +331,8 @@ function SetupFields({
 
 function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
   const [form, setForm] = useState<'add' | 'edit' | 'setup'>();
+  // a Member reads the Athlete and records nothing on it, so Start Game and Edit are the Owner's
+  const owner = useReadModel(() => core.isOwner(athlete.id), [core, athlete.id]);
   if (form === 'setup') {
     return <GameSetupForm core={core} athleteId={athlete.id} onCancel={() => setForm(undefined)} />;
   }
@@ -358,10 +361,14 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         </button>
         <h1>{athlete.name}</h1>
         {athlete.jerseyNumber && <p>#{athlete.jerseyNumber}</p>}
-        <button className="primary" onClick={() => setForm('setup')}>
-          Start Game
-        </button>
-        <button onClick={() => setForm('edit')}>Edit</button>
+        {owner && (
+          <>
+            <button className="primary" onClick={() => setForm('setup')}>
+              Start Game
+            </button>
+            <button onClick={() => setForm('edit')}>Edit</button>
+          </>
+        )}
         <button onClick={() => setForm('add')}>Add Athlete</button>
         <InviteCoParent core={core} athleteId={athlete.id} />
       </main>
