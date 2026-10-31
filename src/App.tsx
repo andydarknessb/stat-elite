@@ -14,12 +14,13 @@ import {
   type Home,
   type LiveGame,
   type Scores,
+  type StrikeKind,
   type TileEventType,
   type UndoableType,
 } from './core/appCore';
 import { InviteRefused, type MemberRow } from './core/server';
 import { renderShareCard } from './core/shareCard';
-import { OUTCOMES, type Outcome } from './core/store';
+import { OUTCOMES, PITCHES, type Outcome, type Pitch } from './core/store';
 import { InstallPrompt } from './InstallPrompt';
 
 /** Re-renders whenever the store data behind a read model changes. */
@@ -475,6 +476,15 @@ const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw' | 'shot'>, string>
   game_end: 'End Game',
   period_start: 'Next period',
   plate_appearance: 'Plate Appearance',
+  pitch: 'Pitch',
+};
+
+/** Pitch button labels, in the order the plan lists them (plan: optional Pitches). */
+const PITCH_LABELS: Record<Pitch, string> = {
+  ball: 'Ball',
+  called_strike: 'Called strike',
+  swinging_strike: 'Swinging strike',
+  foul: 'Foul',
 };
 
 /** Outcome button labels, as the plan's Outcome grid names them (plan: softball/baseball Outcomes). */
@@ -498,6 +508,10 @@ const OUTCOME_LABELS: Record<Outcome, string> = {
 /** A batting rate as a scorebook prints it: .333, 1.000; a dash while its denominator is zero. */
 const rateText = (rate?: number) => (rate === undefined ? '—' : rate.toFixed(3).replace(/^0/, ''));
 
+/** An Outcome's label; a strikeout names how it was marked (GLOSSARY: Strikeout looking, Strikeout swinging). */
+const outcomeLabel = (outcome: Outcome, strikeout?: StrikeKind) =>
+  outcome === 'strikeout' && strikeout ? `Strikeout ${strikeout}` : OUTCOME_LABELS[outcome];
+
 const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
 const shotLabel = (value: 2 | 3 | undefined, made?: boolean) => `${made ? 'Made' : 'Missed'} ${value}PT`;
 /** A Shift's time as m:ss. */
@@ -511,9 +525,11 @@ const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
     ? freeThrowLabel(undoable.made)
     : undoable.type === 'shot'
       ? shotLabel(undoable.value, undoable.made)
-      : undoable.outcome
-        ? OUTCOME_LABELS[undoable.outcome]
-        : EVENT_LABELS[undoable.type];
+      : undoable.pitch
+        ? PITCH_LABELS[undoable.pitch]
+        : undoable.outcome
+          ? outcomeLabel(undoable.outcome, undoable.strikeout)
+          : EVENT_LABELS[undoable.type];
 
 const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 'Standard', bleacher: 'Bleacher' };
 
@@ -893,11 +909,15 @@ function LiveGame({
     await core.recordFreeThrow(gameId, made);
     setToast(freeThrowLabel(made));
   };
+  const tapPitch = async (pitch: Pitch) => {
+    await core.recordPitch(gameId, pitch);
+    setToast(PITCH_LABELS[pitch]);
+  };
   const pick = async (rbi: number) => {
     if (!pending) return;
     setPending(undefined);
     await core.recordPlateAppearance(gameId, { outcome: pending, rbi });
-    setToast(OUTCOME_LABELS[pending]);
+    setToast(outcomeLabel(pending, game.count?.strikeout));
   };
   const adjust = (side: 'team' | 'opponent', delta: 1 | -1) => {
     setToast(EVENT_LABELS.score);
@@ -952,6 +972,19 @@ function LiveGame({
   // softball and baseball: one tap on an Outcome, then its RBI chip records the Plate Appearance
   const plateAppearance = (
     <section className="plate-appearance" aria-label="Plate Appearance">
+      {/* optional: the count shows only once a Pitch is logged in this Plate Appearance */}
+      <div className="pitches" role="group" aria-label="Pitch">
+        {PITCHES.map((pitch) => (
+          <button key={pitch} onClick={() => void tapPitch(pitch)}>
+            {PITCH_LABELS[pitch]}
+          </button>
+        ))}
+      </div>
+      {game.count && (
+        <p className="pitch-count">
+          Count {game.count.balls}-{game.count.strikes}
+        </p>
+      )}
       <div className="outcomes" role="group" aria-label="Outcome">
         {OUTCOMES.map((outcome) => (
           <button key={outcome} className={pending === outcome ? 'primary' : undefined} onClick={() => setPending(outcome)}>

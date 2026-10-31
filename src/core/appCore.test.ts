@@ -3,7 +3,7 @@ import Dexie from 'dexie';
 import { expect, test, vi } from 'vitest';
 import { arcPreset, createAppCore, periodLabel, type GameFormat } from './appCore';
 import { createStandInServer, createSupabaseServer, InviteRefused, serverFor } from './server';
-import { openStore, type Outcome, type Store } from './store';
+import { openStore, type Outcome, type Pitch, type Store } from './store';
 
 let stores = 0;
 
@@ -1689,4 +1689,129 @@ test('a Game sums its Plate Appearances into one batting line, and Undo takes th
   await core.undo(gameId); // retracts reached_on_error: 9 Plate Appearances, AB 5, H 3, total bases 7
 
   expect(await core.liveGame(gameId)).toMatchObject({ batting: { atBats: 5, avg: 0.6, obp: 0.625, slg: 1.4 } });
+});
+
+async function softballGame(core: ReturnType<typeof createAppCore>) {
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  return core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+}
+
+test('the count shows only once a Pitch is logged in the Plate Appearance, and each Pitch is one Pitch Event', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  expect((await core.liveGame(gameId))?.count).toBeUndefined();
+
+  const ball = await core.recordPitch(gameId, 'ball');
+
+  expect(ball).toMatchObject({ type: 'pitch', pitch: 'ball', game_id: gameId });
+  expect((await core.liveGame(gameId))?.count).toEqual({ balls: 1, strikes: 0 });
+  await core.recordPitch(gameId, 'called_strike');
+  expect((await core.liveGame(gameId))?.count).toEqual({ balls: 1, strikes: 1, strikeout: 'looking' });
+});
+
+test('a foul is a strike only while the count has fewer than two strikes', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+
+  for (const pitch of ['foul', 'foul', 'foul'] as const) await core.recordPitch(gameId, pitch);
+  expect((await core.liveGame(gameId))?.count).toEqual({ balls: 0, strikes: 2 });
+
+  await core.recordPitch(gameId, 'ball');
+  await core.recordPitch(gameId, 'swinging_strike');
+  expect((await core.liveGame(gameId))?.count).toEqual({ balls: 1, strikes: 3, strikeout: 'swinging' });
+});
+
+test('the count resets after each Outcome, and Undo brings back the Plate Appearance and its count', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPitch(gameId, 'ball');
+  await core.recordPitch(gameId, 'called_strike');
+  await core.recordPlateAppearance(gameId, { outcome: 'ground_out', rbi: 0 });
+  expect((await core.liveGame(gameId))?.count).toBeUndefined();
+
+  await core.undo(gameId); // retracts the Plate Appearance
+  expect((await core.liveGame(gameId))?.count).toEqual({ balls: 1, strikes: 1, strikeout: 'looking' });
+
+  await core.undo(gameId); // retracts the called strike
+  expect((await core.liveGame(gameId))?.count).toEqual({ balls: 1, strikes: 0 });
+});
+
+test('a strikeout is looking or swinging by the last strike Pitch, and plain when no strike Pitch came before it', async () => {
+  // [Pitches before the strikeout, how it is marked]: fouls are not strike Pitches, so they never mark it
+  const cases: [Pitch[], 'looking' | 'swinging' | undefined][] = [
+    [['called_strike'], 'looking'],
+    [['called_strike', 'swinging_strike'], 'swinging'],
+    [['swinging_strike', 'called_strike'], 'looking'],
+    [['swinging_strike', 'foul'], 'swinging'],
+    [['ball', 'foul'], undefined],
+    [[], undefined],
+  ];
+  const { core } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+
+  for (const [pitches, marked] of cases) {
+    const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+    for (const pitch of pitches) await core.recordPitch(gameId, pitch);
+    const strikeout = await core.recordPlateAppearance(gameId, { outcome: 'strikeout', rbi: 0 });
+
+    expect((await core.liveGame(gameId))?.undoable, pitches.join(',')).toEqual({
+      id: strikeout.id,
+      type: 'plate_appearance',
+      outcome: 'strikeout',
+      strikeout: marked,
+    });
+  }
+});
+
+test('the count says how a strikeout would be marked, and only a strikeout is marked', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPitch(gameId, 'called_strike');
+  expect((await core.liveGame(gameId))?.count?.strikeout).toBe('looking');
+
+  await core.recordPlateAppearance(gameId, { outcome: 'double', rbi: 0 });
+  await core.recordPitch(gameId, 'swinging_strike');
+  await core.recordPlateAppearance(gameId, { outcome: 'double', rbi: 0 });
+  expect((await core.liveGame(gameId))?.undoable?.strikeout).toBeUndefined();
+});
+
+test('a Pitch refuses anything but a ball, a called or swinging strike, or a foul', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+
+  await expect(core.recordPitch(gameId, 'strike' as Pitch)).rejects.toThrow();
+  expect((await core.liveGame(gameId))?.count).toBeUndefined();
+});
+
+test("a Pitch keeps its result when a second phone downloads it at sign-in", async () => {
+  const { core, server } = setup();
+  const gameId = await softballGame(core);
+  const swing = await core.recordPitch(gameId, 'swinging_strike');
+  await core.signIn('casey@example.com');
+
+  const second = phoneOn(server);
+  await second.core.signIn('casey@example.com');
+
+  expect(await second.inspect.events.get(swing.id)).toEqual(swing);
+});
+
+test('Next period starts the count at zero, so a Pitch from the last period never marks a strikeout', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPitch(gameId, 'swinging_strike');
+  await core.recordPitch(gameId, 'ball');
+
+  await core.nextPeriod(gameId);
+  expect((await core.liveGame(gameId))?.count).toBeUndefined();
+
+  const strikeout = await core.recordPlateAppearance(gameId, { outcome: 'strikeout', rbi: 0 });
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: strikeout.id, type: 'plate_appearance', outcome: 'strikeout' });
+});
+
+test("a Pitch's Undo names the Pitch it takes back", async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  const foul = await core.recordPitch(gameId, 'foul');
+
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: foul.id, type: 'pitch', pitch: 'foul' });
 });

@@ -28,3 +28,25 @@ test('an Outcome, then its RBI chip, records a Plate Appearance; Undo takes it b
   await page.getByRole('button', { name: 'Next period' }).click();
   await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
 });
+
+test('Pitches show a count once one is logged; a strikeout is marked by the last strike Pitch; the count resets after the Outcome', async ({ page }) => {
+  await startSoftballGame(page);
+  await expect(page.getByText(/^Count /)).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Ball', exact: true }).click();
+  await page.getByRole('button', { name: 'Called strike', exact: true }).click();
+  await expect(page.getByText('Count 1-1', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo (last Event): Called strike' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Strikeout', exact: true }).click();
+  // the RBI row sits under the Pitch row and the count: the tallest state must still fit without scrolling
+  const overflow = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+  expect(overflow).toBeLessThanOrEqual(0);
+  await page.getByRole('button', { name: '0 RBI' }).click();
+
+  await expect(page.getByText(/^Count /)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Undo (last Event): Strikeout looking' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Undo (last Event): Strikeout looking' }).click();
+  await expect(page.getByText('Count 1-1', { exact: true })).toBeVisible();
+});

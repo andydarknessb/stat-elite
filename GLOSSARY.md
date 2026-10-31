@@ -103,8 +103,20 @@ How a Plate Appearance ended: a hit, a reach (Walk, Hit by Pitch, Error, Fielder
 _Avoid_: result, play
 
 **Pitch**:
-One ball, strike, or foul thrown to the Athlete during a Plate Appearance. Recording Pitches is optional.
+One ball, strike, or foul thrown to the Athlete during a Plate Appearance. A foul is a strike only while the Count has fewer than two strikes; with two, it leaves the Count as it was. Recording Pitches is optional.
 _Avoid_: count entry
+
+**Count**:
+The balls and strikes of the Plate Appearance in progress. It shows once a Pitch is logged in that Plate Appearance, and resets at each Outcome and each new Period.
+_Avoid_: pitch count, B-S
+
+**Strikeout looking**:
+A strikeout whose last called or swinging strike was a called strike. It follows from the Pitches and is never recorded on its own; the Outcome stays Strikeout.
+_Avoid_: called strikeout, K looking
+
+**Strikeout swinging**:
+A strikeout whose last called or swinging strike was a swinging strike. It follows from the Pitches and is never recorded on its own; the Outcome stays Strikeout.
+_Avoid_: swinging K
 
 **RBI**:
 A run that scored because of the Athlete's Plate Appearance, as counted by the Recorder.
