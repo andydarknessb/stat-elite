@@ -122,6 +122,10 @@ _Avoid_: swinging K
 A run that scored because of the Athlete's Plate Appearance, as counted by the Recorder.
 _Avoid_: runs batted in
 
+**Baserunning**:
+One move of the Athlete once on base: to 2nd, 3rd, Scored or Out, marked Stole or not. Scored counts a run; a move marked Stole counts a stolen base.
+_Avoid_: runner, base event
+
 ## Insights
 
 **Practice Focus**:

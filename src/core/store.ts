@@ -59,6 +59,10 @@ export type Outcome = (typeof OUTCOMES)[number];
 export const PITCHES = ['ball', 'called_strike', 'swinging_strike', 'foul'] as const;
 export type Pitch = (typeof PITCHES)[number];
 
+/** Where the Athlete on base moves: 2nd, 3rd, Scored (home) or Out (GLOSSARY: Baserunning). Matches docs/schema.sql's base check. */
+export const BASES = ['second', 'third', 'home', 'out'] as const;
+export type BaseMove = (typeof BASES)[number];
+
 export interface EventRow {
   id: string;
   game_id: string;
@@ -66,7 +70,7 @@ export interface EventRow {
   client_ts: string;
   period: number;
   /** A Period start: the Event that opens a Period, and carries it (GLOSSARY: Period). */
-  type: TileEventType | 'shot' | 'free_throw' | 'sub_in' | 'sub_out' | 'score' | 'game_end' | 'retraction' | 'period_start' | 'plate_appearance' | 'pitch';
+  type: TileEventType | 'shot' | 'free_throw' | 'sub_in' | 'sub_out' | 'score' | 'game_end' | 'retraction' | 'period_start' | 'plate_appearance' | 'pitch' | 'baserunning';
   /** The Event a Retraction cancels; null on every other Event. */
   retracts_id: string | null;
   /** A Shot's spot on the half court, each axis 0–100; null on every other Event. */
@@ -84,6 +88,9 @@ export interface EventRow {
   rbi: number | null;
   /** A Pitch's result, on 'pitch' Events; null on every other Event. */
   pitch: Pitch | null;
+  /** Where the Athlete on base moved, and whether it was a steal, on 'baserunning' Events; null on every other Event. */
+  base: BaseMove | null;
+  stolen: boolean | null;
 }
 
 /** A row waiting for upload. It names the row, not a copy: the outbox reads the row as it is when it uploads. */

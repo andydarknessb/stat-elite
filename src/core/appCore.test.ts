@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
 import { expect, test, vi } from 'vitest';
-import { arcPreset, createAppCore, periodLabel, type GameFormat } from './appCore';
+import { arcPreset, createAppCore, periodLabel, type Base, type GameFormat } from './appCore';
 import { createStandInServer, createSupabaseServer, InviteRefused, serverFor } from './server';
 import { openStore, type Outcome, type Pitch, type Store } from './store';
 
@@ -1814,4 +1814,102 @@ test("a Pitch's Undo names the Pitch it takes back", async () => {
   const foul = await core.recordPitch(gameId, 'foul');
 
   expect((await core.liveGame(gameId))?.undoable).toEqual({ id: foul.id, type: 'pitch', pitch: 'foul' });
+});
+
+test('the Outcome puts the Athlete on the base it reached: single to 1st, double to 2nd, triple to 3rd, and the other reaches to 1st', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  const cases: [Outcome, Base | undefined][] = [
+    ['single', 'first'],
+    ['double', 'second'],
+    ['triple', 'third'],
+    ['walk', 'first'],
+    ['hit_by_pitch', 'first'],
+    ['reached_on_error', 'first'],
+    ['fielders_choice', 'first'],
+    ['ground_out', undefined],
+  ];
+  for (const [outcome, base] of cases) {
+    await core.recordPlateAppearance(gameId, { outcome, rbi: 0 });
+    expect((await core.liveGame(gameId))?.onBase, outcome).toBe(base);
+  }
+});
+
+test('a home run scores the Athlete: it counts a run and holds no base', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPlateAppearance(gameId, { outcome: 'home_run', rbi: 1 });
+
+  expect((await core.liveGame(gameId))?.onBase).toBeUndefined();
+  expect((await core.liveGame(gameId))?.baserunning).toEqual({ runs: 1, stolenBases: 0 });
+});
+
+test('a baserunning move is one Event naming its base and steal, and Undo puts the Athlete back on the base they held', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 0 });
+
+  const steal = await core.recordBaserunning(gameId, { base: 'second', stolen: true });
+
+  expect(steal).toMatchObject({ type: 'baserunning', base: 'second', stolen: true, game_id: gameId });
+  expect((await core.liveGame(gameId))?.onBase).toBe('second');
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: steal.id, type: 'baserunning', base: 'second', stolen: true });
+
+  await core.undo(gameId);
+  expect((await core.liveGame(gameId))?.onBase).toBe('first');
+});
+
+test('Scored counts a run and Stole counts a stolen base, and Undo takes each back out', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 0 });
+
+  await core.recordBaserunning(gameId, { base: 'second', stolen: true });
+  expect((await core.liveGame(gameId))?.baserunning).toEqual({ runs: 0, stolenBases: 1 });
+
+  await core.recordBaserunning(gameId, { base: 'home', stolen: false });
+  expect((await core.liveGame(gameId))?.onBase).toBeUndefined();
+  expect((await core.liveGame(gameId))?.baserunning).toEqual({ runs: 1, stolenBases: 1 });
+
+  await core.undo(gameId);
+  expect((await core.liveGame(gameId))?.onBase).toBe('second');
+  expect((await core.liveGame(gameId))?.baserunning).toEqual({ runs: 0, stolenBases: 1 });
+});
+
+test('Out takes the Athlete off the diamond, and a Stole marked on an Out is a caught stealing, not a stolen base', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 0 });
+
+  const caught = await core.recordBaserunning(gameId, { base: 'out', stolen: true });
+
+  expect(caught).toMatchObject({ base: 'out', stolen: true });
+  expect((await core.liveGame(gameId))?.onBase).toBeUndefined();
+  expect((await core.liveGame(gameId))?.baserunning).toEqual({ runs: 0, stolenBases: 0 });
+});
+
+test('a baserunning move needs the Athlete on base, and never moves them back or to a base they hold', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await expect(core.recordBaserunning(gameId, { base: 'second', stolen: false })).rejects.toThrow();
+
+  await core.recordPlateAppearance(gameId, { outcome: 'triple', rbi: 0 });
+  await expect(core.recordBaserunning(gameId, { base: 'second', stolen: false })).rejects.toThrow();
+  await expect(core.recordBaserunning(gameId, { base: 'third', stolen: false })).rejects.toThrow();
+  await expect(core.recordBaserunning(gameId, { base: 'bogus' as never, stolen: false })).rejects.toThrow();
+
+  expect((await core.liveGame(gameId))?.onBase).toBe('third');
+});
+
+test("a baserunning move's base and steal reach a second phone at sign-in", async () => {
+  const { core, server } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 0 });
+  const steal = await core.recordBaserunning(gameId, { base: 'second', stolen: true });
+  await core.signIn('casey@example.com');
+
+  const second = phoneOn(server);
+  await second.core.signIn('casey@example.com');
+
+  expect(await second.inspect.events.get(steal.id)).toEqual(steal);
 });
