@@ -48,6 +48,11 @@ test('tapping the Game line lists each closed Shift with its time and Plus/Minus
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  await gameLine.click();
+  await expect(gameLine).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('list', { name: 'Shifts' })).toHaveCount(0);
+  await expect(gameLine).toContainText(/2 Shifts · Plus\/Minus \+1/);
 });
 
 for (const size of ['Compact', 'Bleacher']) {
