@@ -1,6 +1,8 @@
 import { liveQuery } from 'dexie';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { AppCore, Home, Scores, TileEventType, UndoableType } from './core/appCore';
+import { InstallPrompt } from './InstallPrompt';
+import { requestPersistence } from './pwa';
 
 /** Re-renders whenever the store data behind a read model changes. */
 function useReadModel<T>(read: () => Promise<T>, deps: unknown[]): T | undefined {
@@ -17,10 +19,23 @@ export function App({ core }: { core: AppCore }) {
   // the Game the Recorder just ended stays on screen, showing its Final Score, until Done
   const [ended, setEnded] = useState<string>();
   if (!home) return null;
-  if (!home.athlete) return <AthleteForm core={core} />;
+  if (!home.athlete) return <FirstRun core={core} />;
   const gameId = home.liveGameId ?? ended;
   if (!gameId) return <HomeScreen core={core} athlete={home.athlete} next={home.next} />;
   return <LiveGame core={core} gameId={gameId} onEnded={setEnded} onDone={() => setEnded(undefined)} />;
+}
+
+/** No Athlete yet: asks the browser to keep storage permanently, then offers the install and Add Athlete. */
+function FirstRun({ core }: { core: AppCore }) {
+  useEffect(() => {
+    void requestPersistence(navigator.storage);
+  }, []);
+  return (
+    <>
+      <AthleteForm core={core} />
+      <InstallPrompt />
+    </>
+  );
 }
 
 type AthleteFields = NonNullable<Home['athlete']>;
@@ -83,29 +98,32 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
     return <AthleteForm core={core} athlete={form === 'edit' ? athlete : undefined} onDone={() => setForm(undefined)} />;
   }
   return (
-    <main>
-      <button
-        className="photo"
-        disabled={!next}
-        aria-label={next ? `Switch to ${next.name}` : athlete.name}
-        onClick={() => {
-          if (next) void core.switchAthlete(next.id);
-        }}
-      >
-        {athlete.photo && <AthletePhoto key={athlete.id} photo={athlete.photo} />}
-      </button>
-      <h1>{athlete.name}</h1>
-      {athlete.jerseyNumber && <p>#{athlete.jerseyNumber}</p>}
-      {/* shortcut: always basketball in quarters, until Game setup exists (#14) */}
-      <button
-        className="primary"
-        onClick={() => void core.startGame({ athleteId: athlete.id, sport: 'basketball', periodFormat: 'quarters' })}
-      >
-        Start Game
-      </button>
-      <button onClick={() => setForm('edit')}>Edit</button>
-      <button onClick={() => setForm('add')}>Add Athlete</button>
-    </main>
+    <>
+      <main>
+        <button
+          className="photo"
+          disabled={!next}
+          aria-label={next ? `Switch to ${next.name}` : athlete.name}
+          onClick={() => {
+            if (next) void core.switchAthlete(next.id);
+          }}
+        >
+          {athlete.photo && <AthletePhoto key={athlete.id} photo={athlete.photo} />}
+        </button>
+        <h1>{athlete.name}</h1>
+        {athlete.jerseyNumber && <p>#{athlete.jerseyNumber}</p>}
+        {/* shortcut: always basketball in quarters, until Game setup exists (#14) */}
+        <button
+          className="primary"
+          onClick={() => void core.startGame({ athleteId: athlete.id, sport: 'basketball', periodFormat: 'quarters' })}
+        >
+          Start Game
+        </button>
+        <button onClick={() => setForm('edit')}>Edit</button>
+        <button onClick={() => setForm('add')}>Add Athlete</button>
+      </main>
+      <InstallPrompt />
+    </>
   );
 }
 
