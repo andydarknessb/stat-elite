@@ -1466,7 +1466,7 @@ test('the season line totals finished basketball Games, and the Games feed lists
   await core.recordFreeThrow(second, true);
   await core.endGame(second, { teamScore: 1, opponentScore: 4 });
 
-  // a Game still in progress and a softball Game: neither counts toward the season line
+  // a Game still in progress counts toward no season; a softball Game makes the softball season, not the basketball one
   const unfinished = await start('2026-10-30');
   await core.recordShot(unfinished, { x: 50, y: 20, value: 2, made: true });
   const softball = await start('2026-10-27', { sport: 'softball', periodFormat: 'innings' });
@@ -1474,14 +1474,13 @@ test('the season line totals finished basketball Games, and the Games feed lists
   await core.endGame(softball, { teamScore: 1, opponentScore: 0 });
 
   const feed = await core.gameFeed(athleteId);
-  expect(feed.season).toEqual({
-    points: 4,
-    fg: { made: 1, attempted: 2 },
-    ft: { made: 2, attempted: 3 },
-    rebounds: 2,
-    assists: 1,
-    plusMinus: 3,
-  });
+  expect(feed.seasons).toEqual([
+    {
+      sport: 'basketball',
+      line: { points: 4, fg: { made: 1, attempted: 2 }, ft: { made: 2, attempted: 3 }, rebounds: 2, assists: 1, plusMinus: 3 },
+    },
+    { sport: 'softball', batting: expect.objectContaining({ atBats: 0, hits: 0 }) },
+  ]);
   expect(feed.games.map((g) => g.id)).toEqual([second, first, softball]);
 });
 
@@ -1502,14 +1501,12 @@ test('a retracted Event never counts toward the season line', async () => {
   await core.recordTile(gameId, 'reb_def');
   await core.endGame(gameId, { teamScore: 0, opponentScore: 0 });
 
-  expect((await core.gameFeed(athleteId)).season).toEqual({
-    points: 0,
-    fg: { made: 0, attempted: 0 },
-    ft: { made: 0, attempted: 0 },
-    rebounds: 1,
-    assists: 0,
-    plusMinus: 0,
-  });
+  expect((await core.gameFeed(athleteId)).seasons).toEqual([
+    {
+      sport: 'basketball',
+      line: { points: 0, fg: { made: 0, attempted: 0 }, ft: { made: 0, attempted: 0 }, rebounds: 1, assists: 0, plusMinus: 0 },
+    },
+  ]);
 });
 
 test("the Games feed groups Games by the phone's local date: Today, Yesterday, This Week (2 to 6 days back), then Earlier", async () => {
@@ -1689,6 +1686,53 @@ test('a Game sums its Plate Appearances into one batting line, and Undo takes th
   await core.undo(gameId); // retracts reached_on_error: 9 Plate Appearances, AB 5, H 3, total bases 7
 
   expect(await core.liveGame(gameId)).toMatchObject({ batting: { atBats: 5, avg: 0.6, obp: 0.625, slg: 1.4 } });
+});
+
+test("a softball Game's feed row carries its batting line: hits, At-Bats and RBI", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 1 });
+  await core.recordPlateAppearance(gameId, { outcome: 'strikeout', rbi: 0 });
+  await core.recordPlateAppearance(gameId, { outcome: 'double', rbi: 2 });
+  await core.recordPlateAppearance(gameId, { outcome: 'walk', rbi: 0 });
+  await core.endGame(gameId, { teamScore: 4, opponentScore: 2 });
+
+  // the walk is not an At-Bat; the three At-Bats hold two hits
+  expect((await core.gameFeed(athleteId)).games[0].batting).toMatchObject({ hits: 2, atBats: 3, rbi: 3 });
+});
+
+test("a softball Game's copy text and share card carry its batting line and Final Score, not the basketball line", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 1 });
+  await core.recordPlateAppearance(gameId, { outcome: 'strikeout', rbi: 0 });
+  await core.recordPlateAppearance(gameId, { outcome: 'double', rbi: 2 });
+  await core.endGame(gameId, { teamScore: 4, opponentScore: 2 });
+
+  expect(await core.gameCopyText(gameId)).toBe(
+    ['Casey vs Hawks: 4–2 final', 'Casey: H/AB 2/3 · 3 RBI · Plus/Minus 0', '#softball'].join('\n'),
+  );
+  expect(await core.gameCard(gameId)).toMatchObject({ final: { team: 4, opponent: 2 }, line: 'H/AB 2/3 · 3 RBI' });
+});
+
+test("a softball season sums its Games' batting counts, and its rates come from the totals, not an average of Games", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const first = await core.startGame({ athleteId, ...GAME_SETUP, gameDate: '2026-10-27', sport: 'softball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(first, { outcome: 'single', rbi: 1 });
+  await core.recordPlateAppearance(first, { outcome: 'walk', rbi: 0 });
+  await core.endGame(first, { teamScore: 1, opponentScore: 0 });
+  const second = await core.startGame({ athleteId, ...GAME_SETUP, gameDate: '2026-10-28', sport: 'softball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(second, { outcome: 'ground_out', rbi: 0 });
+  await core.recordPlateAppearance(second, { outcome: 'home_run', rbi: 2 });
+  await core.endGame(second, { teamScore: 3, opponentScore: 0 });
+
+  // AB 3 (the walk is not one), H 2, RBI 3, total bases 5; AVG 2/3, OBP (2 + 1) / (3 + 1), SLG 5/3
+  expect((await core.gameFeed(athleteId)).seasons).toEqual([
+    { sport: 'softball', batting: { atBats: 3, hits: 2, rbi: 3, bases: 5, walks: 1, hitByPitch: 0, sacFlies: 0, avg: 2 / 3, obp: 0.75, slg: 5 / 3 } },
+  ]);
 });
 
 async function softballGame(core: ReturnType<typeof createAppCore>) {
