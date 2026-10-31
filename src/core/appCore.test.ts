@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
 import { expect, test, vi } from 'vitest';
-import { arcPreset, createAppCore, periodLabel } from './appCore';
+import { arcPreset, createAppCore, periodLabel, type GameFormat } from './appCore';
 import { createStandInServer, createSupabaseServer, InviteRefused, serverFor } from './server';
 import { openStore, type Store } from './store';
 
@@ -1280,4 +1280,122 @@ test("a Game held from before Recorders were stored is still its Owner's: the Ow
   expect((await core.home()).liveGameId).toBe(gameId);
   expect((await member.core.home()).liveGameId).toBeUndefined();
   expect((await member.inspect.games.get(gameId))?.recorded_by).toBeUndefined();
+});
+
+test('the season line totals finished basketball Games, and the Games feed lists finished Games newest first', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const start = (gameDate: string, format: GameFormat = { sport: 'basketball', periodFormat: 'quarters' }) =>
+    core.startGame({ athleteId, opponentName: 'Hawks', gameDate, ...format });
+
+  // on court for a made 2, a missed 3, a made and a missed Free Throw, a rebound each way and an assist; the Sub Out at 3–0 makes the Shift +3
+  const first = await start('2026-10-28');
+  await core.toggleSub(first);
+  await core.recordShot(first, { x: 50, y: 20, value: 2, made: true });
+  await core.recordShot(first, { x: 50, y: 65, value: 3, made: false });
+  await core.recordFreeThrow(first, true);
+  await core.recordFreeThrow(first, false);
+  await core.recordTile(first, 'reb_off');
+  await core.recordTile(first, 'reb_def');
+  await core.recordTile(first, 'assist');
+  await core.toggleSub(first);
+  await core.endGame(first, { teamScore: 3, opponentScore: 0 });
+
+  const second = await start('2026-10-29');
+  await core.recordFreeThrow(second, true);
+  await core.endGame(second, { teamScore: 1, opponentScore: 4 });
+
+  // a Game still in progress and a softball Game: neither counts toward the season line
+  const unfinished = await start('2026-10-30');
+  await core.recordShot(unfinished, { x: 50, y: 20, value: 2, made: true });
+  const softball = await start('2026-10-27', { sport: 'softball', periodFormat: 'innings' });
+  await core.recordTile(softball, 'assist');
+  await core.endGame(softball, { teamScore: 1, opponentScore: 0 });
+
+  const feed = await core.gameFeed(athleteId);
+  expect(feed.season).toEqual({
+    points: 4,
+    fg: { made: 1, attempted: 2 },
+    ft: { made: 2, attempted: 3 },
+    rebounds: 2,
+    assists: 1,
+    plusMinus: 3,
+  });
+  expect(feed.games.map((g) => g.id)).toEqual([second, first, softball]);
+});
+
+test('a retracted Event never counts toward the season line', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({
+    athleteId,
+    opponentName: 'Hawks',
+    gameDate: '2026-10-28',
+    sport: 'basketball',
+    periodFormat: 'quarters',
+  });
+  await core.recordShot(gameId, { x: 50, y: 20, value: 2, made: true });
+  await core.recordTile(gameId, 'assist');
+  await core.undo(gameId); // retracts the assist
+  await core.undo(gameId); // retracts the Shot
+  await core.recordTile(gameId, 'reb_def');
+  await core.endGame(gameId, { teamScore: 0, opponentScore: 0 });
+
+  expect((await core.gameFeed(athleteId)).season).toEqual({
+    points: 0,
+    fg: { made: 0, attempted: 0 },
+    ft: { made: 0, attempted: 0 },
+    rebounds: 1,
+    assists: 0,
+    plusMinus: 0,
+  });
+});
+
+test("the Games feed groups Games by the phone's local date: Today, Yesterday, This Week (2 to 6 days back), then Earlier", async () => {
+  // 00:30 on the 30th local time: a UTC date would read the 29th in zones east of UTC
+  const { core } = setup(new Date(2026, 9, 30, 0, 30));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  for (const gameDate of ['2026-10-23', '2026-10-24', '2026-10-25', '2026-10-29', '2026-10-30']) {
+    const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate, sport: 'basketball', periodFormat: 'quarters' });
+    await core.endGame(gameId, { teamScore: 0, opponentScore: 0 });
+  }
+
+  expect((await core.gameFeed(athleteId)).games.map((g) => [g.gameDate, g.group])).toEqual([
+    ['2026-10-30', 'today'],
+    ['2026-10-29', 'yesterday'],
+    ['2026-10-25', 'this-week'],
+    ['2026-10-24', 'this-week'],
+    ['2026-10-23', 'earlier'],
+  ]);
+});
+
+test("a Game's summary shows its opponent, Final Score and stats; a Game still in progress has none", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({
+    athleteId,
+    opponentName: 'Hawks',
+    gameDate: '2026-10-28',
+    sport: 'basketball',
+    periodFormat: 'quarters',
+  });
+  await core.recordShot(gameId, { x: 50, y: 20, value: 2, made: true });
+  await core.recordTile(gameId, 'steal');
+  await core.endGame(gameId, { teamScore: 2, opponentScore: 1 });
+  const unfinished = await core.startGame({
+    athleteId,
+    opponentName: 'Bulls',
+    gameDate: '2026-10-30',
+    sport: 'basketball',
+    periodFormat: 'quarters',
+  });
+
+  expect(await core.gameSummary(gameId)).toMatchObject({
+    opponent: 'Hawks',
+    gameDate: '2026-10-28',
+    final: { team: 2, opponent: 1 },
+    line: { points: 2 },
+    tiles: { steal: 1 },
+  });
+  expect(await core.gameSummary(unfinished)).toBeUndefined();
 });
