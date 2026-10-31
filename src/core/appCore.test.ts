@@ -1794,3 +1794,24 @@ test("a Pitch keeps its result when a second phone downloads it at sign-in", asy
 
   expect(await second.inspect.events.get(swing.id)).toEqual(swing);
 });
+
+test('Next period starts the count at zero, so a Pitch from the last period never marks a strikeout', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPitch(gameId, 'swinging_strike');
+  await core.recordPitch(gameId, 'ball');
+
+  await core.nextPeriod(gameId);
+  expect((await core.liveGame(gameId))?.count).toBeUndefined();
+
+  const strikeout = await core.recordPlateAppearance(gameId, { outcome: 'strikeout', rbi: 0 });
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: strikeout.id, type: 'plate_appearance', outcome: 'strikeout' });
+});
+
+test("a Pitch's Undo names the Pitch it takes back", async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  const foul = await core.recordPitch(gameId, 'foul');
+
+  expect((await core.liveGame(gameId))?.undoable).toEqual({ id: foul.id, type: 'pitch', pitch: 'foul' });
+});

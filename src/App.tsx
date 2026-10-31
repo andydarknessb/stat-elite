@@ -508,7 +508,7 @@ const OUTCOME_LABELS: Record<Outcome, string> = {
 /** A batting rate as a scorebook prints it: .333, 1.000; a dash while its denominator is zero. */
 const rateText = (rate?: number) => (rate === undefined ? '—' : rate.toFixed(3).replace(/^0/, ''));
 
-/** An Outcome's label; a strikeout names how it was marked: looking or swinging (GLOSSARY: Pitch). */
+/** An Outcome's label; a strikeout names how it was marked (GLOSSARY: Strikeout looking, Strikeout swinging). */
 const outcomeLabel = (outcome: Outcome, strikeout?: StrikeKind) =>
   outcome === 'strikeout' && strikeout ? `Strikeout ${strikeout}` : OUTCOME_LABELS[outcome];
 
@@ -525,9 +525,11 @@ const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
     ? freeThrowLabel(undoable.made)
     : undoable.type === 'shot'
       ? shotLabel(undoable.value, undoable.made)
-      : undoable.outcome
-        ? outcomeLabel(undoable.outcome, undoable.strikeout)
-        : EVENT_LABELS[undoable.type];
+      : undoable.pitch
+        ? PITCH_LABELS[undoable.pitch]
+        : undoable.outcome
+          ? outcomeLabel(undoable.outcome, undoable.strikeout)
+          : EVENT_LABELS[undoable.type];
 
 const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 'Standard', bleacher: 'Bleacher' };
 

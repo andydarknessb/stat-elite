@@ -75,10 +75,10 @@ export interface Counts {
   points: number;
 }
 
-/** How a strikeout is marked: looking or swinging, by the last called or swinging strike (GLOSSARY: Pitch). */
+/** How a strikeout is marked: looking or swinging (GLOSSARY: Strikeout looking, Strikeout swinging). */
 export type StrikeKind = 'looking' | 'swinging';
 
-/** A Plate Appearance's count from its Pitches: balls and strikes, and how a strikeout would be marked now. */
+/** A Plate Appearance's count from its Pitches: balls and strikes, and how a strikeout would be marked now (GLOSSARY: Count). */
 export interface PitchCount {
   balls: number;
   strikes: number;
@@ -108,9 +108,9 @@ export interface LiveGame extends Counts {
   score: Scores;
   /** The Final Score, once End Game has closed the Game. */
   final?: Scores;
-  /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot; strikeout on a strikeout Plate Appearance. */
-  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3; outcome?: Outcome; strikeout?: StrikeKind };
-  /** The count of the Plate Appearance in progress, once a Pitch is logged in it (GLOSSARY: Pitch); undefined before that. */
+  /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot, pitch on a Pitch; strikeout on a strikeout Plate Appearance. */
+  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3; outcome?: Outcome; strikeout?: StrikeKind; pitch?: Pitch };
+  /** The count of the Plate Appearance in progress, once a Pitch is logged in it (GLOSSARY: Count); undefined before that. */
   count?: PitchCount;
   /** Whether the Athlete is on court: the newest Sub Event not retracted is a Sub In. */
   onCourt: boolean;
@@ -287,7 +287,7 @@ const battingOf = (live: EventRow[]): Batting => {
   };
 };
 
-// the count Pitches make: a foul is a strike only while the count has fewer than two (a batter cannot strike out on a foul)
+// the count Pitches make: a foul is a strike only while the count has fewer than two (GLOSSARY: Pitch)
 const pitchCountOf = (pitches: Pitch[]): PitchCount => {
   let balls = 0;
   let strikes = 0;
@@ -297,18 +297,19 @@ const pitchCountOf = (pitches: Pitch[]): PitchCount => {
       if (strikes < 2) strikes++;
     } else strikes++;
   }
-  // fouls never mark a strikeout: only the last called or swinging strike does
+  // fouls never mark a strikeout: only the last called or swinging strike does (GLOSSARY: Strikeout looking, Strikeout swinging)
   const last = pitches.filter((pitch) => pitch === 'called_strike' || pitch === 'swinging_strike').at(-1);
   if (last === undefined) return { balls, strikes };
   return { balls, strikes, strikeout: last === 'called_strike' ? 'looking' : 'swinging' };
 };
 
-// each Plate Appearance's strikeout mark (undefined for every other Outcome), and the Pitches logged since the newest Plate Appearance
+// each Plate Appearance's strikeout mark (undefined for every other Outcome), and the Pitches logged since the newest Plate Appearance or Period
 const pitchesOf = (live: EventRow[]) => {
   const strikeouts = new Map<string, StrikeKind | undefined>();
   let pitches: Pitch[] = [];
   for (const event of live) {
     if (event.type === 'pitch' && event.pitch) pitches.push(event.pitch);
+    if (event.type === 'period_start') pitches = [];
     if (event.type === 'plate_appearance') {
       if (event.outcome === 'strikeout') strikeouts.set(event.id, pitchCountOf(pitches).strikeout);
       pitches = [];
@@ -633,6 +634,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         value: latest.shot_value ?? undefined,
         outcome: latest.outcome ?? undefined,
         strikeout: pitches.strikeouts.get(latest.id),
+        pitch: latest.pitch ?? undefined,
       },
       count: pitches.current.length > 0 ? pitchCountOf(pitches.current) : undefined,
       onCourt: onCourtSince !== undefined,
@@ -754,7 +756,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
-    /** A Pitch: one ball, strike or foul in the Plate Appearance in progress; Pitches are optional (GLOSSARY: Pitch). */
+    /** A Pitch: one ball, strike or foul in the Plate Appearance in progress; Pitches are optional (GLOSSARY: Pitch, Count). */
     async recordPitch(gameId: string, pitch: Pitch): Promise<EventRow> {
       if (!PITCHES.includes(pitch)) throw new Error('A Pitch is a ball, a called or swinging strike, or a foul');
       return write([store.events], async () => {

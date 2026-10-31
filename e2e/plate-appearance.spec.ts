@@ -36,6 +36,7 @@ test('Pitches show a count once one is logged; a strikeout is marked by the last
   await page.getByRole('button', { name: 'Ball', exact: true }).click();
   await page.getByRole('button', { name: 'Called strike', exact: true }).click();
   await expect(page.getByText('Count 1-1', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo (last Event): Called strike' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Strikeout', exact: true }).click();
   // the RBI row sits under the Pitch row and the count: the tallest state must still fit without scrolling
