@@ -15,3 +15,15 @@ create policy member_records_games on games for insert to authenticated
 drop policy add_own_events on events;
 create policy recorder_adds_events on events for insert to authenticated
   with check (exists (select 1 from games g where g.id = events.game_id and g.recorded_by = (select auth.uid())));
+
+-- A Game keeps its Recorder: the Owner's own update policy would otherwise let it hand a Member's Game to itself.
+-- Clearing it is allowed: a Member's deleted account leaves its Games with the Athlete, unlinked (ADR 0004).
+create function keep_recorder() returns trigger language plpgsql set search_path = '' as $$
+begin
+  if new.recorded_by is not null and new.recorded_by is distinct from old.recorded_by then
+    raise exception 'a Game keeps its Recorder';
+  end if;
+  return new;
+end $$;
+
+create trigger games_keep_recorder before update on games for each row execute function keep_recorder();

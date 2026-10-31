@@ -217,14 +217,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         console.error(error);
       }
     }
-    // signing in makes the account the Owner of the phone's Athletes, and the Recorder of the Games recorded before it
+    // signing in makes the account the Owner of the phone's Athletes
     await store.athletes
       .toCollection()
       .filter((a) => a.owner_id === undefined)
       .modify({ owner_id: owner });
+    // a Game recorded before sign-in takes its Recorder now, while it still waits to upload; a downloaded Game is not this phone's
+    const waiting = (await store.outbox.toArray()).flatMap((entry) => (entry.table === 'games' ? [entry.id] : []));
     await store.games
-      .toCollection()
-      .filter((g) => g.recorded_by === undefined)
+      .where('id')
+      .anyOf(waiting)
+      .and((g) => g.recorded_by === undefined)
       .modify({ recorded_by: owner });
     for (const entry of await store.outbox.orderBy('seq').toArray()) {
       const loaded = await loadRow(entry);
@@ -394,8 +397,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const session = await server.session();
       let liveGameId: string | undefined;
       for (const game of [...games].reverse()) {
-        // a Game from before sign-in has no Recorder yet, and this phone recorded it
-        if (game.recorded_by !== undefined && game.recorded_by !== session) continue;
+        // a Game stored before Recorders were is the Owner's; one waiting on sign-in has no Recorder yet, and this phone recorded it
+        const recorder = game.recorded_by === undefined ? athlete.owner_id : game.recorded_by;
+        if (recorder !== session) continue;
         if ((await gameEvents(game.id).last())?.type !== 'game_end') {
           liveGameId = game.id;
           break;

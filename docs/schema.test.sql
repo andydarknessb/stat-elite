@@ -146,6 +146,15 @@ begin
   select count(*) into n from events where game_id = '20000000-0000-0000-0000-0000000000c1';
   if n <> 1 then raise exception 'the Owner should see the Member''s Event, saw %', n; end if;
 end $$;
+-- The Owner cannot hand the Member's Game to itself: a Game keeps its Recorder. Its own edits to its Game still go through.
+select pg_temp.expect_fail($$update games set recorded_by = '00000000-0000-0000-0000-00000000000a' where id = '20000000-0000-0000-0000-0000000000c1'$$, 'the Owner reassigning a Game to itself');
+do $$
+declare n int;
+begin
+  update games set opponent_name = 'Hawks' where id = '20000000-0000-0000-0000-0000000000a1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'the Owner should update its own Game, updated %', n; end if;
+end $$;
 
 -- B, the stranger, still sees only its own rows, and cannot take the Invite C used.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
@@ -160,6 +169,17 @@ begin
   select count(*) into n from events;
   if n <> 1 then raise exception 'a stranger should see only its own Event, saw %', n; end if;
 end $$;
+
+-- A Member deleting its account clears the Recorder link on the Games it recorded; the Games stay with the Athlete (ADR 0004).
+reset role;
+delete from auth.users where id = '00000000-0000-0000-0000-00000000000c';
+do $$
+begin
+  if (select recorded_by from games where id = '20000000-0000-0000-0000-0000000000c1') is not null then
+    raise exception 'a deleted Member''s Game should lose its Recorder';
+  end if;
+end $$;
+set role authenticated;
 
 -- Delete my account, signed in as A: everything of A's goes, B is untouched.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);

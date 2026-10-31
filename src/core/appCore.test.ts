@@ -901,3 +901,23 @@ test("a launch on a phone already signed in downloads the Games another phone of
 
   expect(await second.inspect.games.get(gameId)).toMatchObject({ athlete_id: athleteId });
 });
+
+test("a Game held from before Recorders were stored is still its Owner's: the Owner's phone records on it, a Member's does not", async () => {
+  const { core, server, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+  // the phones' copies of the Game as the build before this one stored them: no Recorder
+  await inspect.games.put({ ...(await inspect.games.get(gameId))!, recorded_by: undefined });
+  await member.inspect.games.put({ ...(await member.inspect.games.get(gameId))!, recorded_by: undefined });
+
+  await member.core.refresh();
+
+  expect((await core.home()).liveGameId).toBe(gameId);
+  expect((await member.core.home()).liveGameId).toBeUndefined();
+  expect((await member.inspect.games.get(gameId))?.recorded_by).toBeUndefined();
+});
