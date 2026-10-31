@@ -1570,3 +1570,24 @@ test('copy text counts only un-retracted Events, and a Game still in progress ha
   );
   expect(await core.gameCopyText(unfinished)).toBeUndefined();
 });
+
+test("a finished Game's share card names the Athlete, carries its photo, the Opponent, the Final Score and the line; undefined while the Game runs", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const photo = new Blob(['jpeg bytes'], { type: 'image/jpeg' });
+  const athleteId = await core.addAthlete({ name: 'Casey', photo });
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+  await core.toggleSub(gameId);
+  await core.recordShot(gameId, { x: 50, y: 20, value: 2, made: true });
+  await core.toggleSub(gameId);
+  expect(await core.gameCard(gameId)).toBeUndefined();
+
+  await core.endGame(gameId, { teamScore: 2, opponentScore: 0 });
+
+  expect(await core.gameCard(gameId)).toMatchObject({
+    athlete: 'Casey',
+    opponent: 'Hawks',
+    final: { team: 2, opponent: 0 },
+    line: '2 PTS · FG 1/1 · FT 0/0 · 0 REB · 0 AST',
+  });
+  expect((await core.gameCard(gameId))?.photo?.size).toBe(photo.size);
+});
