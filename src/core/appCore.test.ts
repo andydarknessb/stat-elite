@@ -47,7 +47,7 @@ test('Home goes from no Athlete, to the Athlete, to their Game in progress', asy
   expect(await core.home()).toEqual({});
 
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  expect(await core.home()).toEqual({ athlete: { id: athleteId, name: 'Casey' } });
+  expect(await core.home()).toEqual({ athlete: { id: athleteId, name: 'Casey', jerseyNumber: null } });
 
   const gameId = await core.startGame({ athleteId, sport: 'basketball', periodFormat: 'halves' });
   expect((await core.home()).liveGameId).toBe(gameId);
@@ -144,4 +144,24 @@ test('editing an Athlete changes its name and number and stamps updated_at with 
     created_at: now.toISOString(),
     updated_at: later.toISOString(),
   });
+});
+
+test('switching Athletes changes whose Games Home shows and whom Start Game records; the choice survives a reload', async () => {
+  const { core, inspect, reopen } = setup();
+  const firstId = await core.addAthlete({ name: 'Casey' });
+  const secondId = await core.addAthlete({ name: 'Sam' });
+  const shownAtStart = (await core.home()).athlete?.id;
+  const other = shownAtStart === firstId ? secondId : firstId;
+
+  await core.switchAthlete(other);
+  const home = await core.home();
+  expect(home.athlete?.id).toBe(other);
+  expect(home.next?.id).toBe(shownAtStart);
+  const gameId = await core.startGame({ athleteId: home.athlete!.id, sport: 'basketball', periodFormat: 'quarters' });
+
+  expect((await inspect.games.get(gameId))?.athlete_id).toBe(other);
+  expect(await reopen().home()).toMatchObject({ athlete: { id: other }, liveGameId: gameId });
+
+  await core.switchAthlete(shownAtStart!);
+  expect((await core.home()).liveGameId).toBeUndefined();
 });

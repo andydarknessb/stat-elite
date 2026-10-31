@@ -10,9 +10,13 @@ type GameFormat =
   | { sport: 'softball' | 'baseball'; periodFormat: 'innings' };
 
 export interface Home {
-  athlete?: { id: string; name: string };
+  athlete?: { id: string; name: string; jerseyNumber: string | null; photo?: Blob };
+  /** The Athlete a tap on the photo switches to; present only when there is more than one. */
+  next?: { id: string; name: string };
   liveGameId?: string;
 }
+
+const SELECTED_ATHLETE = 'selectedAthleteId';
 
 export interface LiveGame {
   id: string;
@@ -52,6 +56,10 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
         if (photo) await store.athletePhotos.add({ athlete_id: id, photo });
       });
       return id;
+    },
+
+    async editAthlete({ id, name, jerseyNumber }: { id: string; name: string; jerseyNumber: string }): Promise<void> {
+      await store.athletes.update(id, { name, jersey_number: jerseyNumber.trim() || null, updated_at: now() });
     },
 
     async startGame({ athleteId, sport, periodFormat }: { athleteId: string } & GameFormat): Promise<string> {
@@ -98,13 +106,26 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
       });
     },
 
+    async switchAthlete(athleteId: string): Promise<void> {
+      await store.settings.put({ key: SELECTED_ATHLETE, value: athleteId });
+    },
+
     async home(): Promise<Home> {
-      // shortcut: Home shows the first Athlete added, until the Athlete switcher exists (#6)
-      const athlete = await store.athletes.orderBy('created_at').first();
-      if (!athlete) return {};
+      const athletes = await store.athletes.orderBy('created_at').toArray();
+      if (athletes.length === 0) return {};
+      // falls back to the first Athlete added when nothing is chosen yet
+      const selectedId = (await store.settings.get(SELECTED_ATHLETE))?.value;
+      const index = Math.max(0, athletes.findIndex((a) => a.id === selectedId));
+      const athlete = athletes[index];
+      const photo = await store.athletePhotos.get(athlete.id);
+      const next = athletes[(index + 1) % athletes.length];
       // shortcut: the Athlete's latest Game is the one in progress, until End Game exists (#7)
       const games = await store.games.where('athlete_id').equals(athlete.id).sortBy('created_at');
-      return { athlete: { id: athlete.id, name: athlete.name }, liveGameId: games.at(-1)?.id };
+      return {
+        athlete: { id: athlete.id, name: athlete.name, jerseyNumber: athlete.jersey_number, photo: photo?.photo },
+        next: athletes.length > 1 ? { id: next.id, name: next.name } : undefined,
+        liveGameId: games.at(-1)?.id,
+      };
     },
 
     async liveGame(gameId: string): Promise<LiveGame | undefined> {
