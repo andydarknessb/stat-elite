@@ -222,19 +222,18 @@ const shiftBetween = (start: EventRow, end: { at: string; scores: Scores }): Shi
 /** A Score Snapshot takes whole, non-negative scores. */
 const isScore = (n: number) => Number.isInteger(n) && n >= 0;
 
-// The half court in feet: x across the 50 ft width, y from the baseline (the basket end) down the 47 ft to the half-court line.
+// The half court in feet, on the NFHS (US high-school and youth) line: x across the 50 ft width, y from the baseline (the basket end) down the 42 ft to the half-court line.
 const widthFt = 50;
 const basketFt = 5.25;
-const arcFt = 23.75;
-const cornerFt = 3;
+const arcFt = 19.75;
+const cornerFt = 5.25;
 // the corner line runs from the baseline to where it meets the arc
 const cornerEndFt = basketFt + Math.sqrt(arcFt ** 2 - (widthFt / 2 - cornerFt) ** 2);
-export const HALF_COURT = { widthFt, lengthFt: 47, basketFt, arcFt, cornerFt, cornerEndFt };
+export const HALF_COURT = { widthFt, lengthFt: 42, basketFt, arcFt, cornerFt, cornerEndFt };
 
 /**
- * The value a spot presets: 3 beyond the three-point line, which is the arc from the basket plus the corners
- * (3 ft in from each sideline, out to where they meet the arc), else 2. A spot is 0–100 on each axis.
- * shortcut: NBA lines, so the arc is 23.75 ft; FIBA's 6.75 m arc is 22.1 ft, upgrade when a league is picked
+ * The value a spot presets: 3 beyond the three-point line, which is the NFHS arc from the basket plus the corners
+ * (5.25 ft in from each sideline, out to where they meet the arc), else 2. A spot is 0–100 on each axis.
  */
 export function arcPreset(x: number, y: number): 2 | 3 {
   const fx = (x / 100) * HALF_COURT.widthFt;
