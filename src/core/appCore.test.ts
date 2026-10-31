@@ -1533,3 +1533,40 @@ test("a Game's summary shows its opponent, Final Score and stats; a Game still i
   });
   expect(await core.gameSummary(unfinished)).toBeUndefined();
 });
+
+test("a finished basketball Game's copy text names the Athlete and Opponent, the Final Score, the line, Plus/Minus and the sport hashtag", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+  // on court for a made 2, a missed 3, a made Free Throw, an offensive rebound and an assist; the Sub Out at 3–0 makes the Shift +3
+  await core.toggleSub(gameId);
+  await core.recordShot(gameId, { x: 50, y: 20, value: 2, made: true });
+  await core.recordShot(gameId, { x: 50, y: 65, value: 3, made: false });
+  await core.recordFreeThrow(gameId, true);
+  await core.recordTile(gameId, 'reb_off');
+  await core.recordTile(gameId, 'assist');
+  await core.toggleSub(gameId);
+  await core.endGame(gameId, { teamScore: 3, opponentScore: 0 });
+
+  expect(await core.gameCopyText(gameId)).toBe(
+    ['Casey vs Hawks: 3–0 final', 'Casey: 3 PTS · FG 1/2 · FT 1/1 · 1 REB · 1 AST · Plus/Minus +3', '#basketball'].join('\n'),
+  );
+});
+
+test('copy text counts only un-retracted Events, and a Game still in progress has none', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+  await core.recordShot(gameId, { x: 50, y: 20, value: 2, made: true });
+  await core.recordTile(gameId, 'assist');
+  await core.recordFreeThrow(gameId, true);
+  await core.undo(gameId); // retracts the Free Throw
+  await core.undo(gameId); // retracts the assist
+  await core.endGame(gameId, { teamScore: 2, opponentScore: 0 });
+  const unfinished = await core.startGame({ athleteId, opponentName: 'Bulls', gameDate: '2026-10-30', sport: 'basketball', periodFormat: 'quarters' });
+
+  expect(await core.gameCopyText(gameId)).toBe(
+    ['Casey vs Hawks: 2–0 final', 'Casey: 2 PTS · FG 1/1 · FT 0/0 · 0 REB · 0 AST · Plus/Minus 0', '#basketball'].join('\n'),
+  );
+  expect(await core.gameCopyText(unfinished)).toBeUndefined();
+});
