@@ -152,6 +152,14 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
 /** Supabase through its client: the server the deployed app syncs with. */
 export function createSupabaseServer(client: SupabaseClient): Server {
   const session = async () => (await client.auth.getSession()).data.session?.user.id;
+  // whether the signed-in account is a Member of the Athlete a row names, not its Owner: its own membership row, which RLS lets it read
+  const isMemberOf = async (row: UploadRow) => {
+    const me = await session();
+    if (me === undefined || row.owner_id === me) return false;
+    const { data, error } = await client.from('members').select('member_id').eq('athlete_id', row.id).eq('member_id', me);
+    if (error) throw error;
+    return data.length > 0;
+  };
   return {
     session,
     async signIn(email, invite) {
@@ -164,9 +172,13 @@ export function createSupabaseServer(client: SupabaseClient): Server {
       if (error) throw error;
     },
     async upload(table, row) {
-      // Events are insert-only: a repeat of one already on the server is ignored (ADR 0001)
-      const { error } = await client.from(table).upsert(row, { ignoreDuplicates: true });
-      if (error) throw error;
+      // a Member's edit of an Athlete updates the row the server has: a Member may not insert one (ADR 0004)
+      const memberEdit = table === 'athletes' && (await isMemberOf(row));
+      if (!memberEdit) {
+        // Events are insert-only: a repeat of one already on the server is ignored (ADR 0001)
+        const { error } = await client.from(table).upsert(row, { ignoreDuplicates: true });
+        if (error) throw error;
+      }
       // an Athlete or Game is replaced only by a copy at least as new: latest edit wins
       if (table !== 'events') {
         const { error: stale } = await client.from(table).update(row).eq('id', row.id).lte('updated_at', row.updated_at);

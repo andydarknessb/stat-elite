@@ -423,8 +423,6 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
   const [tab, setTab] = useState<Tab>('home');
   // the finished Game whose summary is open, from either tab
   const [summary, setSummary] = useState<string>();
-  // a Member records Games on the Athlete too; Edit stays the Owner's
-  const owner = useReadModel(() => core.isOwner(athlete.id), [core, athlete.id]);
   if (form === 'setup') {
     return <GameSetupForm core={core} athleteId={athlete.id} onCancel={() => setForm(undefined)} />;
   }
@@ -466,7 +464,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         <button className="primary" onClick={() => setForm('setup')}>
           Start Game
         </button>
-        {owner && <button onClick={() => setForm('edit')}>Edit</button>}
+        <button onClick={() => setForm('edit')}>Edit</button>
         <button onClick={() => setForm('add')}>Add Athlete</button>
         <button onClick={() => setForm('settings')}>Settings</button>
         <InviteCoParent core={core} athleteId={athlete.id} />
