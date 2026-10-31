@@ -80,7 +80,7 @@ export interface LiveGame {
   shifts: Shift[];
   /** Plus/Minus for the Game: the sum over its Shifts (ADR 0002). */
   plusMinus: number;
-  /** Total Shift time over the Game's elapsed time, from its first Event to now or the End Game; 0–1. */
+  /** Total Shift time over the Game's elapsed time, from its start to now or the End Game; clamped to 0–1 if the clock steps back. */
   playingShare: number;
 }
 
@@ -615,7 +615,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const endAt = last?.type === 'game_end' ? last.client_ts : now();
       if (onCourtSince) shifts.push(shiftBetween(onCourtSince, { at: endAt, scores: score }));
       const total = shifts.reduce((sum, shift) => sum + shift.ms, 0);
-      const elapsed = events.length ? Date.parse(endAt) - Date.parse(events[0].client_ts) : 0;
+      // the Game's elapsed time runs from its start (startGame's created_at), so a late first Sub In reads its true share
+      const elapsed = Date.parse(endAt) - Date.parse(game.created_at);
       return {
         id: game.id,
         sport: game.sport,
@@ -629,7 +630,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         onCourt: onCourtSince !== undefined,
         shifts,
         plusMinus: shifts.reduce((sum, shift) => sum + shift.plusMinus, 0),
-        playingShare: elapsed > 0 ? total / elapsed : 0,
+        playingShare: elapsed > 0 ? Math.min(1, Math.max(0, total / elapsed)) : 0,
       };
     },
 

@@ -555,10 +555,48 @@ test('a Sub In with no Sub Out survives a restart: the Athlete is still on court
   const { core, reopen, tick } = clocked();
   const gameId = await basketballGame(core);
 
+  tick(30); // on the bench first, so the share is not 100%
   await core.toggleSub(gameId);
   tick(90);
 
-  expect(await reopen().liveGame(gameId)).toMatchObject({ onCourt: true, shifts: [{ ms: 90_000 }], playingShare: 1 });
+  expect(await reopen().liveGame(gameId)).toMatchObject({ onCourt: true, shifts: [{ ms: 90_000 }], playingShare: 0.75 });
+});
+
+test('Playing Share counts from the Game start, so a bench Athlete whose first Sub In is late does not read 100%', async () => {
+  const { core, tick } = clocked();
+  const gameId = await basketballGame(core);
+
+  tick(120); // on the bench from the Game's start
+  await core.toggleSub(gameId); // Sub In at 120s
+  tick(60);
+
+  expect((await core.liveGame(gameId))?.playingShare).toBeCloseTo(60 / 180);
+});
+
+test('Playing Share stays at most 100% when the device clock steps back', async () => {
+  const { core, tick } = clocked();
+  const gameId = await basketballGame(core);
+
+  tick(60);
+  await core.toggleSub(gameId); // Sub In at 60s
+  tick(140);
+  await core.toggleSub(gameId); // Sub Out at 200s: Shift is 140s
+  tick(-100); // the clock reads 100s now, under the 140s Shift
+
+  expect((await core.liveGame(gameId))?.playingShare).toBe(1);
+});
+
+test("the open Shift's Plus/Minus runs to the strip now, Shots included, and Undo moves it", async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  await core.toggleSub(gameId); // Sub In at 0–0
+  await core.recordShot(gameId, { x: 50, y: 65, value: 3, made: true }); // 3–0
+  await core.adjustScore(gameId, 'opponent', 1); // 3–1
+  expect(await core.liveGame(gameId)).toMatchObject({ plusMinus: 2, shifts: [{ plusMinus: 2 }] });
+
+  await core.undo(gameId); // retracts the opponent point: 3–0
+  expect(await core.liveGame(gameId)).toMatchObject({ plusMinus: 3, shifts: [{ plusMinus: 3 }] });
 });
 
 test('a strip correction mid-Shift lands in that Shift once, with the Shot already on the strip', async () => {
