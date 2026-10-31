@@ -1,7 +1,9 @@
 import { liveQuery } from 'dexie';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
 import {
   BUTTON_SIZES,
+  HALF_COURT,
+  arcPreset,
   type AppCore,
   type ButtonSize,
   type GameFormat,
@@ -396,17 +398,22 @@ const TILE_LABELS: Record<TileEventType, string> = {
   foul: 'FOUL',
 };
 
-/** Labels for every Event Undo can retract, except a Free Throw, which names its result (see undoLabel). */
-const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw'>, string> = {
+/** Labels for every Event Undo can retract, except a Free Throw or Shot, which name their result (see undoLabel). */
+const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw' | 'shot'>, string> = {
   ...TILE_LABELS,
   score: 'Score',
   game_end: 'End Game',
 };
 
 const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
+const shotLabel = (value: 2 | 3 | undefined, made?: boolean) => `${made ? 'Made' : 'Missed'} ${value}PT`;
 
 const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
-  undoable.type === 'free_throw' ? freeThrowLabel(undoable.made) : EVENT_LABELS[undoable.type];
+  undoable.type === 'free_throw'
+    ? freeThrowLabel(undoable.made)
+    : undoable.type === 'shot'
+      ? shotLabel(undoable.value, undoable.made)
+      : EVENT_LABELS[undoable.type];
 
 const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 'Standard', bleacher: 'Bleacher' };
 
@@ -498,6 +505,72 @@ function EndGameForm({
   );
 }
 
+const toFt = (spot: number, feet: number) => (spot / 100) * feet;
+const { widthFt, lengthFt, basketFt, arcFt, cornerFt, cornerEndFt } = HALF_COURT;
+// the three-point line: the corner lines from the baseline, then the arc between them
+const THREE_POINT_LINE = `M ${cornerFt} 0 V ${cornerEndFt} A ${arcFt} ${arcFt} 0 0 0 ${widthFt - cornerFt} ${cornerEndFt} V 0`;
+
+/** A tap on the half court, and the value the arc presets it to, until MAKE or MISS records it. */
+type PendingShot = { x: number; y: number; value: 2 | 3 };
+
+/** Shot entry: tap the spot, then MAKE or MISS. Nothing is saved until the result tap (plan: Shot entry). */
+function ShotEntry({
+  core,
+  gameId,
+  shots,
+  points,
+  onRecorded,
+}: {
+  core: AppCore;
+  gameId: string;
+  shots: LiveGame['shots'];
+  points: number;
+  onRecorded: (label: string) => void;
+}) {
+  const [pending, setPending] = useState<PendingShot>();
+  // the court is drawn in feet, so a spot is read off the box as 0–100 on each axis
+  const place = (e: MouseEvent<SVGSVGElement>) => {
+    const box = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - box.left) / box.width) * 100;
+    const y = ((e.clientY - box.top) / box.height) * 100;
+    setPending({ x, y, value: arcPreset(x, y) });
+  };
+  // the arc presets the value; the Recorder can flip it until the result tap
+  const flip = () => {
+    if (pending) setPending({ ...pending, value: pending.value === 2 ? 3 : 2 });
+  };
+  const record = (made: boolean) => {
+    if (!pending) return;
+    setPending(undefined);
+    void core.recordShot(gameId, { x: pending.x, y: pending.y, value: pending.value, made });
+    onRecorded(shotLabel(pending.value, made));
+  };
+  return (
+    <div className="shot-entry">
+      <svg className="court" viewBox={`0 0 ${widthFt} ${lengthFt}`} role="img" aria-label="Half court" onClick={place}>
+        <rect x="0" y="0" width={widthFt} height={lengthFt} />
+        <path d={THREE_POINT_LINE} />
+        <circle cx={widthFt / 2} cy={basketFt} r="0.75" />
+        {pending && <circle className="spot" cx={toFt(pending.x, widthFt)} cy={toFt(pending.y, lengthFt)} r="1.5" />}
+      </svg>
+      <div className="shot-controls" role="group" aria-label="Shot result">
+        <button aria-pressed={pending?.value === 3} disabled={!pending} onClick={flip}>
+          3PT
+        </button>
+        <button className="make" disabled={!pending} onClick={() => record(true)}>
+          MAKE
+        </button>
+        <button className="miss" disabled={!pending} onClick={() => record(false)}>
+          MISS
+        </button>
+        <p className="shot-count">
+          2PT {shots[2].made}/{shots[2].attempted} · 3PT {shots[3].made}/{shots[3].attempted} · {points} pts
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function LiveGame({
   core,
   gameId,
@@ -552,8 +625,13 @@ function LiveGame({
   };
   const shots = (
     <>
-      {/* shortcut: an empty court until Shot entry draws on it (#16) */}
-      <section className="court" aria-label="Half court" />
+      <ShotEntry
+        core={core}
+        gameId={gameId}
+        shots={game.shots}
+        points={game.points}
+        onRecorded={(label) => setToast(label)}
+      />
       <div className="free-throws" role="group" aria-label="Free Throw">
         <button className="make" onClick={() => void tapFreeThrow(true)}>
           MAKE
