@@ -13,7 +13,7 @@ The account an Athlete belongs to, with sole say over its Members and its deleti
 _Avoid_: admin, creator
 
 **Member**:
-An account invited to share an Athlete. A Member sees every Game of that Athlete and can record new ones.
+An account invited to share an Athlete. A Member sees every Game of that Athlete, can record new ones, and edits the Athlete's name and number.
 _Avoid_: co-parent (outside UI copy), collaborator, guest, viewer
 
 **Invite**:
