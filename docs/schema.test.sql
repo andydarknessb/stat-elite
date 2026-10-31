@@ -6,7 +6,7 @@
 create role anon nologin;
 create role authenticated nologin;
 create schema auth;
-create table auth.users (id uuid primary key);
+create table auth.users (id uuid primary key, email text);
 create function auth.uid() returns uuid language sql stable
   as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 grant usage on schema auth to authenticated;
@@ -254,6 +254,22 @@ begin
   end if;
 end $$;
 set role authenticated;
+
+-- A Member's sign-in email (ADR 0004): B, which has its own Athlete, accepts an Invite to Casey, and the Owner reads
+-- the email B signed in with on B's membership row.
+reset role;
+update auth.users set email = 'b@example.com' where id = '00000000-0000-0000-0000-00000000000b';
+insert into invites (token, athlete_id, owner_id) values ('40000000-0000-0000-0000-0000000000b0', '10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+select accept_invite('40000000-0000-0000-0000-0000000000b0');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$
+begin
+  if (select email from members where member_id = '00000000-0000-0000-0000-00000000000b') is distinct from 'b@example.com' then
+    raise exception 'the Owner should read the sign-in email a Member accepted with';
+  end if;
+end $$;
 
 -- Delete my account, signed in as A: everything of A's goes, B is untouched.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);

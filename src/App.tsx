@@ -17,13 +17,14 @@ import {
   type FeedGame,
   type Home,
   type LiveGame,
+  type Member,
   type Scores,
   type Season,
   type StrikeKind,
   type TileEventType,
   type UndoableType,
 } from './core/appCore';
-import { InviteRefused, type MemberRow } from './core/server';
+import { InviteRefused } from './core/server';
 import { renderShareCard } from './core/shareCard';
 import { OUTCOMES, PITCHES, type BaseMove, type Outcome, type Pitch } from './core/store';
 import { InstallPrompt } from './InstallPrompt';
@@ -161,7 +162,7 @@ function InviteCoParent({ core, athleteId }: { core: AppCore; athleteId: string 
 function Members({ core, athleteId }: { core: AppCore; athleteId: string }) {
   const canInvite = useReadModel(() => core.canInvite(athleteId), [core, athleteId]);
   const owner = useReadModel(() => core.isOwner(athleteId), [core, athleteId]);
-  const [members, setMembers] = useState<MemberRow[]>();
+  const [members, setMembers] = useState<Member[]>();
   const [error, setError] = useState<string>();
   const load = () =>
     core.members(athleteId).then(setMembers, () => setError('Could not load the Members. Check the connection and try again.'));
@@ -195,7 +196,7 @@ function Members({ core, athleteId }: { core: AppCore; athleteId: string }) {
       <ul>
         {members?.map((member) => (
           <li key={member.member_id}>
-            Joined {new Date(member.joined_at).toLocaleDateString()}{' '}
+            {member.label}{' '}
             <button onClick={() => void remove(member.member_id)}>Remove</button>
           </li>
         ))}

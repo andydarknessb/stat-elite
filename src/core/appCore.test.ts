@@ -1205,6 +1205,32 @@ test('only the Owner removes a Member, and sees the Members to remove', async ()
   expect(await core.members(athleteId)).toEqual([]);
 });
 
+test("the Owner's Members list names each Member by the sign-in email it accepted with, or by when it joined", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const memberId = (await member.server.session())!;
+
+  expect(await core.members(athleteId)).toEqual([
+    { member_id: memberId, joined_at: expect.any(String), email: 'sam@example.com', label: 'sam@example.com' },
+  ]);
+
+  // a membership with no email on record is named by when it joined
+  const joinedAt = '2026-10-30T10:00:00.000Z';
+  const unnamed = createAppCore({
+    clock: () => new Date('2026-10-30T18:00:00Z'),
+    store: openStore(`test-${++stores}`),
+    server: { ...server, members: async () => [{ member_id: memberId, joined_at: joinedAt, email: null }] },
+  });
+  expect(await unnamed.members(athleteId)).toEqual([
+    { member_id: memberId, joined_at: joinedAt, email: null, label: `Joined ${new Date(joinedAt).toLocaleDateString()}` },
+  ]);
+});
+
 // Casey, a Game the Owner recorded, and a Member joined to it who records a Game of its own with a steal
 async function sharedWithAMember() {
   const { core, server } = setup();
@@ -1460,6 +1486,25 @@ test('the Supabase server removes a Member as the Owner, and names a removal the
     ['members', 'athlete_id', 'a1', 'member_id', 'm1'],
     ['members', 'athlete_id', 'a1', 'member_id', 'm1'],
   ]);
+});
+
+test('the Supabase server reads each Member with the sign-in email it accepted with', async () => {
+  const selected: string[] = [];
+  const client = {
+    from: () => ({
+      select: (columns: string) => ({
+        eq: async () => {
+          selected.push(columns);
+          return { data: [{ member_id: 'm1', joined_at: '2026-10-30T10:00:00.000Z', email: 'sam@example.com' }], error: null };
+        },
+      }),
+    }),
+  };
+
+  const members = await createSupabaseServer(client as never).members('a1');
+
+  expect(selected[0].split(',').map((column) => column.trim())).toContain('email');
+  expect(members).toEqual([expect.objectContaining({ email: 'sam@example.com' })]);
 });
 
 test("the Supabase server leaves an Athlete as the signed-in Member, removing only that account's membership", async () => {

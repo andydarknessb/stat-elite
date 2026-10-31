@@ -13,8 +13,8 @@ export type UploadRow = { id: string; owner_id?: string; updated_at?: string };
 /** The stand-in's copy of a row: the Athlete a Game or Event belongs to is what Member access checks. */
 type StoredRow = UploadRow & { athlete_id?: string; game_id?: string };
 
-/** A Member of an Athlete and when it joined. */
-export type MemberRow = { member_id: string; joined_at: string };
+/** A Member of an Athlete, when it joined, and the sign-in email it accepted the Invite with (null when none was recorded). */
+export type MemberRow = { member_id: string; joined_at: string; email: string | null };
 
 /** Why an Invite cannot be taken: unknown, the Owner's own, used by another account, or past its 7 days (ADR 0004). */
 export type InviteReason = 'unknown' | 'own' | 'used' | 'expired';
@@ -61,8 +61,10 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
   const rows: Record<SyncedTable, Map<string, StoredRow>> = { athletes: new Map(), games: new Map(), events: new Map() };
   const uploads: string[] = [];
   const invites = new Map<string, { athlete_id: string; owner_id: string; expires: number; used_by?: string }>();
-  // `${athleteId} ${memberId}` for each Member, with when it joined
-  const members = new Map<string, string>();
+  // `${athleteId} ${memberId}` for each Member, with when it joined and the email it accepted with
+  const members = new Map<string, { joined_at: string; email: string | null }>();
+  // the sign-in address each account signed in with
+  const emails = new Map<string, string>();
   const reach = () => {
     if (!reachable()) throw new Error('The server cannot be reached');
   };
@@ -85,10 +87,11 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
         reach();
       },
       // shortcut: any six digits pass and the address is never checked, upgrade when a test needs a real code refused
-      async verifyCode(_email: string, code: string) {
+      async verifyCode(email: string, code: string) {
         reach();
         if (!/^\d{6}$/.test(code)) throw new Error('invalid code');
         account ??= crypto.randomUUID();
+        emails.set(account, email);
       },
       async upload(table: SyncedTable, row: UploadRow) {
         reach();
@@ -120,7 +123,7 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
         if (invite.used_by === account) return;
         if (invite.used_by !== undefined) throw new InviteRefused('used');
         if (invite.expires <= Date.now()) throw new InviteRefused('expired');
-        members.set(`${invite.athlete_id} ${account}`, new Date().toISOString());
+        members.set(`${invite.athlete_id} ${account}`, { joined_at: new Date().toISOString(), email: emails.get(account) ?? null });
         invite.used_by = account;
       },
       async members(athleteId: string) {
@@ -128,7 +131,7 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
         const owner = account !== undefined && rows.athletes.get(athleteId)?.owner_id === account;
         return [...members]
           .filter(([key]) => key.startsWith(`${athleteId} `) && (owner || key === `${athleteId} ${account}`))
-          .map(([key, joined_at]) => ({ member_id: key.slice(athleteId.length + 1), joined_at }));
+          .map(([key, { joined_at, email }]) => ({ member_id: key.slice(athleteId.length + 1), joined_at, email }));
       },
       async removeMember(athleteId: string, memberId: string) {
         reach();
@@ -198,7 +201,7 @@ export function createSupabaseServer(client: SupabaseClient): Server {
       throw error;
     },
     async members(athleteId) {
-      const { data, error } = await client.from('members').select('member_id, joined_at').eq('athlete_id', athleteId);
+      const { data, error } = await client.from('members').select('member_id, joined_at, email').eq('athlete_id', athleteId);
       if (error) throw error;
       return data;
     },
