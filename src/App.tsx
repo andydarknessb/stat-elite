@@ -16,7 +16,7 @@ import {
   type TileEventType,
   type UndoableType,
 } from './core/appCore';
-import { InviteRefused } from './core/server';
+import { InviteRefused, type MemberRow } from './core/server';
 import { InstallPrompt } from './InstallPrompt';
 
 /** Re-renders whenever the store data behind a read model changes. */
@@ -161,6 +161,54 @@ function InviteCoParent({ core, athleteId }: { core: AppCore; athleteId: string 
         </button>
       )}
     </>
+  );
+}
+
+/** The Members of a shared Athlete: the Owner sees them and removes one; a Member leaves (ADR 0004). */
+function Members({ core, athleteId }: { core: AppCore; athleteId: string }) {
+  const canInvite = useReadModel(() => core.canInvite(athleteId), [core, athleteId]);
+  const owner = useReadModel(() => core.isOwner(athleteId), [core, athleteId]);
+  const [members, setMembers] = useState<MemberRow[]>();
+  const [error, setError] = useState<string>();
+  const load = () =>
+    core.members(athleteId).then(setMembers, () => setError('Could not load the Members. Check the connection and try again.'));
+  useEffect(() => {
+    if (canInvite) void load();
+  }, [core, athleteId, canInvite]);
+  if (owner === undefined) return null;
+  if (!owner) {
+    return (
+      <>
+        <button onClick={() => void core.leave(athleteId).catch(() => setError('Could not leave. Check the connection and try again.'))}>
+          Leave
+        </button>
+        {error && <p role="alert">{error}</p>}
+      </>
+    );
+  }
+  if (!canInvite) return null;
+  const remove = async (memberId: string) => {
+    try {
+      await core.removeMember(athleteId, memberId);
+      await load();
+    } catch {
+      setError('Could not remove. Check the connection and try again.');
+    }
+  };
+  return (
+    <section>
+      <h2>Members</h2>
+      {members?.length === 0 && <p>No Members yet.</p>}
+      <ul>
+        {members?.map((member) => (
+          <li key={member.member_id}>
+            Joined {new Date(member.joined_at).toLocaleDateString()}{' '}
+            <button onClick={() => void remove(member.member_id)}>Remove</button>
+          </li>
+        ))}
+      </ul>
+      {error && <p role="alert">{error}</p>}
+    </section>
   );
 }
 
@@ -396,6 +444,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         <button onClick={() => setForm('add')}>Add Athlete</button>
         <button onClick={() => setForm('settings')}>Settings</button>
         <InviteCoParent core={core} athleteId={athlete.id} />
+        <Members core={core} athleteId={athlete.id} />
         <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
       </main>
       <TabBar tab={tab} onTab={setTab} />
