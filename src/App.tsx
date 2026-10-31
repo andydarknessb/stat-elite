@@ -405,6 +405,7 @@ const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw' | 'shot'>, string>
   sub_out: 'Sub Out',
   score: 'Score',
   game_end: 'End Game',
+  period_start: 'Next period',
 };
 
 const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
@@ -645,6 +646,10 @@ function LiveGame({
     setPulse((n) => n + 1);
     void core.toggleSub(gameId);
   };
+  const nextPeriod = () => {
+    setToast(EVENT_LABELS.period_start);
+    void core.nextPeriod(gameId);
+  };
   // the Shift on court, if any: its timer and Plus/Minus so far
   const current = game.onCourt ? game.shifts.at(-1) : undefined;
   const shots = (
@@ -718,7 +723,17 @@ function LiveGame({
       <button className="undo" disabled={!game.undoable} onClick={undo}>
         {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
       </button>
-      {ending ? (
+      {/* the Period sits on the End Game row, so the live screen keeps its height at every Button Size */}
+      <div className="period-row">
+        {game.periodLabel && (
+          <>
+            <span className="period">{game.periodLabel}</span>
+            <button onClick={nextPeriod}>Next period</button>
+          </>
+        )}
+        {!ending && <button onClick={() => setEnding(true)}>End Game</button>}
+      </div>
+      {ending && (
         <EndGameForm
           core={core}
           gameId={gameId}
@@ -729,8 +744,6 @@ function LiveGame({
             onEnded(gameId);
           }}
         />
-      ) : (
-        <button onClick={() => setEnding(true)}>End Game</button>
       )}
       {toast && (
         <div className="toast" role="status">

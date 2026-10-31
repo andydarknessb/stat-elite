@@ -58,20 +58,28 @@ export interface Shift {
   plusMinus: number;
 }
 
-export interface LiveGame {
-  id: string;
-  sport: GameRow['sport'];
+/** The stats a set of Events counts: none of them retracted, and no Retraction among them. */
+export interface Counts {
   tiles: Record<TileEventType, number>;
   /** Free Throws not retracted: how many went in, of how many were attempted. */
   freeThrows: { made: number; attempted: number };
-  /** The latest Score Snapshot not retracted; 0–0 before the first one. */
-  score: Scores;
-  /** The Final Score, once End Game has closed the Game. */
-  final?: Scores;
   /** Shots not retracted, by value: how many went in, of how many were attempted. */
   shots: Record<2 | 3, { made: number; attempted: number }>;
   /** The Athlete's points: made Shots and Free Throws not retracted. */
   points: number;
+}
+
+export interface LiveGame extends Counts {
+  id: string;
+  sport: GameRow['sport'];
+  /** The current Period's label in the Game's format (H1, Q3, OT1); absent for innings, which have no live Periods yet. */
+  periodLabel?: string;
+  /** The same stats split by Period: every Period up to the current one, a Period with no Events at zero. */
+  byPeriod: Record<number, Counts>;
+  /** The latest Score Snapshot not retracted; 0–0 before the first one. */
+  score: Scores;
+  /** The Final Score, once End Game has closed the Game. */
+  final?: Scores;
   /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot. */
   undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3 };
   /** Whether the Athlete is on court: the newest Sub Event not retracted is a Sub In. */
@@ -150,6 +158,42 @@ const onCourtOf = (events: EventRow[]) => {
 
 const isTile = (type: EventRow['type']): type is TileEventType =>
   (TILE_EVENT_TYPES as readonly string[]).includes(type);
+
+// the Period a new Event falls in: the newest Period start not retracted, else the first Period
+const currentPeriod = (events: EventRow[]) => {
+  const retracted = retractedIds(events);
+  return events.filter((e) => e.type === 'period_start' && !retracted.has(e.id)).at(-1)?.period ?? 1;
+};
+
+/** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, then OT1, OT2 past regulation (GLOSSARY: Period). */
+export function periodLabel(periodFormat: 'halves' | 'quarters', period: number): string {
+  const regulation = periodFormat === 'halves' ? 2 : 4;
+  if (period > regulation) return `OT${period - regulation}`;
+  return `${periodFormat === 'halves' ? 'H' : 'Q'}${period}`;
+}
+
+// the stats a list of live Events counts, each Event once
+const countOf = (live: EventRow[]): Counts => {
+  const counts: Counts = {
+    tiles: Object.fromEntries(TILE_EVENT_TYPES.map((type) => [type, 0])) as Record<TileEventType, number>,
+    freeThrows: { made: 0, attempted: 0 },
+    shots: { 2: { made: 0, attempted: 0 }, 3: { made: 0, attempted: 0 } },
+    points: 0,
+  };
+  for (const event of live) {
+    if (isTile(event.type)) counts.tiles[event.type]++;
+    if (event.type === 'free_throw') {
+      counts.freeThrows.attempted++;
+      if (event.made) counts.freeThrows.made++;
+    }
+    if (event.type === 'shot' && event.shot_value) {
+      counts.shots[event.shot_value].attempted++;
+      if (event.made) counts.shots[event.shot_value].made++;
+    }
+    counts.points += pointsOf(event);
+  }
+  return counts;
+};
 
 /** The phone's local calendar date, not UTC, as YYYY-MM-DD. */
 const localDate = (date: Date) =>
@@ -244,9 +288,10 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const nextEvent = async (
     gameId: string,
     fields: Pick<EventRow, 'type' | 'retracts_id'> &
-      Partial<Pick<EventRow, 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value'>>,
+      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value'>>,
   ): Promise<EventRow> => {
-    const last = await gameEvents(gameId).last();
+    const events = await gameEvents(gameId).toArray();
+    const last = events.at(-1);
     // End Game is always the last Event of a Game, so nothing is appended after it
     if (last?.type === 'game_end') throw new Error('This Game has ended');
     return {
@@ -254,8 +299,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       game_id: gameId,
       seq: (last?.seq ?? 0) + 1,
       client_ts: now(),
-      // shortcut: every Event is in Period 1 until Next period exists (#18)
-      period: 1,
+      period: currentPeriod(events),
       court_x: null,
       court_y: null,
       shot_value: null,
@@ -459,6 +503,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
+    /** Next period: a period_start Event that opens the Period after the current one, and carries it (GLOSSARY: Period). */
+    nextPeriod(gameId: string): Promise<EventRow> {
+      return write([store.events], async () => {
+        const period = currentPeriod(await gameEvents(gameId).toArray()) + 1;
+        const event = await nextEvent(gameId, { type: 'period_start', retracts_id: null, period });
+        await store.events.add(event);
+        await queue('events', event.id);
+        return event;
+      });
+    },
+
     /** Moves one side of the strip one point and records the new absolute scores as a Score Snapshot (ADR 0002). */
     adjustScore(gameId: string, side: 'team' | 'opponent', delta: 1 | -1): Promise<EventRow | undefined> {
       return write([store.events], async () => {
@@ -582,34 +637,23 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       if (!game) return undefined;
       const events = await gameEvents(gameId).toArray();
       const retracted = retractedIds(events);
-      const tiles = Object.fromEntries(TILE_EVENT_TYPES.map((type) => [type, 0])) as Record<TileEventType, number>;
-      const freeThrows = { made: 0, attempted: 0 };
-      const shots: LiveGame['shots'] = { 2: { made: 0, attempted: 0 }, 3: { made: 0, attempted: 0 } };
-      let points = 0;
-      let undoable: LiveGame['undoable'];
+      // the Events the stats count: none a Retraction and none retracted
+      const live = events.filter((e): e is EventRow & { type: UndoableType } => e.type !== 'retraction' && !retracted.has(e.id));
       const shifts: Shift[] = [];
       let onCourtSince: EventRow | undefined;
-      for (const event of events) {
-        if (event.type === 'retraction' || retracted.has(event.id)) continue;
+      for (const event of live) {
         if (event.type === 'sub_in') onCourtSince ??= event;
         if (event.type === 'sub_out' && onCourtSince) {
           shifts.push(shiftBetween(onCourtSince, { at: event.client_ts, scores: scoresOf(event) }));
           onCourtSince = undefined;
         }
-        if (isTile(event.type)) tiles[event.type]++;
-        if (event.type === 'free_throw') {
-          freeThrows.attempted++;
-          if (event.made) freeThrows.made++;
-        }
-        if (event.type === 'shot' && event.shot_value) {
-          shots[event.shot_value].attempted++;
-          if (event.made) shots[event.shot_value].made++;
-        }
-        points += pointsOf(event);
-        undoable = { id: event.id, type: event.type, made: event.made ?? undefined, value: event.shot_value ?? undefined };
       }
       // End Game is always the last Event, so a finished Game ends on its game_end
       const last = events.at(-1);
+      const period = currentPeriod(events);
+      const byPeriod: Record<number, Counts> = {};
+      for (let p = 1; p <= period; p++) byPeriod[p] = countOf(live.filter((e) => e.period === p));
+      const latest = live.at(-1);
       const score = latestScores(events);
       // the Shift still on court runs to the strip's latest scores, and to the End Game once the Game is over
       const endAt = last?.type === 'game_end' ? last.client_ts : now();
@@ -618,15 +662,19 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       // the Game's elapsed time runs from its start (startGame's created_at), so a late first Sub In reads its true share
       const elapsed = Date.parse(endAt) - Date.parse(game.created_at);
       return {
+        ...countOf(live),
         id: game.id,
         sport: game.sport,
-        tiles,
-        freeThrows,
-        shots,
-        points,
+        periodLabel: game.period_format === 'innings' ? undefined : periodLabel(game.period_format, period),
+        byPeriod,
         score,
         final: last?.type === 'game_end' ? snapshotOf(last) : undefined,
-        undoable,
+        undoable: latest && {
+          id: latest.id,
+          type: latest.type,
+          made: latest.made ?? undefined,
+          value: latest.shot_value ?? undefined,
+        },
         onCourt: onCourtSince !== undefined,
         shifts,
         plusMinus: shifts.reduce((sum, shift) => sum + shift.plusMinus, 0),
