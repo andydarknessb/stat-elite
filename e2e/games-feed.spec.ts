@@ -29,10 +29,13 @@ test('Home shows the season line, and the Games tab lists the finished Game, who
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
+  // basketball keeps Plus/Minus on its feed row, and its summary keeps the tiles
+  await expect(page.getByRole('button', { name: /Opponent/ })).toHaveText(/\+3$/);
   await page.getByRole('button', { name: /Opponent/ }).click();
   await expect(page.getByRole('heading', { name: 'Opponent' })).toBeVisible();
   await expect(page.getByText('Team 3 – Opponent 0')).toBeVisible();
   await expect(page.getByText('Plus/Minus +3 · Playing Share')).toBeVisible();
+  await expect(page.getByText('STL 0')).toBeVisible();
 
   await page.getByRole('button', { name: 'Back' }).click();
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
@@ -55,9 +58,40 @@ test('a softball Game shows its batting line in Game Complete, its Games feed ro
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
   await expect(page.getByText('Team 3 – Opponent 1')).toBeVisible();
   await expect(page.getByText('H/AB 1/1 · 2 RBI', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Game Complete' })).not.toContainText('Plus/Minus');
   await page.getByRole('button', { name: 'Done' }).click();
 
   await expect(page.getByText('Season (softball): H/AB 1/1 · 2 RBI · AVG 1.000 · OBP 1.000 · SLG 2.000')).toBeVisible();
   await page.getByRole('button', { name: 'Games', exact: true }).click();
-  await expect(page.getByRole('button', { name: /H\/AB 1\/1 · 2 RBI/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /H\/AB 1\/1 · 2 RBI/ })).toHaveText(/H\/AB 1\/1 · 2 RBI$/);
+
+  // the summary shows the batting line only: no Plus/Minus, Playing Share or basketball tiles
+  await page.getByRole('button', { name: /H\/AB 1\/1 · 2 RBI/ }).click();
+  await expect(page.getByText('H/AB 1/1 · 2 RBI', { exact: true })).toBeVisible();
+  await expect(page.getByText('Plus/Minus')).toHaveCount(0);
+  await expect(page.getByText('Playing Share')).toHaveCount(0);
+  await expect(page.getByText('STL')).toHaveCount(0);
+});
+
+test('a baseball Game shows its batting line in Game Complete and its Games feed row, with no Plus/Minus', async ({ page }) => {
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByLabel('Sport').selectOption('Baseball');
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+
+  // a double with 1 RBI: one At-Bat, one hit
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await page.getByRole('button', { name: '1 RBI' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByLabel('Team final').fill('2');
+  await page.getByLabel('Opponent final').fill('1');
+  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+
+  await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
+  await expect(page.getByText('H/AB 1/1 · 1 RBI', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Game Complete' })).not.toContainText('Plus/Minus');
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await expect(page.getByRole('button', { name: /H\/AB 1\/1 · 1 RBI/ })).toHaveText(/H\/AB 1\/1 · 1 RBI$/);
 });

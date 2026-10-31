@@ -603,7 +603,7 @@ function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: strin
                   {game.final.team}–{game.final.opponent}
                 </span>
                 <span className="line">{gameLineText(game)}</span>
-                <span>{signed(game.line.plusMinus)}</span>
+                {game.sport === 'basketball' && <span>{signed(game.line.plusMinus)}</span>}
               </button>
             ))}
           </section>
@@ -652,7 +652,7 @@ function GamesTab({ core, athleteId, onOpen }: { core: AppCore; athleteId: strin
   );
 }
 
-/** A finished Game's summary: its Final Score, the Athlete's line, Plus/Minus, Playing Share and the other stats. */
+/** A finished Game's summary: its Final Score and the Athlete's line; basketball adds Plus/Minus, Playing Share and the tiles. */
 function GameSummary({ core, gameId, onBack }: { core: AppCore; gameId: string; onBack: () => void }) {
   const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
   if (!game) return null;
@@ -664,11 +664,15 @@ function GameSummary({ core, gameId, onBack }: { core: AppCore; gameId: string; 
       <p className="final">
         Team {game.final.team} – Opponent {game.final.opponent}
       </p>
-      <p>{lineText(game.line)}</p>
-      <p>
-        Plus/Minus {signed(game.line.plusMinus)} · Playing Share {Math.round(game.playingShare * 100)}%
-      </p>
-      <p>{(['steal', 'block', 'turnover', 'foul'] as const).map((type) => `${TILE_LABELS[type]} ${game.tiles[type]}`).join(' · ')}</p>
+      <p>{gameLineText(game)}</p>
+      {game.sport === 'basketball' && (
+        <>
+          <p>
+            Plus/Minus {signed(game.line.plusMinus)} · Playing Share {Math.round(game.playingShare * 100)}%
+          </p>
+          <p>{(['steal', 'block', 'turnover', 'foul'] as const).map((type) => `${TILE_LABELS[type]} ${game.tiles[type]}`).join(' · ')}</p>
+        </>
+      )}
     </main>
   );
 }
@@ -830,7 +834,7 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
         Team {game.final.team} – Opponent {game.final.opponent}
       </p>
       <p>{gameLineText(game)}</p>
-      <p>Plus/Minus {signed(game.line.plusMinus)}</p>
+      {game.sport === 'basketball' && <p>Plus/Minus {signed(game.line.plusMinus)}</p>}
       <button disabled={image === undefined} onClick={shareCard}>
         Share card
       </button>
