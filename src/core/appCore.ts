@@ -1,9 +1,8 @@
-import { TILE_EVENT_TYPES, type EventRow, type GameRow, type Store, type TileEventType } from './store';
+import type { Table } from 'dexie';
+import { TILE_EVENT_TYPES, type EventRow, type GameRow, type OutboxRow, type Store, type TileEventType } from './store';
+import type { Server, SyncedTable, UploadRow } from './server';
 
 export type { TileEventType };
-
-/** The backend App Core syncs with. Empty until the outbox (#9) gives it upload and download. */
-export interface Server {}
 
 export type GameFormat =
   | { sport: 'basketball'; periodFormat: 'halves' | 'quarters' }
@@ -66,7 +65,7 @@ const isTile = (type: EventRow['type']): type is TileEventType =>
 const localDate = (date: Date) =>
   new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 
-export function createAppCore({ clock, store }: { clock: () => Date; store: Store; server: Server }) {
+export function createAppCore({ clock, store, server }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
   // a Game's Events in seq order
   const gameEvents = (gameId: string) => store.events.where('[game_id+seq]').between([gameId, 0], [gameId, Infinity]);
@@ -101,19 +100,74 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
     };
   };
 
+  // Every write queues its row for upload in the same transaction (ADR 0001), then tries to upload.
+  const write = async <T>(tables: Table[], scope: () => Promise<T>): Promise<T> => {
+    const result = await store.transaction('rw', [...tables, store.outbox], scope);
+    void flush();
+    return result;
+  };
+  const queue = (table: SyncedTable, id: string) => store.outbox.add({ table, id });
+
+  // the row an outbox entry names, as it is now, and the id of its Athlete: a Game names its Athlete, an Event its Game
+  const loadRow = async ({ table, id }: OutboxRow): Promise<{ row: UploadRow; athleteId?: string } | undefined> => {
+    if (table === 'athletes') {
+      const athlete = await store.athletes.get(id);
+      return athlete && { row: athlete, athleteId: id };
+    }
+    if (table === 'games') {
+      const game = await store.games.get(id);
+      return game && { row: game, athleteId: game.athlete_id };
+    }
+    const event = await store.events.get(id);
+    return event && { row: event, athleteId: (await store.games.get(event.game_id))?.athlete_id };
+  };
+
+  // Uploads in sequence order, each row as it is now. A row the server cannot take stays queued, and so do the rows behind it.
+  // shortcut: a row the server refuses holds up every row behind it until someone fixes it, upgrade when a refusal needs its own state
+  const drain = async () => {
+    const owner = await server.session();
+    if (!owner) return;
+    // signing in makes the account the Owner of the phone's Athletes
+    await store.athletes
+      .toCollection()
+      .filter((a) => a.owner_id === undefined)
+      .modify({ owner_id: owner });
+    for (const entry of await store.outbox.orderBy('seq').toArray()) {
+      const loaded = await loadRow(entry);
+      if (!loaded) {
+        await store.outbox.delete(entry.seq!);
+        continue;
+      }
+      const athlete = await store.athletes.get(loaded.athleteId ?? '');
+      try {
+        await server.upload(entry.table, { ...loaded.row, owner_id: athlete?.owner_id });
+      } catch {
+        return;
+      }
+      await store.outbox.delete(entry.seq!);
+    }
+  };
+  // one drain at a time, each starting after the one before it has finished
+  let draining: Promise<void> = Promise.resolve();
+  const flush = (): Promise<void> => (draining = draining.then(drain).catch(console.error));
+
   return {
     async addAthlete({ name, jerseyNumber, photo }: { name: string; jerseyNumber?: string; photo?: Blob }): Promise<string> {
       const id = crypto.randomUUID();
       const ts = now();
-      await store.transaction('rw', store.athletes, store.athletePhotos, async () => {
+      await write([store.athletes, store.athletePhotos], async () => {
         await store.athletes.add({ id, name, jersey_number: jerseyNumber?.trim() || null, created_at: ts, updated_at: ts });
+        await queue('athletes', id);
         if (photo) await store.athletePhotos.add({ athlete_id: id, photo });
       });
       return id;
     },
 
     async editAthlete({ id, name, jerseyNumber }: { id: string; name: string; jerseyNumber: string }): Promise<void> {
-      await store.athletes.update(id, { name, jersey_number: jerseyNumber.trim() || null, updated_at: now() });
+      await write([store.athletes], async () => {
+        await store.athletes.update(id, { name, jersey_number: jerseyNumber.trim() || null, updated_at: now() });
+        await queue('athletes', id);
+      });
     },
 
     async startGame({
@@ -127,15 +181,18 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
       if (!opponent || !/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) throw new Error('A Game needs an Opponent and a date');
       const id = crypto.randomUUID();
       const date = clock();
-      await store.games.add({
-        id,
-        athlete_id: athleteId,
-        sport,
-        period_format: periodFormat,
-        opponent_name: opponent,
-        game_date: gameDate,
-        created_at: date.toISOString(),
-        updated_at: date.toISOString(),
+      await write([store.games], async () => {
+        await store.games.add({
+          id,
+          athlete_id: athleteId,
+          sport,
+          period_format: periodFormat,
+          opponent_name: opponent,
+          game_date: gameDate,
+          created_at: date.toISOString(),
+          updated_at: date.toISOString(),
+        });
+        await queue('games', id);
       });
       return id;
     },
@@ -143,22 +200,24 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
     /** Writes the Event to the store before resolving (ADR 0001). */
     recordTile(gameId: string, type: TileEventType): Promise<EventRow> {
       // One rw transaction at a time per store, so taps in quick succession still get distinct seqs.
-      return store.transaction('rw', store.events, async () => {
+      return write([store.events], async () => {
         const event = await nextEvent(gameId, { type, retracts_id: null });
         await store.events.add(event);
+        await queue('events', event.id);
         return event;
       });
     },
 
     /** Moves one side of the strip one point and records the new absolute scores as a Score Snapshot (ADR 0002). */
     adjustScore(gameId: string, side: 'team' | 'opponent', delta: 1 | -1): Promise<EventRow | undefined> {
-      return store.transaction('rw', store.events, async () => {
+      return write([store.events], async () => {
         const scores = latestScores(await gameEvents(gameId).toArray());
         const team = scores.team + (side === 'team' ? delta : 0);
         const opponent = scores.opponent + (side === 'opponent' ? delta : 0);
         if (!isScore(team) || !isScore(opponent)) return undefined;
         const event = await nextEvent(gameId, { type: 'score', retracts_id: null, team_score: team, opponent_score: opponent });
         await store.events.add(event);
+        await queue('events', event.id);
         return event;
       });
     },
@@ -166,7 +225,7 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
     /** End Game: the Final Score, recorded as a game_end Event, closes the Game. Refused without whole scores. */
     async endGame(gameId: string, final: { teamScore: number; opponentScore: number }): Promise<EventRow> {
       if (!isScore(final.teamScore) || !isScore(final.opponentScore)) throw new Error('End Game needs a Final Score');
-      return store.transaction('rw', store.events, async () => {
+      return write([store.events], async () => {
         const event = await nextEvent(gameId, {
           type: 'game_end',
           retracts_id: null,
@@ -174,13 +233,14 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
           opponent_score: final.opponentScore,
         });
         await store.events.add(event);
+        await queue('events', event.id);
         return event;
       });
     },
 
     /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. */
     undo(gameId: string): Promise<EventRow | undefined> {
-      return store.transaction('rw', store.events, async () => {
+      return write([store.events], async () => {
         const events = await gameEvents(gameId).toArray();
         const retracted = retractedIds(events);
         let target: EventRow | undefined;
@@ -190,6 +250,7 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
         if (!target) return undefined;
         const retraction = await nextEvent(gameId, { type: 'retraction', retracts_id: target.id });
         await store.events.add(retraction);
+        await queue('events', retraction.id);
         return retraction;
       });
     },
@@ -257,6 +318,24 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
         undoable,
       };
     },
+
+    /** Signs the Recorder in with a magic link, then uploads everything recorded so far. */
+    async signIn(email: string): Promise<void> {
+      await server.signIn(email);
+      await flush();
+    },
+
+    /** The "N not synced" badge: whether the Recorder is signed in, and how many rows still live only on the phone. */
+    async sync(): Promise<{ signedIn: boolean; notSynced: number }> {
+      const pending = await store.outbox.toArray();
+      return {
+        signedIn: (await server.session()) !== undefined,
+        notSynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size,
+      };
+    },
+
+    /** Uploads whatever is queued. Called on launch, on reconnect, and after every write. */
+    flush,
   };
 }
 

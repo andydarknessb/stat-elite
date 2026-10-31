@@ -1,10 +1,13 @@
 import Dexie, { type EntityTable } from 'dexie';
+import type { SyncedTable } from './server';
 
 // Rows use docs/schema.sql column names so the outbox (#9) can upload them as they are.
 // They have no owner_id until sign-in makes the account their Owner.
 
 export interface AthleteRow {
   id: string;
+  /** The Owner's account: set at sign-in, so a row has none until then. */
+  owner_id?: string;
   name: string;
   jersey_number: string | null;
   created_at: string;
@@ -45,6 +48,13 @@ export interface EventRow {
   opponent_score: number | null;
 }
 
+/** A row waiting for upload. It names the row, not a copy: the outbox reads the row as it is when it uploads. */
+export interface OutboxRow {
+  seq?: number;
+  table: SyncedTable;
+  id: string;
+}
+
 /** The phone's local store: one Dexie (IndexedDB) database. */
 export type Store = Dexie & {
   athletes: EntityTable<AthleteRow, 'id'>;
@@ -53,6 +63,8 @@ export type Store = Dexie & {
   events: EntityTable<EventRow, 'id'>;
   /** Phone-only settings, never uploaded: the Athlete Home shows. */
   settings: EntityTable<{ key: string; value: string }, 'key'>;
+  /** Rows not yet uploaded, in the order they were written (ADR 0001). */
+  outbox: EntityTable<OutboxRow, 'seq'>;
 };
 
 export function openStore(name = 'stat-elite'): Store {
@@ -66,5 +78,18 @@ export function openStore(name = 'stat-elite'): Store {
     athletePhotos: 'athlete_id',
     settings: 'key',
   });
+  db.version(3)
+    .stores({ outbox: '++seq' })
+    // rows recorded before the outbox existed queue now, Athletes first, so the first sign-in uploads them (ADR 0001)
+    .upgrade(async (tx) => {
+      const athletes = await tx.table('athletes').toArray();
+      const games = await tx.table('games').toArray();
+      const events = await tx.table('events').orderBy('[game_id+seq]').toArray();
+      await tx.table('outbox').bulkAdd([
+        ...athletes.map(({ id }) => ({ table: 'athletes', id })),
+        ...games.map(({ id }) => ({ table: 'games', id })),
+        ...events.map(({ id }) => ({ table: 'events', id })),
+      ]);
+    });
   return db;
 }
