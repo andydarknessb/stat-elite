@@ -19,10 +19,57 @@ export function App({ core }: { core: AppCore }) {
   // the Game the Recorder just ended stays on screen, showing its Final Score, until Done
   const [ended, setEnded] = useState<string>();
   if (!home) return null;
-  if (!home.athlete) return <FirstRun core={core} />;
   const gameId = home.liveGameId ?? ended;
-  if (!gameId) return <HomeScreen core={core} athlete={home.athlete} next={home.next} />;
-  return <LiveGame core={core} gameId={gameId} onEnded={setEnded} onDone={() => setEnded(undefined)} />;
+  return (
+    <>
+      <NotSynced core={core} />
+      {!home.athlete ? (
+        <FirstRun core={core} />
+      ) : !gameId ? (
+        <HomeScreen core={core} athlete={home.athlete} next={home.next} />
+      ) : (
+        <LiveGame core={core} gameId={gameId} onEnded={setEnded} onDone={() => setEnded(undefined)} />
+      )}
+    </>
+  );
+}
+
+/** The "N not synced" badge: the rows that still live only on the phone. */
+function NotSynced({ core }: { core: AppCore }) {
+  const sync = useReadModel(() => core.sync(), [core]);
+  if (!sync) return null;
+  return <p className="sync">{sync.notSynced} not synced</p>;
+}
+
+/** Save this game: a signed-out Recorder gets a magic link, and the rows upload once the account is signed in. */
+function SaveGame({ core }: { core: AppCore }) {
+  const sync = useReadModel(() => core.sync(), [core]);
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string>();
+  if (!sync || sync.signedIn) return null;
+  if (!open) return <button onClick={() => setOpen(true)}>Save this game</button>;
+  if (sent) return <p>Check your email for the link, then open it on this phone.</p>;
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      await core.signIn(email.trim());
+      setSent(true);
+    } catch {
+      setError('Could not send the link. Check the connection and try again.');
+    }
+  };
+  return (
+    <form onSubmit={submit}>
+      <label>
+        Email
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+      </label>
+      <button className="primary">Send link</button>
+      {error && <p role="alert">{error}</p>}
+    </form>
+  );
 }
 
 /** No Athlete yet: asks the browser to keep storage permanently, then offers the install and Add Athlete. */
@@ -307,6 +354,7 @@ function LiveGame({
         <p className="final">
           Team {game.final.team} – Opponent {game.final.opponent}
         </p>
+        <SaveGame core={core} />
         <button className="primary" onClick={onDone}>
           Done
         </button>

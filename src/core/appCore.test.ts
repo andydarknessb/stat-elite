@@ -422,3 +422,14 @@ test('a deployed build with no Supabase config refuses to sign in, rather than p
   await expect(server.signIn('casey@example.com')).rejects.toThrow('not set up');
   expect(await server.session()).toBeUndefined();
 });
+
+test('the server keeps the newer copy of an Athlete when an older one arrives after it', async () => {
+  const { server } = setup();
+  const newer = { id: 'a1', name: 'Casey Jones', updated_at: '2026-10-30T19:00:00.000Z' };
+  const older = { id: 'a1', name: 'Casey', updated_at: '2026-10-30T18:00:00.000Z' };
+
+  await server.upload('athletes', newer);
+  await server.upload('athletes', older);
+
+  expect(server.rows.athletes.get('a1')).toEqual(newer);
+});

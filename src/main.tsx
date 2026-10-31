@@ -15,6 +15,9 @@ const core = createAppCore({
     host: location.hostname,
   }),
 });
+// uploads on launch, and again whenever the connection returns (ADR 0001)
+void core.flush();
+window.addEventListener('online', () => void core.flush());
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -121,6 +121,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   };
 
   // Uploads in sequence order, each row as it is now. A row the server cannot take stays queued, and so do the rows behind it.
+  // shortcut: a row the server refuses holds up every row behind it until someone fixes it, upgrade when a refusal needs its own state
   const drain = async () => {
     const owner = await server.session();
     if (!owner) return;
