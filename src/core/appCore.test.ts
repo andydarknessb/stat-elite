@@ -3,7 +3,7 @@ import Dexie from 'dexie';
 import { expect, test } from 'vitest';
 import { createAppCore } from './appCore';
 import { createStandInServer, createSupabaseServer, serverFor } from './server';
-import { openStore } from './store';
+import { openStore, type Store } from './store';
 
 let stores = 0;
 
@@ -16,6 +16,13 @@ function setup(now = new Date('2026-10-30T18:00:00Z')) {
   const server = createStandInServer(() => link.up);
   const open = () => createAppCore({ clock: () => now, store: openStore(name), server });
   return { core: open(), reopen: open, now, inspect: openStore(name), server, link };
+}
+
+// a second phone with its own empty store, signing in to the same server
+function phoneOn(server: ReturnType<typeof createStandInServer>) {
+  const name = `test-${++stores}`;
+  const core = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server });
+  return { core, inspect: openStore(name) };
 }
 
 async function basketballGame(core: ReturnType<typeof createAppCore>) {
@@ -417,6 +424,43 @@ test('the Supabase upload ignores an Event already on the server, and replaces a
   ]);
 });
 
+test('the Supabase download reads every page of rows the account can see, with timestamps as the phone writes them', async () => {
+  const rows = Array.from({ length: 1001 }, (_, i) => ({
+    id: `a${String(i).padStart(4, '0')}`,
+    name: 'Casey',
+    jersey_number: null,
+    created_at: '2026-10-30T18:00:00.123456+00:00',
+    updated_at: '2026-10-30T18:00:00+00:00',
+  }));
+  const pages: [number, number][] = [];
+  const client = {
+    from: () => ({
+      select: () => ({
+        order: () => ({
+          range: async (from: number, to: number) => {
+            pages.push([from, to]);
+            return { data: rows.slice(from, to + 1), error: null };
+          },
+        }),
+      }),
+    }),
+  };
+  const server = createSupabaseServer(client as never);
+
+  const downloaded = await server.download('athletes');
+
+  expect(downloaded).toHaveLength(1001);
+  expect(pages).toEqual([
+    [0, 999],
+    [1000, 1999],
+    [2000, 2999],
+  ]);
+  expect(downloaded[0]).toMatchObject({
+    created_at: '2026-10-30T18:00:00.123Z',
+    updated_at: '2026-10-30T18:00:00.000Z',
+  });
+});
+
 test('a deployed build with no Supabase config refuses to sign in, rather than pretend to upload', async () => {
   const server = serverFor({ host: 'stat-elite.netlify.app' });
 
@@ -472,4 +516,120 @@ test('rows recorded before the outbox existed are queued when it is first opened
     { seq: 3, table: 'events', id: 'e2' },
     { seq: 4, table: 'events', id: 'e1' },
   ]);
+});
+
+test("signing in on an empty phone brings down the account's Athletes, Games and Events", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey', jerseyNumber: '12' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  const steal = await core.recordTile(gameId, 'steal');
+  const end = await core.endGame(gameId, { teamScore: 5, opponentScore: 3 });
+  await core.signIn('casey@example.com');
+
+  const second = phoneOn(server);
+  await second.core.signIn('casey@example.com');
+
+  expect(await second.inspect.athletes.get(athleteId)).toMatchObject({
+    name: 'Casey',
+    jersey_number: '12',
+    owner_id: await server.session(),
+  });
+  expect(await second.inspect.games.get(gameId)).toMatchObject({ athlete_id: athleteId, opponent_name: 'Hawks' });
+  expect(await second.inspect.events.get(steal.id)).toEqual(steal);
+  expect(await second.inspect.events.get(end.id)).toEqual(end);
+  expect(await second.core.sync()).toEqual({ signedIn: true, notSynced: 0 });
+});
+
+test('a Game edited elsewhere replaces the phone copy at its next sign-in, when the edit is later', async () => {
+  const { core, server, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.signIn('casey@example.com');
+  const game = await inspect.games.get(gameId);
+  // another phone's later edit, already on the server
+  const edited = { ...game!, owner_id: await server.session(), opponent_name: 'Rams', updated_at: '2026-10-30T20:00:00.000Z' };
+  await server.upload('games', edited);
+
+  await core.signIn('casey@example.com');
+
+  expect(await inspect.games.get(gameId)).toMatchObject({ opponent_name: 'Rams', updated_at: '2026-10-30T20:00:00.000Z' });
+});
+
+test('a sign-in brings no photo down, and adds only the Events the phone lacks, never overwriting one it holds', async () => {
+  const { core, server } = setup();
+  const photo = new Blob(['jpeg bytes'], { type: 'image/jpeg' });
+  const athleteId = await core.addAthlete({ name: 'Casey', photo });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  const steal = await core.recordTile(gameId, 'steal');
+  await core.signIn('casey@example.com');
+  const second = phoneOn(server);
+
+  await second.core.signIn('casey@example.com');
+  expect(await second.inspect.athletePhotos.get(athleteId)).toBeUndefined();
+  expect((await second.core.home()).athlete).toEqual({ id: athleteId, name: 'Casey', jerseyNumber: null });
+
+  // the first phone adds an Event the second lacks; the server then holds a differing copy of one the second has
+  const block = await core.recordTile(gameId, 'block');
+  await core.flush();
+  const differing = { ...steal, owner_id: await server.session(), client_ts: '2026-10-30T19:59:00.000Z' };
+  server.rows.events.set(steal.id, differing);
+
+  await second.core.signIn('casey@example.com');
+  expect(await second.inspect.events.where('game_id').equals(gameId).sortBy('seq')).toEqual([steal, block]);
+  expect(await second.inspect.settings.get('downloadedFor')).toEqual({
+    key: 'downloadedFor',
+    value: await server.session(),
+  });
+});
+
+test('a download that fails for another reason does not stop uploads, and the next flush tries it again', async () => {
+  const { core, server, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const download = server.download;
+  server.download = async () => {
+    throw new Error('select refused');
+  };
+
+  await core.signIn('casey@example.com');
+
+  expect(server.uploads).toEqual([`athletes:${athleteId}`]);
+  expect(await core.sync()).toEqual({ signedIn: true, notSynced: 0 });
+  expect(await inspect.settings.get('downloadedFor')).toBeUndefined();
+
+  server.download = download;
+  await core.flush();
+  expect(await inspect.settings.get('downloadedFor')).toEqual({
+    key: 'downloadedFor',
+    value: await server.session(),
+  });
+});
+
+test('an Athlete edited on one phone reaches the other at its next sign-in, and the later edit wins on both', async () => {
+  const { core, server, inspect, link } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const second = phoneOn(server);
+  await second.core.signIn('casey@example.com');
+  // an edit made at `at` on the phone holding `store`, uploaded before the call returns
+  const editAt = async (store: Store, at: string, name: string) => {
+    const phone = createAppCore({ clock: () => new Date(at), store, server });
+    await phone.editAthlete({ id: athleteId, name, jerseyNumber: '12' });
+    await phone.flush();
+  };
+
+  await editAt(second.inspect, '2026-10-30T19:00:00Z', 'Casey Jones');
+  await editAt(inspect, '2026-10-30T20:00:00Z', 'Casey Smith');
+  await second.core.signIn('casey@example.com');
+
+  expect((await second.inspect.athletes.get(athleteId))?.name).toBe('Casey Smith');
+  expect((await inspect.athletes.get(athleteId))?.name).toBe('Casey Smith');
+
+  // an edit still waiting on the second phone is newer than the server's copy, so it stays and uploads
+  link.up = false;
+  await editAt(second.inspect, '2026-10-30T21:00:00Z', 'Casey Lee');
+  link.up = true;
+  await second.core.signIn('casey@example.com');
+
+  expect((await second.inspect.athletes.get(athleteId))?.name).toBe('Casey Lee');
+  expect(server.rows.athletes.get(athleteId)).toMatchObject({ name: 'Casey Lee' });
 });

@@ -29,6 +29,13 @@ test('first run asks for an Athlete, then leads to Home and stays there after a 
   await expect(page.getByRole('heading', { name: 'Add Athlete' })).toBeHidden();
 });
 
+test('an Athlete with no photo shows its initial in place of one', async ({ page }) => {
+  await firstRunAdd(page, 'Casey', '12');
+
+  await expect(page.locator('.photo-placeholder')).toHaveText('C');
+  await expect(page.locator('.photo img')).toBeHidden();
+});
+
 test('the photo shows on Home and nothing is uploaded', async ({ page }) => {
   const writes: string[] = [];
   page.on('request', (request) => {
