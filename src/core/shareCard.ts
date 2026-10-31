@@ -9,19 +9,29 @@ export interface CardInput {
   line: string;
 }
 
-/** Draws the card in a worker, so the photo is decoded and cropped off the UI thread; resolves to a PNG. */
-export function renderShareCard(input: CardInput): Promise<Blob> {
+/** Draws the card in a worker, so the photo is decoded and cropped off the UI thread; resolves to a PNG. An abort terminates the worker and rejects with an AbortError. */
+export function renderShareCard(input: CardInput, signal?: AbortSignal): Promise<Blob> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException('share card render aborted', 'AbortError'));
     const worker = new Worker(new URL('./shareCard.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = ({ data }: MessageEvent<{ png: Blob } | { error: string }>) => {
+    const finish = () => {
       worker.terminate();
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => {
+      finish();
+      reject(new DOMException('share card render aborted', 'AbortError'));
+    };
+    worker.onmessage = ({ data }: MessageEvent<{ png: Blob } | { error: string }>) => {
+      finish();
       if ('png' in data) resolve(data.png);
       else reject(new Error(data.error));
     };
     worker.onerror = (event) => {
-      worker.terminate();
+      finish();
       reject(new Error(event.message));
     };
+    signal?.addEventListener('abort', onAbort, { once: true });
     worker.postMessage(input);
   });
 }
