@@ -959,12 +959,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. */
     undo(gameId: string): Promise<EventRow | undefined> {
       return write([store.events], async () => {
-        const events = await gameEvents(gameId).toArray();
-        const retracted = retractedIds(events);
-        let target: EventRow | undefined;
-        for (const event of events) {
-          if (event.type !== 'retraction' && !retracted.has(event.id)) target = event;
-        }
+        const target = liveOf(await gameEvents(gameId).toArray()).at(-1);
         if (!target) return undefined;
         const retraction = await nextEvent(gameId, { type: 'retraction', retracts_id: target.id });
         await store.events.add(retraction);
