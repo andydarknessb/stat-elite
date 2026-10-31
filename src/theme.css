@@ -177,3 +177,11 @@ button:disabled {
   border-color: var(--bg);
   font-weight: 600;
 }
+
+/* The "N not synced" badge above every screen: quiet text, so it reads as status and not as a control. */
+.sync {
+  margin: 0;
+  padding: 16px 16px 0;
+  color: var(--muted);
+  text-align: right;
+}

@@ -4,6 +4,7 @@ import { App } from './App';
 import { createAppCore } from './core/appCore';
 import { serverFor } from './core/server';
 import { openStore } from './core/store';
+import { syncOnLaunchAndOnline } from './core/syncTriggers';
 import { requestPersistence } from './pwa';
 import './theme.css';
 
@@ -16,9 +17,7 @@ const core = createAppCore({
     host: location.hostname,
   }),
 });
-// uploads on launch, and again whenever the connection returns (ADR 0001)
-void core.flush();
-window.addEventListener('online', () => void core.flush());
+syncOnLaunchAndOnline(core, window);
 // every launch, not only first run: the Games stay on the phone until they sync (ADR 0001)
 void requestPersistence(navigator.storage);
 
