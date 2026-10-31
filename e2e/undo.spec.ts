@@ -5,6 +5,7 @@ async function startGame(page: import('@playwright/test').Page) {
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
 }
 
 test('a tap shows a toast naming it, and Undo from the toast steps the count back', async ({ page }) => {

@@ -5,17 +5,63 @@ import { openStore } from './store';
 
 let stores = 0;
 
-function setup() {
+const GAME_SETUP = { opponentName: 'Hawks', gameDate: '2026-10-30' };
+
+function setup(now = new Date('2026-10-30T18:00:00Z')) {
   const name = `test-${++stores}`;
-  const now = new Date('2026-10-30T18:00:00Z');
   const open = () => createAppCore({ clock: () => now, store: openStore(name), server: {} });
   return { core: open(), reopen: open, now, inspect: openStore(name) };
 }
 
 async function basketballGame(core: ReturnType<typeof createAppCore>) {
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  return core.startGame({ athleteId, sport: 'basketball', periodFormat: 'quarters' });
+  return core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
 }
+
+test('with no earlier Game, Game setup offers basketball in quarters against "Opponent", dated today', async () => {
+  // local noon, so the local date is the 30th wherever the tests run
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+
+  expect(await core.gameSetup(athleteId)).toEqual({
+    sport: 'basketball',
+    basketballPeriods: 'quarters',
+    opponentName: 'Opponent',
+    gameDate: '2026-10-30',
+  });
+});
+
+test("Game setup is prefilled from the Athlete's newest Game, not another Athlete's", async () => {
+  const { core, inspect } = setup(new Date(2026, 9, 30, 12));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  const sam = await core.addAthlete({ name: 'Sam' });
+  // inserted newest first, so only the created_at order picks the right Game
+  const newer = createAppCore({ clock: () => new Date('2026-10-28T18:00:00Z'), store: inspect, server: {} });
+  const older = createAppCore({ clock: () => new Date('2026-10-20T18:00:00Z'), store: inspect, server: {} });
+  const later = createAppCore({ clock: () => new Date('2026-10-31T18:00:00Z'), store: inspect, server: {} });
+  await newer.startGame({
+    athleteId: casey,
+    opponentName: 'Hawks',
+    gameDate: '2026-10-28',
+    sport: 'basketball',
+    periodFormat: 'halves',
+  });
+  await older.startGame({
+    athleteId: casey,
+    opponentName: 'Rams',
+    gameDate: '2026-10-20',
+    sport: 'softball',
+    periodFormat: 'innings',
+  });
+  await later.startGame({ athleteId: sam, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+
+  expect(await core.gameSetup(casey)).toEqual({
+    sport: 'basketball',
+    basketballPeriods: 'halves',
+    opponentName: 'Hawks',
+    gameDate: '2026-10-30',
+  });
+});
 
 test('a stat tile tap counts on the live Game', async () => {
   const { core } = setup();
@@ -49,8 +95,35 @@ test('Home goes from no Athlete, to the Athlete, to their Game in progress', asy
   const athleteId = await core.addAthlete({ name: 'Casey' });
   expect(await core.home()).toEqual({ athlete: { id: athleteId, name: 'Casey', jerseyNumber: null } });
 
-  const gameId = await core.startGame({ athleteId, sport: 'basketball', periodFormat: 'halves' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
   expect((await core.home()).liveGameId).toBe(gameId);
+});
+
+test('a Game takes the Opponent and date it was set up with, the Opponent trimmed, and refuses a blank one', async () => {
+  const { core, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+
+  const gameId = await core.startGame({
+    athleteId,
+    opponentName: '  Hawks ',
+    gameDate: '2026-10-29',
+    sport: 'basketball',
+    periodFormat: 'halves',
+  });
+
+  expect(await inspect.games.get(gameId)).toMatchObject({ opponent_name: 'Hawks', game_date: '2026-10-29' });
+  await expect(
+    core.startGame({
+      athleteId,
+      opponentName: ' ',
+      gameDate: '2026-10-29',
+      sport: 'basketball',
+      periodFormat: 'halves',
+    }),
+  ).rejects.toThrow();
+  await expect(
+    core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '', sport: 'basketball', periodFormat: 'halves' }),
+  ).rejects.toThrow();
 });
 
 test('after a reload the Game in progress shows the same count and keeps counting', async () => {
@@ -157,7 +230,12 @@ test('switching Athletes changes whose Games Home shows and whom Start Game reco
   const home = await core.home();
   expect(home.athlete?.id).toBe(other);
   expect(home.next?.id).toBe(shownAtStart);
-  const gameId = await core.startGame({ athleteId: home.athlete!.id, sport: 'basketball', periodFormat: 'quarters' });
+  const gameId = await core.startGame({
+    athleteId: home.athlete!.id,
+    ...GAME_SETUP,
+    sport: 'basketball',
+    periodFormat: 'quarters',
+  });
 
   expect((await inspect.games.get(gameId))?.athlete_id).toBe(other);
   expect(await reopen().home()).toMatchObject({ athlete: { id: other }, liveGameId: gameId });
@@ -236,14 +314,14 @@ test('a finished Game accepts no new Events, and Home stops showing it as the Ga
   expect((await core.home()).liveGameId).toBeUndefined();
 
   const athleteId = (await core.home()).athlete!.id;
-  const nextGame = await core.startGame({ athleteId, sport: 'basketball', periodFormat: 'quarters' });
+  const nextGame = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   expect((await core.home()).liveGameId).toBe(nextGame);
 });
 
 test('a softball Game takes the same strip and End Game as basketball', async () => {
   const { core } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  const gameId = await core.startGame({ athleteId, sport: 'softball', periodFormat: 'innings' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
 
   await core.adjustScore(gameId, 'opponent', 1);
   expect((await core.liveGame(gameId))?.score).toEqual({ team: 0, opponent: 1 });

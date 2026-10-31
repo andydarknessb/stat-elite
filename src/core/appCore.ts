@@ -5,9 +5,18 @@ export type { TileEventType };
 /** The backend App Core syncs with. Empty until the outbox (#9) gives it upload and download. */
 export interface Server {}
 
-type GameFormat =
+export type GameFormat =
   | { sport: 'basketball'; periodFormat: 'halves' | 'quarters' }
   | { sport: 'softball' | 'baseball'; periodFormat: 'innings' };
+
+/** What Game setup opens with: the Athlete's last Game's sport and Opponent, and today's date. */
+export interface GameSetup {
+  sport: GameFormat['sport'];
+  /** Basketball's period format; softball and baseball are always innings. */
+  basketballPeriods: 'halves' | 'quarters';
+  opponentName: string;
+  gameDate: string;
+}
 
 /** A Score Snapshot's Team and Opponent scores. */
 export interface Scores {
@@ -52,6 +61,10 @@ const isScore = (n: number) => Number.isInteger(n) && n >= 0;
 
 const isTile = (type: EventRow['type']): type is TileEventType =>
   (TILE_EVENT_TYPES as readonly string[]).includes(type);
+
+/** The phone's local calendar date, not UTC, as YYYY-MM-DD. */
+const localDate = (date: Date) =>
+  new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 
 export function createAppCore({ clock, store }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
@@ -103,7 +116,15 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
       await store.athletes.update(id, { name, jersey_number: jerseyNumber.trim() || null, updated_at: now() });
     },
 
-    async startGame({ athleteId, sport, periodFormat }: { athleteId: string } & GameFormat): Promise<string> {
+    async startGame({
+      athleteId,
+      opponentName,
+      gameDate,
+      sport,
+      periodFormat,
+    }: { athleteId: string; opponentName: string; gameDate: string } & GameFormat): Promise<string> {
+      const opponent = opponentName.trim();
+      if (!opponent || !/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) throw new Error('A Game needs an Opponent and a date');
       const id = crypto.randomUUID();
       const date = clock();
       await store.games.add({
@@ -111,10 +132,8 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
         athlete_id: athleteId,
         sport,
         period_format: periodFormat,
-        // shortcut: the schema's default Opponent name, until Game setup asks for it (#14)
-        opponent_name: 'Opponent',
-        // the phone's local date, not UTC
-        game_date: new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10),
+        opponent_name: opponent,
+        game_date: gameDate,
         created_at: date.toISOString(),
         updated_at: date.toISOString(),
       });
@@ -173,6 +192,17 @@ export function createAppCore({ clock, store }: { clock: () => Date; store: Stor
         await store.events.add(retraction);
         return retraction;
       });
+    },
+
+    /** Game setup's prefilled fields: the newest Game's sport, period format and Opponent, and today's date. */
+    async gameSetup(athleteId: string): Promise<GameSetup> {
+      const last = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).at(-1);
+      return {
+        sport: last?.sport ?? 'basketball',
+        basketballPeriods: last?.sport === 'basketball' && last.period_format === 'halves' ? 'halves' : 'quarters',
+        opponentName: last?.opponent_name ?? 'Opponent',
+        gameDate: localDate(clock()),
+      };
     },
 
     async switchAthlete(athleteId: string): Promise<void> {

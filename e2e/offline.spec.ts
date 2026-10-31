@@ -16,6 +16,7 @@ test('after one online visit, the app opens and records with the network off', a
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
 
   const steal = page.getByRole('button', { name: /^STL/ });
   await steal.click();
