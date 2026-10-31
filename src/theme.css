@@ -285,7 +285,7 @@ button:disabled {
   }
 }
 
-/* The half court, drawn to scale (50 ft by 47 ft) so its arc is a true circle; Button Size sets its height. */
+/* The half court, drawn to scale: App.tsx sets its aspect ratio from HALF_COURT, so its arc is a true circle; Button Size sets its height. */
 .shot-entry {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -296,7 +296,6 @@ button:disabled {
 /* 128px is what Standard leaves room for beside the stat tiles on a 390×844 phone. */
 .court {
   height: 128px;
-  aspect-ratio: 50 / 47;
   color: var(--muted);
 }
 

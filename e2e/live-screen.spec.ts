@@ -79,3 +79,17 @@ test('at Bleacher the live screen splits into two swipe pages, Shots then Other 
   await expect(page.getByRole('region', { name: 'Other stats' })).toBeInViewport();
   await expect(page.getByRole('button', { name: 'End Game' })).toBeVisible();
 });
+
+test('at Bleacher the half court keeps its feet ratio, and the Shot controls fit beside it', async ({ page }) => {
+  await addAthlete(page);
+  await chooseButtonSize(page, 'Bleacher');
+  await startGame(page);
+
+  const court = await page.getByRole('img', { name: 'Half court' }).boundingBox();
+  await expect(page.getByRole('img', { name: 'Half court' })).toHaveAttribute('viewBox', '0 0 50 42');
+  expect(Math.abs(court!.width / court!.height - 50 / 42)).toBeLessThanOrEqual(0.01);
+
+  const controls = await page.getByRole('group', { name: 'Shot result' }).boundingBox();
+  const shots = await page.getByRole('region', { name: 'Shots' }).boundingBox();
+  expect(controls!.x + controls!.width).toBeLessThanOrEqual(shots!.x + shots!.width + 0.5);
+});
