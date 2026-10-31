@@ -9,7 +9,11 @@ export function installHint(env: { userAgent: string; standalone: boolean; insta
   return 'hidden';
 }
 
-/** Asks the browser to keep this origin's storage permanently, so the phone does not evict the Games. */
+/** Asks the browser to keep this origin's storage permanently, so the phone does not evict the Games. A refusal is silent. */
 export async function requestPersistence(storage: StorageManager | undefined): Promise<void> {
-  await storage?.persist?.();
+  try {
+    await storage?.persist?.();
+  } catch {
+    // the browser decides eviction on its own rules; nothing to show the Recorder
+  }
 }
