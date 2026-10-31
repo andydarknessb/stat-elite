@@ -205,7 +205,7 @@ button:disabled {
 /* The Shift bar: the Sub In/Out toggle, then the running Shift timer over the Game's Playing Share. It is one button tall, so the live screen still fits a 390×844 phone. */
 .shift {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
   align-items: center;
 }
@@ -219,7 +219,36 @@ button:disabled {
   font-weight: 600;
 }
 
+/* The Game line is a button that opens the closed Shifts; it resets the global button box so the closed line keeps its height. */
 .shift .game {
+  font-size: 13px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.game-line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+/* The open Shifts list scrolls sideways inside its line, so the Shift bar keeps its height and the page does not widen. */
+.shift-list {
+  display: flex;
+  gap: 12px;
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  white-space: nowrap;
   font-size: 13px;
 }
 
