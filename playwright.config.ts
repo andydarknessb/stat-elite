@@ -13,5 +13,7 @@ export default defineConfig({
     command: 'npm run build && npm run preview -- --port 4173 --strictPort',
     url: 'http://localhost:4173',
     reuseExistingServer: !process.env.CI,
+    // the smoke's build runs the in-memory stand-in whatever .env.local holds: no Supabase URL or key (#9)
+    env: { VITE_SUPABASE_URL: '', VITE_SUPABASE_PUBLISHABLE_KEY: '' },
   },
 });
