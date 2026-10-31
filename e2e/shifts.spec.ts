@@ -50,6 +50,27 @@ test('tapping the Game line lists each closed Shift with its time and Plus/Minus
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
+for (const size of ['Compact', 'Bleacher']) {
+  test(`at ${size} the Shifts list opens in the Shift bar and does not widen the page`, async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Athlete name').fill('Casey');
+    await page.getByRole('button', { name: 'Add Athlete' }).click();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('button', { name: size, exact: true }).click();
+    await page.getByRole('button', { name: 'Done' }).click();
+    await page.getByRole('button', { name: 'Start Game' }).click();
+    await page.getByRole('button', { name: 'Start', exact: true }).click();
+
+    await page.getByRole('button', { name: 'Sub In' }).click();
+    await page.getByRole('button', { name: 'Team +1' }).click();
+    await page.getByRole('button', { name: 'Sub Out' }).click();
+    await page.locator('.shift .game').click();
+
+    await expect(page.getByRole('list', { name: 'Shifts' }).getByRole('listitem')).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+}
+
 test('a long Shifts list scrolls inside its line and does not widen the page', async ({ page }) => {
   await startBasketballGame(page);
   for (let i = 0; i < 4; i++) {
