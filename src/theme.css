@@ -437,6 +437,13 @@ button:disabled {
   min-height: 112px;
 }
 
+/* Bleacher: the Plate Appearance Pitch, Outcome and RBI buttons take the Standard tile height; the Base group stays at its size */
+.bleacher .plate-appearance .pitches button,
+.bleacher .plate-appearance .outcomes button,
+.bleacher .plate-appearance .rbi button {
+  min-height: 64px;
+}
+
 .bleacher .tile .count {
   font-size: 40px;
 }

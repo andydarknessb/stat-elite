@@ -1,9 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
-async function startSoftballGame(page: Page) {
+async function startSoftballGame(page: Page, size?: 'Compact' | 'Bleacher') {
   await page.goto('/');
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
+  if (size) {
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: size, exact: true }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  }
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByLabel('Sport').selectOption('Softball');
   await page.getByRole('button', { name: 'Start', exact: true }).click();
@@ -70,4 +75,55 @@ test('a reach puts the Athlete on the diamond; Stole marks the next base move, a
 
   await page.getByRole('button', { name: 'Out', exact: true }).click();
   await expect(page.getByRole('img', { name: /^On / })).toHaveCount(0);
+});
+
+test('Undo disarms an Outcome: its RBI chips go down, and the Plate Appearance it armed is retracted', async ({ page }) => {
+  await startSoftballGame(page);
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'RBI' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Undo (last Event): 2B' }).click();
+  await expect(page.getByRole('group', { name: 'RBI' })).toHaveCount(0);
+  await expect(page.getByText('AVG —')).toBeVisible();
+});
+
+test('the armed Outcome is aria-pressed true; the other Outcomes are aria-pressed false', async ({ page }) => {
+  await startSoftballGame(page);
+  const outcomes = page.getByRole('group', { name: 'Outcome' });
+  await outcomes.getByRole('button', { name: '2B', exact: true }).click();
+
+  await expect(outcomes.getByRole('button', { name: '2B', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const total = await outcomes.getByRole('button').count();
+  await expect(outcomes.locator('button[aria-pressed="false"]')).toHaveCount(total - 1);
+});
+
+test('on Bleacher the Pitch, Outcome and RBI buttons are at least 64px tall, and the RBI row still fits the phone', async ({ page }) => {
+  await startSoftballGame(page, 'Bleacher');
+  const height = async (name: string) => (await page.getByRole('button', { name, exact: true }).boundingBox())?.height;
+  await expect(page.getByRole('button', { name: 'Ball', exact: true })).toBeVisible();
+  expect(await height('Ball')).toBeGreaterThanOrEqual(64);
+  expect(await height('2B')).toBeGreaterThanOrEqual(64);
+
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await expect(page.getByRole('button', { name: '0 RBI', exact: true })).toBeVisible();
+  expect(await height('0 RBI')).toBeGreaterThanOrEqual(64);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test('on Compact the 2B button is 44px tall', async ({ page }) => {
+  await startSoftballGame(page, 'Compact');
+  const box = await page.getByRole('button', { name: '2B', exact: true }).boundingBox();
+  expect(box?.height).toBe(44);
+});
+
+test('Next period disarms an Outcome: its RBI chips go down, and the next inning opens', async ({ page }) => {
+  await startSoftballGame(page);
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'RBI' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Next period' }).click();
+  await expect(page.getByRole('group', { name: 'RBI' })).toHaveCount(0);
+  await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
 });
