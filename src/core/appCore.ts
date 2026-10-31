@@ -763,6 +763,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
     /** The Games feed: the season line over the Athlete's finished basketball Games, and every finished Game, newest first. */
     async gameFeed(athleteId: string): Promise<GameFeed> {
+      // shortcut: reads every Game's Events on each feed read, fine for one Athlete's season; upgrade with a stored season line when the feed reads slow
       const today = localDate(clock());
       const rows = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).reverse();
       const finished = (await Promise.all(rows.map((row) => finishedGame(row, today)))).flatMap((f) => (f ? [f] : []));
