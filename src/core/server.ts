@@ -204,12 +204,7 @@ export function createSupabaseServer(client: SupabaseClient): Server {
       if (data.length === 0) throw new Error('Only the Owner can remove a Member');
     },
     async leave(athleteId) {
-      const { error } = await client
-        .from('members')
-        .delete()
-        .eq('athlete_id', athleteId)
-        .eq('member_id', await session())
-        .select('member_id');
+      const { error } = await client.from('members').delete().eq('athlete_id', athleteId).eq('member_id', await session());
       if (error) throw error;
     },
   };

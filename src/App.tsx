@@ -179,7 +179,7 @@ function Members({ core, athleteId }: { core: AppCore; athleteId: string }) {
   if (!owner) {
     return (
       <>
-        <button onClick={() => void core.leave(athleteId).catch(() => setError('Could not leave. Check the connection and try again.'))}>
+        <button onClick={() => void core.leave(athleteId).catch(() => setError('Could not leave. Wait for everything to sync, then try again.'))}>
           Leave
         </button>
         {error && <p role="alert">{error}</p>}

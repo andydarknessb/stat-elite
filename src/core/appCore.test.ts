@@ -1167,6 +1167,47 @@ test('a Member who leaves drops the Athlete from its phone at once, and its Game
   expect((await core.home()).athlete?.id).toBe(athleteId);
 });
 
+test("a Member cannot leave while a row on the Athlete waits to upload, and the Game reaches the server before the leave", async () => {
+  const { core, server, link } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+  link.up = false;
+  const gameId = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
+  const steal = await member.core.recordTile(gameId, 'steal');
+
+  await expect(member.core.leave(athleteId)).rejects.toThrow('Not everything on this Athlete has synced yet');
+  expect(await member.inspect.athletes.get(athleteId)).toBeDefined();
+
+  link.up = true;
+  await member.core.leave(athleteId);
+
+  expect(server.rows.events.get(steal.id)).toBeDefined();
+  expect(server.rows.games.get(gameId)).toMatchObject({ recorded_by: await member.server.session() });
+  expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
+});
+
+test("an Athlete this phone made under an account is not dropped by a download, because no Owner shared it in", async () => {
+  const { core, inspect } = setup();
+  await core.signIn('casey@example.com');
+  // a row written under another account, as a sign-in as someone else would leave it: it was never shared with this phone
+  await inspect.athletes.put({
+    id: 'made-here',
+    owner_id: 'another-account',
+    name: 'Jordan',
+    jersey_number: null,
+    created_at: '2026-10-30T10:00:00.000Z',
+    updated_at: '2026-10-30T10:00:00.000Z',
+  });
+
+  await core.refresh();
+
+  expect(await inspect.athletes.get('made-here')).toMatchObject({ name: 'Jordan' });
+});
+
 test('the Supabase server removes a Member as the Owner, and names a removal the database refused', async () => {
   const removed: unknown[][] = [];
   let rows: unknown[] = [];

@@ -232,10 +232,3 @@ create policy owner_removes_members on members for delete to authenticated
   using (owns_athlete(members.athlete_id));
 create policy member_leaves on members for delete to authenticated
   using (member_id = (select auth.uid()));
-
--- A departed Member records nothing more: a Recorder adds Events only while its account still has the Athlete (ADR 0004).
-drop policy recorder_adds_events on events;
-create policy recorder_adds_events on events for insert to authenticated
-  with check (exists (select 1 from games g where g.id = events.game_id and g.recorded_by = (select auth.uid())
-    and (g.owner_id = (select auth.uid())
-      or exists (select 1 from members m where m.athlete_id = g.athlete_id and m.member_id = (select auth.uid())))));
