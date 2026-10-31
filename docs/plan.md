@@ -22,7 +22,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus on basketball rows | Stattie Activity |
 | Game Complete | Share card and ready-to-paste text | MyKidDid |
 | Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
-| Athlete sharing | Invite co-parent (link through the share sheet), Members list, Remove Member (Owner only), Leave (Members) | — |
+| Athlete sharing | Invite co-parent (link through the share sheet), Members list, Remove Member (Owner only), Leave (Members). Members also edit the Athlete's name and number, from Home's Edit | — |
 
 Navigation: bottom tabs Home · Games · Insights · Settings.
 
