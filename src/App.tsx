@@ -4,13 +4,14 @@ import {
   BUTTON_SIZES,
   HALF_COURT,
   arcPreset,
+  lineText,
+  signed,
   type AppCore,
   type ButtonSize,
   type GameFormat,
   type GameSetup,
   type FeedGame,
   type Home,
-  type Line,
   type LiveGame,
   type Scores,
   type TileEventType,
@@ -480,7 +481,6 @@ const clockOf = (ms: number) => {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 };
-const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
 const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
   undoable.type === 'free_throw'
@@ -506,10 +506,6 @@ function TabBar({ tab, onTab }: { tab: Tab; onTab: (tab: Tab) => void }) {
     </nav>
   );
 }
-
-// the totals a season or a Game shows, in words
-const lineText = (line: Line) =>
-  `${line.points} PTS · FG ${line.fg.made}/${line.fg.attempted} · FT ${line.ft.made}/${line.ft.attempted} · ${line.rebounds} REB · ${line.assists} AST`;
 
 const GROUP_LABELS: Record<FeedGame['group'], string> = {
   today: 'Today',
@@ -681,6 +677,40 @@ function EndGameForm({
   );
 }
 
+/** Game Complete, shown once End Game closes the Game: the Final Score, the Athlete's line and Plus/Minus, and Copy text. */
+function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
+  const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
+  // the button names the outcome for 2 seconds, in place: no modal
+  const [copied, setCopied] = useState<string>();
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(undefined), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  if (!game) return null;
+  const copy = async () => {
+    try {
+      const text = await core.gameCopyText(gameId);
+      if (text === undefined) return;
+      await navigator.clipboard.writeText(text);
+      setCopied('Copied');
+    } catch {
+      setCopied('Copy failed');
+    }
+  };
+  return (
+    <section aria-label="Game Complete">
+      <h1>Final</h1>
+      <p className="final">
+        Team {game.final.team} – Opponent {game.final.opponent}
+      </p>
+      <p>{lineText(game.line)}</p>
+      <p>Plus/Minus {signed(game.line.plusMinus)}</p>
+      <button onClick={() => void copy()}>{copied ?? 'Copy text'}</button>
+    </section>
+  );
+}
+
 const toFt = (spot: number, feet: number) => (spot / 100) * feet;
 const { widthFt, lengthFt, basketFt, arcFt, cornerFt, cornerEndFt } = HALF_COURT;
 // the three-point line: the corner lines from the baseline, then the arc between them
@@ -781,10 +811,7 @@ function LiveGame({
   if (game.final) {
     return (
       <main>
-        <h1>Final</h1>
-        <p className="final">
-          Team {game.final.team} – Opponent {game.final.opponent}
-        </p>
+        <GameComplete core={core} gameId={gameId} />
         <SaveGame core={core} />
         <button className="primary" onClick={onDone}>
           Done
