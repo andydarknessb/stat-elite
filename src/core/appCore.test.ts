@@ -1876,15 +1876,16 @@ test('Scored counts a run and Stole counts a stolen base, and Undo takes each ba
   expect((await core.liveGame(gameId))?.baserunning).toEqual({ runs: 0, stolenBases: 1 });
 });
 
-test('Out takes the Athlete off the diamond, and a Stole marked on an Out still counts a stolen base as the criteria read', async () => {
+test('Out takes the Athlete off the diamond, and a Stole marked on an Out is a caught stealing, not a stolen base', async () => {
   const { core } = setup();
   const gameId = await softballGame(core);
   await core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 0 });
 
-  await core.recordBaserunning(gameId, { base: 'out', stolen: true });
+  const caught = await core.recordBaserunning(gameId, { base: 'out', stolen: true });
 
+  expect(caught).toMatchObject({ base: 'out', stolen: true });
   expect((await core.liveGame(gameId))?.onBase).toBeUndefined();
-  expect((await core.liveGame(gameId))?.baserunning).toEqual({ runs: 0, stolenBases: 1 });
+  expect((await core.liveGame(gameId))?.baserunning).toEqual({ runs: 0, stolenBases: 0 });
 });
 
 test('a baserunning move needs the Athlete on base, and never moves them back or to a base they hold', async () => {

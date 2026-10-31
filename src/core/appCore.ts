@@ -327,10 +327,10 @@ const ORDER: Record<Base | 'home', number> = { first: 1, second: 2, third: 3, ho
 /** Where the Athlete on a base can move next: each base ahead of it, and Out (GLOSSARY: Baserunning). */
 export const movesFrom = (base: Base): BaseMove[] => BASES.filter((to) => to === 'out' || ORDER[to] > ORDER[base]);
 
-// the stats a list of live Events makes: a run is a Scored move or a home run; a stolen base is any move marked as a steal
+// the stats a list of live Events makes: a run is a Scored move or a home run; a stolen base is a steal that advances, never an Out (a caught stealing)
 const baserunningOf = (live: EventRow[]): Baserunning => ({
   runs: live.filter((e) => (e.type === 'baserunning' && e.base === 'home') || (e.type === 'plate_appearance' && e.outcome === 'home_run')).length,
-  stolenBases: live.filter((e) => e.type === 'baserunning' && e.stolen).length,
+  stolenBases: live.filter((e) => e.type === 'baserunning' && e.stolen && e.base !== 'out').length,
 });
 
 // the Events the stats count: none a Retraction and none retracted
