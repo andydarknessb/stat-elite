@@ -874,7 +874,14 @@ function ShotEntry({
   };
   return (
     <div className="shot-entry">
-      <svg className="court" viewBox={`0 0 ${widthFt} ${lengthFt}`} role="img" aria-label="Half court" onClick={place}>
+      <svg
+        className="court"
+        viewBox={`0 0 ${widthFt} ${lengthFt}`}
+        style={{ aspectRatio: `${widthFt} / ${lengthFt}` }}
+        role="img"
+        aria-label="Half court"
+        onClick={place}
+      >
         <rect x="0" y="0" width={widthFt} height={lengthFt} />
         <path d={THREE_POINT_LINE} />
         <circle cx={widthFt / 2} cy={basketFt} r="0.75" />

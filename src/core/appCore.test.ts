@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
 import { expect, test, vi } from 'vitest';
-import { arcPreset, createAppCore, periodLabel, type Base, type GameFormat } from './appCore';
+import { arcPreset, createAppCore, HALF_COURT, periodLabel, type Base, type GameFormat } from './appCore';
 import { createStandInServer, createSupabaseServer, InviteRefused, serverFor } from './server';
 import { openStore, type Outcome, type Pitch, type Store } from './store';
 
@@ -146,13 +146,21 @@ test('a Shot is refused without a spot on the court or a value of 2 or 3, and wr
   expect((await core.liveGame(gameId))?.undoable).toBeUndefined();
 });
 
+// a spot in feet from the sideline and the baseline, as the 0–100 the court takes, through HALF_COURT
+const ft = (xFt: number, yFt: number) => [(xFt / HALF_COURT.widthFt) * 100, (yFt / HALF_COURT.lengthFt) * 100] as const;
+
 test('the arc presets a spot beyond it to 3 and a spot inside it to 2, corners included', () => {
-  expect(arcPreset(50, 40)).toBe(2); // the key
-  expect(arcPreset(50, 60)).toBe(2); // the arc's near edge
-  expect(arcPreset(50, 65)).toBe(3); // past the arc
-  expect(arcPreset(4, 20)).toBe(3); // corner: inside the arc's radius, but outside the line
-  expect(arcPreset(7, 20)).toBe(2); // just past the corner line, on the arc side
-  expect(arcPreset(96, 20)).toBe(3); // the other corner
+  const { basketFt } = HALF_COURT;
+  expect(arcPreset(...ft(25, basketFt + 13))).toBe(2); // the key
+  expect(arcPreset(...ft(25, basketFt + 19.5))).toBe(2); // just inside the arc
+  expect(arcPreset(...ft(25, basketFt + 20))).toBe(3); // just past the arc
+  expect(arcPreset(...ft(4, 2))).toBe(3); // corner: inside the arc's radius, but outside the line
+  expect(arcPreset(...ft(6, 2))).toBe(2); // just past the corner line, on the arc side
+  expect(arcPreset(...ft(46, 2))).toBe(3); // the other corner
+});
+
+test('a spot 21 ft straight out from the basket presets 3 on the NFHS line', () => {
+  expect(arcPreset(50, ((HALF_COURT.basketFt + 21) / HALF_COURT.lengthFt) * 100)).toBe(3);
 });
 
 test('the Recorder can flip the preset before the result, and the Shot keeps the value chosen', async () => {
