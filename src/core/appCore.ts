@@ -774,10 +774,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     async addAthlete({ name, jerseyNumber, photo }: { name: string; jerseyNumber?: string; photo?: Blob }): Promise<string> {
       const id = crypto.randomUUID();
       const ts = now();
-      await write([store.athletes, store.athletePhotos], async () => {
+      await write([store.athletes, store.athletePhotos, store.settings], async () => {
         await store.athletes.add({ id, name, jersey_number: jerseyNumber?.trim() || null, created_at: ts, updated_at: ts });
         await queue('athletes', id);
         if (photo) await store.athletePhotos.add({ athlete_id: id, photo });
+        await store.settings.put({ key: SELECTED_ATHLETE, value: id });
       });
       return id;
     },
