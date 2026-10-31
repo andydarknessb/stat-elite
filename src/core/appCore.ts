@@ -1,5 +1,13 @@
 import type { Table } from 'dexie';
-import { TILE_EVENT_TYPES, type EventRow, type GameRow, type OutboxRow, type Store, type TileEventType } from './store';
+import {
+  TILE_EVENT_TYPES,
+  type AthleteRow,
+  type EventRow,
+  type GameRow,
+  type OutboxRow,
+  type Store,
+  type TileEventType,
+} from './store';
 import type { Server, SyncedTable, UploadRow } from './server';
 
 export type { TileEventType };
@@ -31,6 +39,8 @@ export interface Home {
 }
 
 const SELECTED_ATHLETE = 'selectedAthleteId';
+/** The account whose rows this phone last downloaded: a sign-in clears it, so the next one downloads again. */
+const DOWNLOADED_FOR = 'downloadedFor';
 
 /** Every Event type Undo can retract: all but a Retraction itself. */
 export type UndoableType = Exclude<EventRow['type'], 'retraction'>;
@@ -64,6 +74,43 @@ const isTile = (type: EventRow['type']): type is TileEventType =>
 /** The phone's local calendar date, not UTC, as YYYY-MM-DD. */
 const localDate = (date: Date) =>
   new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+
+// The phone keeps its own columns of a downloaded row, whatever more the server sends.
+const athleteOf = ({ id, owner_id, name, jersey_number, created_at, updated_at }: AthleteRow): AthleteRow => ({
+  id,
+  owner_id,
+  name,
+  jersey_number,
+  created_at,
+  updated_at,
+});
+const gameOf = ({
+  id,
+  athlete_id,
+  sport,
+  period_format,
+  opponent_name,
+  game_date,
+  created_at,
+  updated_at,
+}: GameRow): GameRow => ({ id, athlete_id, sport, period_format, opponent_name, game_date, created_at, updated_at });
+const eventOf = ({
+  id,
+  game_id,
+  seq,
+  client_ts,
+  period,
+  type,
+  retracts_id,
+  team_score,
+  opponent_score,
+}: EventRow): EventRow => ({ id, game_id, seq, client_ts, period, type, retracts_id, team_score, opponent_score });
+
+// the downloaded rows the phone does not hold yet, given what the store already has under their ids
+const lacking = <T>(rows: T[], held: (T | undefined)[]): T[] => rows.filter((_, i) => held[i] === undefined);
+// latest edit wins (ADR 0001): a downloaded Athlete or Game replaces the phone's copy only when its edit is later
+const later = (row: { updated_at: string }, held?: { updated_at: string }) =>
+  !held || Date.parse(row.updated_at) > Date.parse(held.updated_at);
 
 export function createAppCore({ clock, store, server }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
@@ -122,11 +169,38 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     return event && { row: event, athleteId: (await store.games.get(event.game_id))?.athlete_id };
   };
 
+  // Brings the account's rows down: Athletes and Games the phone lacks or holds an older edit of, Events it lacks.
+  // Fetched before the transaction, since Dexie cannot span the network. Nothing here is queued for upload.
+  // shortcut: every visible Event is fetched on each sign-in, not only the missing ones, fine for one child's Games; upgrade with a per-Game seq cursor when a season's Events get slow to fetch
+  const download = async () => {
+    const [athletes, games, events] = await Promise.all([
+      server.download('athletes'),
+      server.download('games'),
+      server.download('events'),
+    ]);
+    await store.transaction('rw', [store.athletes, store.games, store.events], async () => {
+      const athleteRows = athletes.map(athleteOf);
+      const athleteHeld = await store.athletes.bulkGet(athleteRows.map((r) => r.id));
+      await store.athletes.bulkPut(athleteRows.filter((r, i) => later(r, athleteHeld[i])));
+      const gameRows = games.map(gameOf);
+      const gameHeld = await store.games.bulkGet(gameRows.map((r) => r.id));
+      await store.games.bulkPut(gameRows.filter((r, i) => later(r, gameHeld[i])));
+      // an Event never changes, so the phone takes only the ones it lacks
+      const eventRows = events.map(eventOf);
+      await store.events.bulkAdd(lacking(eventRows, await store.events.bulkGet(eventRows.map((r) => r.id))));
+    });
+  };
+
   // Uploads in sequence order, each row as it is now. A row the server cannot take stays queued, and so do the rows behind it.
   // shortcut: a row the server refuses holds up every row behind it until someone fixes it, upgrade when a refusal needs its own state
   const drain = async () => {
     const owner = await server.session();
     if (!owner) return;
+    // a sign-in downloads before anything uploads, so the server's newer copies land before this phone's older ones go up
+    if ((await store.settings.get(DOWNLOADED_FOR))?.value !== owner) {
+      await download();
+      await store.settings.put({ key: DOWNLOADED_FOR, value: owner });
+    }
     // signing in makes the account the Owner of the phone's Athletes
     await store.athletes
       .toCollection()
@@ -322,6 +396,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** Signs the Recorder in with a magic link, then uploads everything recorded so far. */
     async signIn(email: string): Promise<void> {
       await server.signIn(email);
+      // the account is signing in here, so it downloads again even if this phone has downloaded it before
+      await store.settings.delete(DOWNLOADED_FOR);
       await flush();
     },
 

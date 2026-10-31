@@ -236,7 +236,14 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
             if (next) void core.switchAthlete(next.id);
           }}
         >
-          {athlete.photo && <AthletePhoto key={athlete.id} photo={athlete.photo} />}
+          {athlete.photo ? (
+            <AthletePhoto key={athlete.id} photo={athlete.photo} />
+          ) : (
+            // a downloaded Athlete has no photo here: photos stay on the phone that picked them
+            <span className="photo-placeholder" aria-hidden="true">
+              {athlete.name.charAt(0)}
+            </span>
+          )}
         </button>
         <h1>{athlete.name}</h1>
         {athlete.jerseyNumber && <p>#{athlete.jerseyNumber}</p>}

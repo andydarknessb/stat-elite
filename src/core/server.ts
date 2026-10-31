@@ -1,7 +1,11 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { AthleteRow, EventRow, GameRow } from './store';
 
 /** The tables the outbox uploads: an Athlete before its Game, a Game before its Events (ADR 0001). */
 export type SyncedTable = 'athletes' | 'games' | 'events';
+
+/** A row of each synced table as the server returns it. */
+export type SyncedRow = { athletes: AthleteRow; games: GameRow; events: EventRow };
 
 /** A row as the outbox uploads it. `updated_at` is set on Athletes and Games, where the latest edit wins. */
 export type UploadRow = { id: string; owner_id?: string; updated_at?: string };
@@ -14,6 +18,8 @@ export interface Server {
   signIn(email: string): Promise<void>;
   /** Writes one row. Rejects when the server cannot be reached or refuses the row; the outbox keeps it. */
   upload(table: SyncedTable, row: UploadRow): Promise<void>;
+  /** Every row of one table the signed-in account can see. Rejects when the server cannot be reached. */
+  download<T extends SyncedTable>(table: T): Promise<SyncedRow[T][]>;
 }
 
 /** The in-memory backend for App Core's tests and the local smoke. `rows` holds what landed, `uploads` the order. */
@@ -42,6 +48,11 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       if (!copy || (table !== 'events' && (copy.updated_at ?? '') <= (row.updated_at ?? ''))) rows[table].set(row.id, row);
       uploads.push(`${table}:${row.id}`);
     },
+    // row-level security, as the server gives it: the account sees only the rows it owns
+    async download<T extends SyncedTable>(table: T) {
+      reach();
+      return [...rows[table].values()].filter((row) => row.owner_id === account) as unknown as SyncedRow[T][];
+    },
   };
 }
 
@@ -65,8 +76,30 @@ export function createSupabaseServer(client: SupabaseClient): Server {
         if (stale) throw stale;
       }
     },
+    async download<T extends SyncedTable>(table: T) {
+      const rows: SyncedRow[T][] = [];
+      // PostgREST caps a page, so read until an empty one
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await client.from(table).select('*').order('id').range(from, from + PAGE - 1);
+        if (error) throw error;
+        if (data.length === 0) break;
+        rows.push(...data);
+      }
+      return rows.map(phoneRow);
+    },
   };
 }
+
+const PAGE = 1000;
+const TIMESTAMP_COLUMNS = ['created_at', 'updated_at', 'client_ts'];
+// Supabase sends timestamps with a +00:00 offset; the phone writes them as ISO time in UTC
+const phoneRow = <R>(row: R): R => {
+  const copy = { ...row } as Record<string, unknown>;
+  for (const column of TIMESTAMP_COLUMNS) {
+    if (typeof copy[column] === 'string') copy[column] = new Date(copy[column]).toISOString();
+  }
+  return copy as R;
+};
 
 /**
  * Supabase when the build has its URL and key. Without them only localhost gets the stand-in, so a deployed
@@ -78,5 +111,5 @@ export function serverFor({ url, key, host }: { url?: string; key?: string; host
   const refuse = async () => {
     throw new Error('Sign-in is not set up in this build');
   };
-  return { session: async () => undefined, signIn: refuse, upload: refuse };
+  return { session: async () => undefined, signIn: refuse, upload: refuse, download: refuse };
 }
