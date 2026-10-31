@@ -230,6 +230,12 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   let draining: Promise<void> = Promise.resolve();
   const flush = (): Promise<void> => (draining = draining.then(drain).catch(console.error));
 
+  // a Member's phone reads its Athlete and records nothing on it: only the Owner's (or a signed-out Recorder's) phone writes
+  const isOwner = async (athleteId: string) => {
+    const owner = (await store.athletes.get(athleteId))?.owner_id;
+    return owner === undefined || owner === (await server.session());
+  };
+
   return {
     async addAthlete({ name, jerseyNumber, photo }: { name: string; jerseyNumber?: string; photo?: Blob }): Promise<string> {
       const id = crypto.randomUUID();
@@ -358,10 +364,10 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const athlete = athletes[index];
       const photo = await store.athletePhotos.get(athlete.id);
       const next = athletes[(index + 1) % athletes.length];
-      // the newest Game that End Game has not closed is the one in progress
+      // the newest Game that End Game has not closed is the one in progress, and only the Owner's phone records on it
       const games = await store.games.where('athlete_id').equals(athlete.id).sortBy('created_at');
       let liveGameId: string | undefined;
-      for (const game of [...games].reverse()) {
+      for (const game of (await isOwner(athlete.id)) ? [...games].reverse() : []) {
         if ((await gameEvents(game.id).last())?.type !== 'game_end') {
           liveGameId = game.id;
           break;
@@ -398,12 +404,33 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
-    /** Signs the Recorder in with a magic link, then uploads everything recorded so far. */
-    async signIn(email: string): Promise<void> {
-      await server.signIn(email);
+    /** Signs the Recorder in with a magic link, then uploads everything recorded so far. An Invite's token rides in the link. */
+    async signIn(email: string, invite?: string): Promise<void> {
+      await server.signIn(email, invite);
       // the account is signing in here, so it downloads again even if this phone has downloaded it before
       await store.settings.delete(DOWNLOADED_FOR);
       await flush();
+    },
+
+    /** Makes an Invite to one of the Recorder's Athletes; its token goes out in the share link. */
+    createInvite(athleteId: string): Promise<string> {
+      return server.createInvite(athleteId);
+    },
+
+    /** Whether Invite co-parent is offered: the signed-in account is the Athlete's Owner. */
+    async canInvite(athleteId: string): Promise<boolean> {
+      const owner = (await store.athletes.get(athleteId))?.owner_id;
+      return owner !== undefined && owner === (await server.session());
+    },
+
+    isOwner,
+
+    /** Makes the signed-in account a Member of the Invite's Athlete, then brings the Athlete and its Games down (ADR 0004). */
+    async acceptInvite(token: string): Promise<void> {
+      // cleared first, so a download that fails after the accept is retried by the next flush
+      await store.settings.delete(DOWNLOADED_FOR);
+      await server.acceptInvite(token);
+      await download();
     },
 
     /** The "N not synced" badge: whether the Recorder is signed in, and how many rows still live only on the phone. */

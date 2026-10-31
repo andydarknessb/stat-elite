@@ -24,7 +24,7 @@ exception when others then
 end $$;
 
 -- Two owners: A (…a) and B (…b).
-insert into auth.users values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
+insert into auth.users values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b'), ('00000000-0000-0000-0000-00000000000c');
 insert into athletes (id, owner_id, name) values
   ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'Casey'),
   ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', 'Jordan');
@@ -84,6 +84,62 @@ begin
   if n <> 0 then raise exception 'Events must not be deletable, % deleted', n; end if;
 end $$;
 select pg_temp.expect_fail($$insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000b9', '00000000-0000-0000-0000-00000000000a', 'Spoof')$$, 'B creating an Athlete owned by A');
+
+-- Sharing (ADR 0004). A's Invites: one to accept, one already expired. B is a stranger to Casey throughout.
+-- The server makes tokens and expiry, so these two are seeded the way it makes them: as superuser, past the grants.
+reset role;
+insert into invites (token, athlete_id, owner_id) values
+  ('40000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a');
+insert into invites (token, athlete_id, owner_id, expires_at) values
+  ('40000000-0000-0000-0000-0000000000e0', '10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', now() - interval '1 second');
+set role authenticated;
+
+-- The Owner makes an Invite through the API, and cannot choose its expiry.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into invites (athlete_id, owner_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a');
+select pg_temp.expect_fail($$insert into invites (athlete_id, owner_id, expires_at) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'infinity')$$, 'the Owner choosing an Invite''s expiry');
+do $$
+begin
+  if (select expires_at - created_at from invites where token = '40000000-0000-0000-0000-00000000000a') <> interval '7 days' then
+    raise exception 'an Invite should expire 7 days after it is made';
+  end if;
+end $$;
+-- the Owner opening its own link is refused, and the link stays unused
+select pg_temp.expect_fail($$select accept_invite('40000000-0000-0000-0000-00000000000a')$$, 'the Owner accepting its own Invite');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+select pg_temp.expect_fail($$insert into invites (athlete_id, owner_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b')$$, 'B inviting to an Athlete it does not own');
+
+-- C accepts: a Member reads Casey, its Games and its Events, and can make no Invite or Event.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+select accept_invite('40000000-0000-0000-0000-00000000000a');
+select accept_invite('40000000-0000-0000-0000-00000000000a');
+select pg_temp.expect_fail($$select accept_invite('40000000-0000-0000-0000-0000000000e0')$$, 'an expired Invite accepted');
+do $$
+declare n int;
+begin
+  select count(*) into n from athletes;
+  if n <> 1 then raise exception 'a Member should see the 1 Athlete it is a Member of, saw %', n; end if;
+  select count(*) into n from games;
+  if n <> 2 then raise exception 'a Member should see its Athlete''s 2 Games, saw %', n; end if;
+  select count(*) into n from events;
+  if n <> 7 then raise exception 'a Member should see its Athlete''s 7 Events, saw %', n; end if;
+end $$;
+select pg_temp.expect_fail($$insert into invites (athlete_id, owner_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000c')$$, 'a Member making an Invite');
+select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a1', 7, now(), 1, 'steal')$$, 'a Member recording an Event');
+
+-- B, the stranger, still sees only its own rows, and cannot take the Invite C used.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+select pg_temp.expect_fail($$select accept_invite('40000000-0000-0000-0000-00000000000a')$$, 'a second account accepting a used Invite');
+do $$
+declare n int;
+begin
+  select count(*) into n from athletes;
+  if n <> 1 then raise exception 'a stranger should see only its own Athlete, saw %', n; end if;
+  select count(*) into n from games;
+  if n <> 1 then raise exception 'a stranger should see only its own Game, saw %', n; end if;
+  select count(*) into n from events;
+  if n <> 1 then raise exception 'a stranger should see only its own Event, saw %', n; end if;
+end $$;
 
 -- Delete my account, signed in as A: everything of A's goes, B is untouched.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);

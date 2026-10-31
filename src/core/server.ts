@@ -10,60 +10,117 @@ export type SyncedRow = { athletes: AthleteRow; games: GameRow; events: EventRow
 /** A row as the outbox uploads it. `updated_at` is set on Athletes and Games, where the latest edit wins. */
 export type UploadRow = { id: string; owner_id?: string; updated_at?: string };
 
+/** The stand-in's copy of a row: the Athlete a Game or Event belongs to is what Member access checks. */
+type StoredRow = UploadRow & { athlete_id?: string; game_id?: string };
+
+/** Why an Invite cannot be taken: unknown, the Owner's own, used by another account, or past its 7 days (ADR 0004). */
+export type InviteReason = 'unknown' | 'own' | 'used' | 'expired';
+
+export class InviteRefused extends Error {
+  readonly reason: InviteReason;
+  constructor(reason: InviteReason) {
+    super(`invite refused: ${reason}`);
+    this.reason = reason;
+  }
+}
+
 /** The backend App Core syncs with: Supabase in a configured build, the in-memory stand-in on localhost. */
 export interface Server {
   /** The signed-in account's id, or undefined when signed out. */
   session(): Promise<string | undefined>;
-  /** Sends a magic link to the address. Rejects when the server cannot be reached. */
-  signIn(email: string): Promise<void>;
+  /** Sends a magic link to the address. An Invite's token rides in the link, so accepting it survives the sign-in. Rejects when the server cannot be reached. */
+  signIn(email: string, invite?: string): Promise<void>;
   /** Writes one row. Rejects when the server cannot be reached or refuses the row; the outbox keeps it. */
   upload(table: SyncedTable, row: UploadRow): Promise<void>;
   /** Every row of one table the signed-in account can see. Rejects when the server cannot be reached. */
   download<T extends SyncedTable>(table: T): Promise<SyncedRow[T][]>;
+  /** Makes an Invite to one of the account's Athletes and returns its token. Rejects unless the account owns that Athlete. */
+  createInvite(athleteId: string): Promise<string>;
+  /** Makes the signed-in account a Member of the Invite's Athlete. Rejects with an InviteRefused when the Invite cannot be taken. */
+  acceptInvite(token: string): Promise<void>;
 }
 
-/** The in-memory backend for App Core's tests and the local smoke. `rows` holds what landed, `uploads` the order. */
+const DAY = 24 * 60 * 60_000;
+
+/**
+ * The in-memory backend for App Core's tests and the local smoke. `rows` holds what landed, `uploads` the order.
+ * The top-level object is one phone's session; `phone()` makes another, on the same rows, Invites and Members.
+ */
 export function createStandInServer(reachable: () => boolean = () => globalThis.navigator?.onLine ?? true) {
-  let account: string | undefined;
-  const rows: Record<SyncedTable, Map<string, UploadRow>> = { athletes: new Map(), games: new Map(), events: new Map() };
+  const rows: Record<SyncedTable, Map<string, StoredRow>> = { athletes: new Map(), games: new Map(), events: new Map() };
   const uploads: string[] = [];
+  const invites = new Map<string, { athlete_id: string; owner_id: string; expires: number; used_by?: string }>();
+  // `${athleteId} ${memberId}` for each Member
+  const members = new Set<string>();
   const reach = () => {
     if (!reachable()) throw new Error('The server cannot be reached');
   };
-  return {
-    rows,
-    uploads,
-    async session() {
-      return account;
-    },
-    // the magic link is opened at once, so the stand-in is signed in as soon as this resolves
-    async signIn() {
-      reach();
-      account ??= crypto.randomUUID();
-    },
-    async upload(table: SyncedTable, row: UploadRow) {
-      reach();
-      const copy = rows[table].get(row.id);
-      // an Event is never edited, so a repeat changes nothing; an Athlete or Game keeps the newer copy
-      if (!copy || (table !== 'events' && (copy.updated_at ?? '') <= (row.updated_at ?? ''))) rows[table].set(row.id, row);
-      uploads.push(`${table}:${row.id}`);
-    },
-    // row-level security, as the server gives it: the account sees only the rows it owns
-    async download<T extends SyncedTable>(table: T) {
-      reach();
-      return [...rows[table].values()].filter((row) => row.owner_id === account) as unknown as SyncedRow[T][];
-    },
+  // the Athlete a row belongs to: an Athlete is its own, a Game names it, an Event's Game does
+  const athleteOf = (table: SyncedTable, row: StoredRow): string | undefined =>
+    table === 'athletes' ? row.id : table === 'games' ? row.athlete_id : rows.games.get(row.game_id ?? '')?.athlete_id;
+
+  const phone = () => {
+    let account: string | undefined;
+    // row-level security, as the server gives it: the account sees rows it owns and rows of Athletes it is a Member of
+    const sees = (table: SyncedTable, row: StoredRow) => {
+      const athlete = athleteOf(table, row);
+      return row.owner_id === account || (account !== undefined && athlete !== undefined && members.has(`${athlete} ${account}`));
+    };
+    return {
+      async session() {
+        return account;
+      },
+      // the magic link is opened at once, so the stand-in is signed in as soon as this resolves
+      async signIn(_email: string, _invite?: string) {
+        reach();
+        account ??= crypto.randomUUID();
+      },
+      async upload(table: SyncedTable, row: UploadRow) {
+        reach();
+        const copy = rows[table].get(row.id);
+        // an Event is never edited, so a repeat changes nothing; an Athlete or Game keeps the newer copy
+        if (!copy || (table !== 'events' && (copy.updated_at ?? '') <= (row.updated_at ?? ''))) rows[table].set(row.id, row);
+        uploads.push(`${table}:${row.id}`);
+      },
+      async download<T extends SyncedTable>(table: T) {
+        reach();
+        return [...rows[table].values()].filter((row) => sees(table, row)) as unknown as SyncedRow[T][];
+      },
+      async createInvite(athleteId: string) {
+        reach();
+        if (account === undefined || rows.athletes.get(athleteId)?.owner_id !== account) {
+          throw new Error('Only the Owner can invite to this Athlete');
+        }
+        const token = crypto.randomUUID();
+        invites.set(token, { athlete_id: athleteId, owner_id: account, expires: Date.now() + 7 * DAY });
+        return token;
+      },
+      async acceptInvite(token: string) {
+        reach();
+        if (account === undefined) throw new Error('Sign in before accepting an Invite');
+        const invite = invites.get(token);
+        if (!invite) throw new InviteRefused('unknown');
+        if (invite.owner_id === account) throw new InviteRefused('own');
+        // the account that accepted it may accept again: a retry after a failed download
+        if (invite.used_by === account) return;
+        if (invite.used_by !== undefined) throw new InviteRefused('used');
+        if (invite.expires <= Date.now()) throw new InviteRefused('expired');
+        members.add(`${invite.athlete_id} ${account}`);
+        invite.used_by = account;
+      },
+    };
   };
+  return { ...phone(), rows, uploads, invites, phone };
 }
 
 /** Supabase through its client: the server the deployed app syncs with. */
 export function createSupabaseServer(client: SupabaseClient): Server {
+  const session = async () => (await client.auth.getSession()).data.session?.user.id;
   return {
-    async session() {
-      return (await client.auth.getSession()).data.session?.user.id;
-    },
-    async signIn(email) {
-      const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin } });
+    session,
+    async signIn(email, invite) {
+      const redirect = invite ? `${location.origin}/?invite=${invite}` : location.origin;
+      const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect } });
       if (error) throw error;
     },
     async upload(table, row) {
@@ -86,6 +143,22 @@ export function createSupabaseServer(client: SupabaseClient): Server {
         rows.push(...data);
       }
       return rows.map(phoneRow);
+    },
+    async createInvite(athleteId) {
+      const { data, error } = await client
+        .from('invites')
+        .insert({ athlete_id: athleteId, owner_id: await session() })
+        .select('token')
+        .single();
+      if (error) throw error;
+      return data.token;
+    },
+    async acceptInvite(token) {
+      const { error } = await client.rpc('accept_invite', { invite_token: token });
+      if (!error) return;
+      const refusal = /^invite_(unknown|own|used|expired)$/.exec(error.message);
+      if (refusal) throw new InviteRefused(refusal[1] as InviteReason);
+      throw error;
     },
   };
 }
@@ -111,5 +184,12 @@ export function serverFor({ url, key, host }: { url?: string; key?: string; host
   const refuse = async () => {
     throw new Error('Sign-in is not set up in this build');
   };
-  return { session: async () => undefined, signIn: refuse, upload: refuse, download: refuse };
+  return {
+    session: async () => undefined,
+    signIn: refuse,
+    upload: refuse,
+    download: refuse,
+    createInvite: refuse,
+    acceptInvite: refuse,
+  };
 }

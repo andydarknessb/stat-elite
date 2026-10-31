@@ -1,8 +1,8 @@
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { createAppCore } from './appCore';
-import { createStandInServer, createSupabaseServer, serverFor } from './server';
+import { createStandInServer, createSupabaseServer, InviteRefused, serverFor } from './server';
 import { openStore, type Store } from './store';
 
 let stores = 0;
@@ -632,4 +632,209 @@ test('an Athlete edited on one phone reaches the other at its next sign-in, and 
 
   expect((await second.inspect.athletes.get(athleteId))?.name).toBe('Casey Lee');
   expect(server.rows.athletes.get(athleteId)).toMatchObject({ name: 'Casey Lee' });
+});
+
+// a phone with its own session on the same backend: a different account from the Owner's
+function otherAccount(server: ReturnType<typeof createStandInServer>) {
+  const name = `test-${++stores}`;
+  const phoneServer = server.phone();
+  const core = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server: phoneServer });
+  return { core, inspect: openStore(name), server: phoneServer };
+}
+
+test('only the Owner can make an Invite, and it names one Athlete', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+
+  const token = await core.createInvite(athleteId);
+
+  expect(server.invites.get(token)).toMatchObject({ athlete_id: athleteId });
+  const stranger = otherAccount(server);
+  await stranger.core.signIn('sam@example.com');
+  await expect(stranger.core.createInvite(athleteId)).rejects.toThrow();
+});
+
+test('an Invite expires 7 days after it is made', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const before = Date.now();
+
+  const token = await core.createInvite(athleteId);
+
+  const expires = server.invites.get(token)!.expires;
+  expect(expires).toBeGreaterThanOrEqual(before + 7 * 24 * 60 * 60_000);
+  expect(expires).toBeLessThanOrEqual(Date.now() + 7 * 24 * 60 * 60_000);
+});
+
+test('accepting an Invite makes the account a Member, and brings its Athlete and Games down to the phone', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  const steal = await core.recordTile(gameId, 'steal');
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+
+  await member.core.acceptInvite(token);
+
+  expect(await member.inspect.athletes.get(athleteId)).toMatchObject({ name: 'Casey', owner_id: await server.session() });
+  expect(await member.inspect.games.get(gameId)).toMatchObject({ athlete_id: athleteId, opponent_name: 'Hawks' });
+  expect(await member.inspect.events.get(steal.id)).toEqual(steal);
+  expect((await member.core.home()).athlete?.id).toBe(athleteId);
+});
+
+test('an Invite works once: another account is refused, and the account that accepted it may accept again', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+
+  // a retry after a failed download is the same account, not a second use
+  await member.core.acceptInvite(token);
+  const other = otherAccount(server);
+  await other.core.signIn('lee@example.com');
+  await expect(other.core.acceptInvite(token)).rejects.toMatchObject({ reason: 'used' });
+});
+
+test('an expired Invite is refused and makes no Member', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  server.invites.get(token)!.expires = Date.now() - 1;
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+
+  await expect(member.core.acceptInvite(token)).rejects.toMatchObject({ reason: 'expired' });
+  expect(await member.inspect.athletes.count()).toBe(0);
+});
+
+test("a stranger signing in downloads none of an Athlete's rows", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.recordTile(gameId, 'steal');
+  await core.signIn('casey@example.com');
+
+  const stranger = otherAccount(server);
+  await stranger.core.signIn('lee@example.com');
+
+  expect(await stranger.inspect.athletes.count()).toBe(0);
+  expect(await stranger.inspect.games.count()).toBe(0);
+  expect(await stranger.inspect.events.count()).toBe(0);
+});
+
+test('Invite co-parent is offered only by the Owner of a signed-in Athlete', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  expect(await core.canInvite(athleteId)).toBe(false);
+  await core.signIn('casey@example.com');
+  expect(await core.canInvite(athleteId)).toBe(true);
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+
+  expect(await member.core.canInvite(athleteId)).toBe(false);
+});
+
+test('the Supabase server makes an Invite as its Owner, sends it with the sign-in link, and names why an Invite was refused', async () => {
+  vi.stubGlobal('location', { origin: 'https://stat-elite.netlify.app' });
+  const calls: unknown[][] = [];
+  const client = {
+    auth: {
+      getSession: async () => ({ data: { session: { user: { id: 'owner-1' } } } }),
+      signInWithOtp: async (args: unknown) => {
+        calls.push(['signInWithOtp', args]);
+        return { error: null };
+      },
+    },
+    from: (table: string) => ({
+      insert: (row: unknown) => ({
+        select: () => ({
+          single: async () => {
+            calls.push(['insert', table, row]);
+            return { data: { token: 't1' }, error: null };
+          },
+        }),
+      }),
+    }),
+    rpc: async (name: string, args: unknown) => {
+      calls.push(['rpc', name, args]);
+      return { error: { message: 'invite_used' } };
+    },
+  };
+  const server = createSupabaseServer(client as never);
+
+  expect(await server.createInvite('a1')).toBe('t1');
+  await expect(server.acceptInvite('t1')).rejects.toBeInstanceOf(InviteRefused);
+  await server.signIn('casey@example.com', 't1');
+
+  vi.unstubAllGlobals();
+  expect(calls).toEqual([
+    ['insert', 'invites', { athlete_id: 'a1', owner_id: 'owner-1' }],
+    ['rpc', 'accept_invite', { invite_token: 't1' }],
+    [
+      'signInWithOtp',
+      { email: 'casey@example.com', options: { emailRedirectTo: 'https://stat-elite.netlify.app/?invite=t1' } },
+    ],
+  ]);
+});
+
+test("the Owner opening its own Invite is refused, and the link still works for a co-parent", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+
+  await expect(core.acceptInvite(token)).rejects.toMatchObject({ reason: 'own' });
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+
+  expect((await member.core.home()).athlete?.id).toBe(athleteId);
+});
+
+test("a Member's phone is not the Owner, and offers no Game in progress to record on", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  await member.core.signIn('sam@example.com');
+  await member.core.acceptInvite(token);
+
+  expect(await member.core.isOwner(athleteId)).toBe(false);
+  expect(await core.isOwner(athleteId)).toBe(true);
+  expect((await member.core.home()).liveGameId).toBeUndefined();
+  expect((await core.home()).liveGameId).toBe(gameId);
+});
+
+test('a Member whose download fails on accepting has the Athlete and its Games at the next flush', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.signIn('casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server);
+  // this sign-in downloads too, and marks the download done for the account
+  await member.core.signIn('sam@example.com');
+  const download = member.server.download;
+  member.server.download = async () => {
+    throw new Error('select refused');
+  };
+
+  await expect(member.core.acceptInvite(token)).rejects.toThrow('select refused');
+  member.server.download = download;
+  await member.core.flush();
+
+  expect(await member.inspect.athletes.get(athleteId)).toMatchObject({ name: 'Casey' });
+  expect(await member.inspect.games.get(gameId)).toMatchObject({ athlete_id: athleteId });
 });
