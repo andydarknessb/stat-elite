@@ -459,17 +459,17 @@ test('rows recorded before the outbox existed are queued when it is first opened
     created_at: '2026-10-30T18:00:00.000Z',
     updated_at: '2026-10-30T18:00:00.000Z',
   });
-  // written out of order, so only the sequence number puts e1 first
+  // e2 holds sequence 1, so a read in primary-key order would queue e1 first
   await before.table('events').bulkAdd([
-    { id: 'e2', game_id: 'g1', seq: 2, client_ts: '2026-10-30T18:02:00.000Z', period: 1, type: 'steal', retracts_id: null, team_score: null, opponent_score: null },
-    { id: 'e1', game_id: 'g1', seq: 1, client_ts: '2026-10-30T18:01:00.000Z', period: 1, type: 'steal', retracts_id: null, team_score: null, opponent_score: null },
+    { id: 'e2', game_id: 'g1', seq: 1, client_ts: '2026-10-30T18:01:00.000Z', period: 1, type: 'steal', retracts_id: null, team_score: null, opponent_score: null },
+    { id: 'e1', game_id: 'g1', seq: 2, client_ts: '2026-10-30T18:02:00.000Z', period: 1, type: 'steal', retracts_id: null, team_score: null, opponent_score: null },
   ]);
   before.close();
 
   expect(await openStore(name).outbox.toArray()).toEqual([
     { seq: 1, table: 'athletes', id: 'a1' },
     { seq: 2, table: 'games', id: 'g1' },
-    { seq: 3, table: 'events', id: 'e1' },
-    { seq: 4, table: 'events', id: 'e2' },
+    { seq: 3, table: 'events', id: 'e2' },
+    { seq: 4, table: 'events', id: 'e1' },
   ]);
 });
