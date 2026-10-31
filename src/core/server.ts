@@ -164,9 +164,13 @@ export function createSupabaseServer(client: SupabaseClient): Server {
       if (error) throw error;
     },
     async upload(table, row) {
-      // Events are insert-only: a repeat of one already on the server is ignored (ADR 0001)
-      const { error } = await client.from(table).upsert(row, { ignoreDuplicates: true });
-      if (error) throw error;
+      // a Member's edit of an Athlete updates the row the server has: a Member may not insert one (ADR 0004)
+      const memberEdit = table === 'athletes' && row.owner_id !== (await session());
+      if (!memberEdit) {
+        // Events are insert-only: a repeat of one already on the server is ignored (ADR 0001)
+        const { error } = await client.from(table).upsert(row, { ignoreDuplicates: true });
+        if (error) throw error;
+      }
       // an Athlete or Game is replaced only by a copy at least as new: latest edit wins
       if (table !== 'events') {
         const { error: stale } = await client.from(table).update(row).eq('id', row.id).lte('updated_at', row.updated_at);

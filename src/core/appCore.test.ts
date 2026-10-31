@@ -831,9 +831,10 @@ test('a write made while the server is unreachable waits on the phone, then uplo
   expect(server.rows.athletes.has(athleteId)).toBe(true);
 });
 
-test('the Supabase upload ignores an Event already on the server, and replaces an Athlete or Game only with a copy at least as new', async () => {
-  const calls: unknown[][] = [];
-  const client = {
+// a fake Supabase client signed in as `userId`, recording each write
+function recordingClient(calls: unknown[][], userId: string) {
+  return {
+    auth: { getSession: async () => ({ data: { session: { user: { id: userId } } } }) },
     from: (table: string) => ({
       upsert: async (_row: unknown, options: unknown) => {
         calls.push(['upsert', table, options]);
@@ -849,16 +850,29 @@ test('the Supabase upload ignores an Event already on the server, and replaces a
       }),
     }),
   };
-  const server = createSupabaseServer(client as never);
+}
+
+test('the Supabase upload ignores an Event already on the server, and replaces an Athlete or Game only with a copy at least as new', async () => {
+  const calls: unknown[][] = [];
+  const server = createSupabaseServer(recordingClient(calls, 'owner-1') as never);
 
   await server.upload('events', { id: 'e1' });
-  await server.upload('athletes', { id: 'a1', updated_at: '2026-10-30T18:00:00.000Z' });
+  await server.upload('athletes', { id: 'a1', owner_id: 'owner-1', updated_at: '2026-10-30T18:00:00.000Z' });
 
   expect(calls).toEqual([
     ['upsert', 'events', { ignoreDuplicates: true }],
     ['upsert', 'athletes', { ignoreDuplicates: true }],
     ['update', 'athletes', 'id', 'a1', 'updated_at', '2026-10-30T18:00:00.000Z'],
   ]);
+});
+
+test('the Supabase upload of an Athlete another account owns only updates it, since a Member never inserts one (ADR 0004)', async () => {
+  const calls: unknown[][] = [];
+  const server = createSupabaseServer(recordingClient(calls, 'member-1') as never);
+
+  await server.upload('athletes', { id: 'a1', owner_id: 'owner-1', updated_at: '2026-10-30T19:00:00.000Z' });
+
+  expect(calls).toEqual([['update', 'athletes', 'id', 'a1', 'updated_at', '2026-10-30T19:00:00.000Z']]);
 });
 
 test('the Supabase download reads every page of rows the account can see, with timestamps as the phone writes them', async () => {
@@ -1073,6 +1087,23 @@ test('an Athlete edited on one phone reaches the other at its next sign-in, and 
 
 // a phone with its own session on the same backend: a different account from the Owner's
 type Phone = ReturnType<ReturnType<typeof createStandInServer>['phone']>;
+
+test("a Member's edit of the Athlete's name reaches the Owner's phone on its next refresh, the later edit winning", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  // the Member's clock is an hour later, so its edit is the later one
+  const member = createAppCore({ clock: () => new Date('2026-10-30T19:00:00Z'), store: openStore(`test-${++stores}`), server: server.phone() });
+  await signInWithCode(member, 'sam@example.com');
+  await member.acceptInvite(token);
+
+  await member.editAthlete({ id: athleteId, name: 'Sam', jerseyNumber: '12' });
+  await member.flush();
+  await core.refresh();
+
+  expect((await core.home()).athlete?.name).toBe('Sam');
+});
 
 // `wrap` rewrites this phone's server, for a test that refuses some uploads or fails some downloads
 function otherAccount(server: ReturnType<typeof createStandInServer>, wrap: (phone: Phone) => Phone = (phone) => phone) {

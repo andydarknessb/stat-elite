@@ -710,7 +710,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       await drain();
     });
 
-  // whether the phone's account owns the Athlete, or the phone is signed out: Edit and Invite are the Owner's (ADR 0004)
+  // whether the phone's account owns the Athlete, or the phone is signed out: Invite is the Owner's (ADR 0004)
   const isOwner = async (athleteId: string) => {
     const owner = (await store.athletes.get(athleteId))?.owner_id;
     return owner === undefined || owner === (await server.session());
