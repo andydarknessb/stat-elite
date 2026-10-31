@@ -434,6 +434,17 @@ test('switching Athletes changes whose Games Home shows and whom Start Game reco
   expect((await core.home()).liveGameId).toBeUndefined();
 });
 
+test('an Athlete added last is the one Home shows, with the one before it as Next, also after a reload', async () => {
+  const { core, inspect, reopen, server } = setup();
+  const caseyId = await core.addAthlete({ name: 'Casey' });
+  // a later clock, so Sam is the newest Athlete
+  const later = createAppCore({ clock: () => new Date('2026-10-30T18:05:00Z'), store: inspect, server });
+  const samId = await later.addAthlete({ name: 'Sam' });
+
+  expect(await core.home()).toMatchObject({ athlete: { id: samId }, next: { id: caseyId } });
+  expect(await reopen().home()).toMatchObject({ athlete: { id: samId }, next: { id: caseyId } });
+});
+
 test('adjusting the strip records a score Event holding absolute Team and Opponent scores', async () => {
   const { core, inspect } = setup();
   const gameId = await basketballGame(core);
