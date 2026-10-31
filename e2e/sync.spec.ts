@@ -34,8 +34,38 @@ test('a Game recorded offline uploads once it is saved, and the badge reaches 0'
   expect(supabaseRequests).toEqual([]);
 });
 
+// A wrong code on Save this game offers a new link with the address kept, and the code and error clear (#76).
+test('a wrong code on Save this game offers a new link with the email kept', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Athlete name').fill('Casey');
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await page.getByRole('button', { name: /^STL/ }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save this game' }).click();
+  await page.getByLabel('Email').fill('casey@example.com');
+  await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByLabel('Code').fill('12345');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByText(/That code did not work/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Send a new link' }).click();
+  await expect(page.getByLabel('Email')).toHaveValue('casey@example.com');
+  await expect(page.getByText(/That code did not work/)).toBeHidden();
+  await page.getByRole('button', { name: 'Send link' }).click();
+  await expect(page.getByLabel('Code')).toHaveValue('');
+});
+
 // A Game recorded offline after sign-in uploads when the connection returns, with no tap in between (#48).
 test('a Game recorded offline after sign-in uploads when the connection returns, with no tap', async ({ page, context }) => {
+  // the second guard as the first test has it: no request reaches Supabase from this flow (#76)
+  const supabaseRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('supabase.co')) supabaseRequests.push(request.url());
+  });
+
   await page.goto('/');
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
@@ -59,4 +89,5 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
 
   await context.setOffline(false);
   await expect(page.getByText('0 not synced')).toBeVisible();
+  expect(supabaseRequests).toEqual([]);
 });

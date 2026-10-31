@@ -67,44 +67,28 @@ export function App({ core }: { core: AppCore }) {
   );
 }
 
-/** An Invite link. Signed out, the invitee gets a magic link that carries the Invite; signed in, accepting it makes them a Member. */
+/** An Invite link. Signed out, the invitee signs in with the same form as Save this game, the Invite's token riding on the link; signed in, accepting it makes them a Member. */
 function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; onDone: () => void }) {
   const sync = useReadModel(() => core.sync(), [core]);
-  const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  // the code signs the invitee in here; sync does not re-read on a phone with nothing queued, so it may never say so
+  const [verified, setVerified] = useState(false);
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState<string>();
+  const signedIn = verified || sync?.signedIn === true;
   useEffect(() => {
-    if (!sync?.signedIn) return;
+    if (!signedIn) return;
     core.acceptInvite(token).then(
       () => setJoined(true),
       (refused: unknown) => setError(refusalMessage(refused)),
     );
-  }, [core, token, sync?.signedIn]);
+  }, [core, token, signedIn]);
   if (!sync) return null;
-  if (!sync.signedIn) {
-    if (sent) return <main><p>Check your email for the link, then open it on this phone.</p></main>;
-    const submit = async (e: FormEvent) => {
-      e.preventDefault();
-      try {
-        await core.signIn(email.trim(), token);
-        setSent(true);
-      } catch {
-        setError('Could not send the link. Check the connection and try again.');
-      }
-    };
+  if (!signedIn) {
     return (
       <main>
         <h1>Join an Athlete</h1>
         <p>Sign in with your email to become a Member.</p>
-        <form onSubmit={submit}>
-          <label>
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-          </label>
-          <button className="primary">Send link</button>
-          {error && <p role="alert">{error}</p>}
-        </form>
+        <SignInForm core={core} invite={token} onSignedIn={() => setVerified(true)} />
       </main>
     );
   }
@@ -232,16 +216,21 @@ function NotSynced({ core }: { core: AppCore }) {
 function SaveGame({ core }: { core: AppCore }) {
   const sync = useReadModel(() => core.sync(), [core]);
   const [open, setOpen] = useState(false);
+  if (!sync || sync.signedIn) return null;
+  if (!open) return <button onClick={() => setOpen(true)}>Save this game</button>;
+  return <SignInForm core={core} />;
+}
+
+/** The sign-in step of Save this game and the Invite screen: the email gets a link and a code, and typing the code signs the Recorder in here (the link does it in the browser that opens it). */
+function SignInForm({ core, invite, onSignedIn }: { core: AppCore; invite?: string; onSignedIn?: () => void }) {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string>();
-  if (!sync || sync.signedIn) return null;
-  if (!open) return <button onClick={() => setOpen(true)}>Save this game</button>;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await core.signIn(email.trim());
+      await core.signIn(email.trim(), invite);
       setSent(true);
     } catch {
       setError('Could not send the link. Check the connection and try again.');
@@ -254,7 +243,9 @@ function SaveGame({ core }: { core: AppCore }) {
       await core.verifyCode(email.trim(), code.trim());
     } catch {
       setError('That code did not work. Check it and try again, or send a new link.');
+      return;
     }
+    onSignedIn?.();
   };
   if (sent) {
     return (
@@ -265,6 +256,7 @@ function SaveGame({ core }: { core: AppCore }) {
           <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" required autoComplete="one-time-code" />
         </label>
         <button className="primary">Sign in</button>
+        <button type="button" onClick={() => { setSent(false); setCode(''); setError(undefined); }}>Send a new link</button>
         {error && <p role="alert">{error}</p>}
       </form>
     );
