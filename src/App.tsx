@@ -19,6 +19,7 @@ import {
 } from './core/appCore';
 import { InviteRefused, type MemberRow } from './core/server';
 import { renderShareCard } from './core/shareCard';
+import { OUTCOMES, type Outcome } from './core/store';
 import { InstallPrompt } from './InstallPrompt';
 
 /** Re-renders whenever the store data behind a read model changes. */
@@ -473,7 +474,29 @@ const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw' | 'shot'>, string>
   score: 'Score',
   game_end: 'End Game',
   period_start: 'Next period',
+  plate_appearance: 'Plate Appearance',
 };
+
+/** Outcome button labels, as the plan's Outcome grid names them (plan: softball/baseball Outcomes). */
+const OUTCOME_LABELS: Record<Outcome, string> = {
+  single: '1B',
+  double: '2B',
+  triple: '3B',
+  home_run: 'HR',
+  walk: 'Walk',
+  hit_by_pitch: 'Hit by pitch',
+  reached_on_error: 'Error',
+  fielders_choice: "Fielder's choice",
+  strikeout: 'Strikeout',
+  ground_out: 'Ground out',
+  fly_out: 'Fly out',
+  line_out: 'Line out',
+  sac_fly: 'Sac fly',
+  sac_bunt: 'Sac bunt',
+};
+
+/** A batting rate as a scorebook prints it: .333, 1.000; a dash while its denominator is zero. */
+const rateText = (rate?: number) => (rate === undefined ? '—' : rate.toFixed(3).replace(/^0/, ''));
 
 const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
 const shotLabel = (value: 2 | 3 | undefined, made?: boolean) => `${made ? 'Made' : 'Missed'} ${value}PT`;
@@ -488,7 +511,9 @@ const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
     ? freeThrowLabel(undoable.made)
     : undoable.type === 'shot'
       ? shotLabel(undoable.value, undoable.made)
-      : EVENT_LABELS[undoable.type];
+      : undoable.outcome
+        ? OUTCOME_LABELS[undoable.outcome]
+        : EVENT_LABELS[undoable.type];
 
 const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 'Standard', bleacher: 'Bleacher' };
 
@@ -839,6 +864,8 @@ function LiveGame({
   // the label of the Event a tap just recorded, shown for 3 seconds
   const [toast, setToast] = useState<string>();
   const [ending, setEnding] = useState(false);
+  // the Outcome picked on softball or baseball, waiting for its RBI chip
+  const [pending, setPending] = useState<Outcome>();
   // bumped on each Sub, so the strip restarts its pulse
   const [pulse, setPulse] = useState(0);
   useEffect(() => {
@@ -865,6 +892,12 @@ function LiveGame({
   const tapFreeThrow = async (made: boolean) => {
     await core.recordFreeThrow(gameId, made);
     setToast(freeThrowLabel(made));
+  };
+  const pick = async (rbi: number) => {
+    if (!pending) return;
+    setPending(undefined);
+    await core.recordPlateAppearance(gameId, { outcome: pending, rbi });
+    setToast(OUTCOME_LABELS[pending]);
   };
   const adjust = (side: 'team' | 'opponent', delta: 1 | -1) => {
     setToast(EVENT_LABELS.score);
@@ -916,6 +949,31 @@ function LiveGame({
       ))}
     </div>
   );
+  // softball and baseball: one tap on an Outcome, then its RBI chip records the Plate Appearance
+  const plateAppearance = (
+    <section className="plate-appearance" aria-label="Plate Appearance">
+      <div className="outcomes" role="group" aria-label="Outcome">
+        {OUTCOMES.map((outcome) => (
+          <button key={outcome} className={pending === outcome ? 'primary' : undefined} onClick={() => setPending(outcome)}>
+            {OUTCOME_LABELS[outcome]}
+          </button>
+        ))}
+      </div>
+      {pending && (
+        <div className="rbi" role="group" aria-label="RBI">
+          {[0, 1, 2, 3, 4].map((rbi) => (
+            <button key={rbi} onClick={() => void pick(rbi)}>
+              {rbi} RBI
+            </button>
+          ))}
+          <button onClick={() => setPending(undefined)}>Cancel</button>
+        </div>
+      )}
+      <p className="batting">
+        AVG {rateText(game.batting.avg)} · OBP {rateText(game.batting.obp)} · SLG {rateText(game.batting.slg)}
+      </p>
+    </section>
+  );
   return (
     <main className={`live ${size}`}>
       {game.sport === 'basketball' && (
@@ -938,7 +996,9 @@ function LiveGame({
         <ScoreSide label="Team" value={game.score.team} onAdjust={(delta) => adjust('team', delta)} />
         <ScoreSide label="Opponent" value={game.score.opponent} onAdjust={(delta) => adjust('opponent', delta)} />
       </section>
-      {size === 'bleacher' ? (
+      {game.sport !== 'basketball' ? (
+        plateAppearance
+      ) : size === 'bleacher' ? (
         <div className="pages">
           <section className="page" aria-label="Shots">
             {shots}

@@ -43,5 +43,5 @@ test('a baseball Game is set up in innings, and Cancel starts nothing', async ({
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByLabel('Sport').selectOption('baseball');
   await page.getByRole('button', { name: 'Start', exact: true }).click();
-  await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Outcome' })).toBeVisible();
 });

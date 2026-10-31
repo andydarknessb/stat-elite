@@ -222,7 +222,7 @@ const currentPeriod = (events: EventRow[]) => {
   return events.filter((e) => e.type === 'period_start' && !retracted.has(e.id)).at(-1)?.period ?? 1;
 };
 
-/** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, then OT1, OT2 past regulation (GLOSSARY: Period). */
+/** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, then OT1, OT2 past regulation; Inn 1, Inn 2 for innings (GLOSSARY: Period). */
 export function periodLabel(periodFormat: GameRow['period_format'], period: number): string {
   if (periodFormat === 'innings') return `Inn ${period}`;
   const regulation = periodFormat === 'halves' ? 2 : 4;
