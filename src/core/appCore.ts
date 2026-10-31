@@ -50,6 +50,14 @@ const DOWNLOADED_FOR = 'downloadedFor';
 /** Every Event type Undo can retract: all but a Retraction itself. */
 export type UndoableType = Exclude<EventRow['type'], 'retraction'>;
 
+/** A Shift: one stretch on court, from a Sub In to the Sub Out that ends it (GLOSSARY: Shift). */
+export interface Shift {
+  /** Milliseconds on court: to its Sub Out, or while on court, to now (or to the End Game). */
+  ms: number;
+  /** Team points minus Opponent points between its Score Snapshots (ADR 0002). */
+  plusMinus: number;
+}
+
 export interface LiveGame {
   id: string;
   sport: GameRow['sport'];
@@ -66,6 +74,14 @@ export interface LiveGame {
   points: number;
   /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot. */
   undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3 };
+  /** Whether the Athlete is on court: the newest Sub Event not retracted is a Sub In. */
+  onCourt: boolean;
+  /** The Game's Shifts in order; the one on court, if any, runs to now, or to the End Game once it is over. */
+  shifts: Shift[];
+  /** Plus/Minus for the Game: the sum over its Shifts (ADR 0002). */
+  plusMinus: number;
+  /** Total Shift time over the Game's elapsed time, from its first Event to now or the End Game; 0–1. */
+  playingShare: number;
 }
 
 /** IDs of the Events that a Retraction in this list undoes. */
@@ -75,6 +91,18 @@ const snapshotOf = (event: EventRow): Scores | undefined =>
   event.team_score !== null && event.opponent_score !== null
     ? { team: event.team_score, opponent: event.opponent_score }
     : undefined;
+
+// a Sub In or Sub Out always carries its Score Snapshot (the schema's per-type CHECK), so the zero fallback never applies
+const scoresOf = (event: EventRow): Scores => ({ team: event.team_score ?? 0, opponent: event.opponent_score ?? 0 });
+
+// a Shift from its Sub In to an end (its Sub Out, or now while on court): Plus/Minus is the change in each side between the two Score Snapshots (ADR 0002)
+const shiftBetween = (start: EventRow, end: { at: string; scores: Scores }): Shift => {
+  const from = scoresOf(start);
+  return {
+    ms: Date.parse(end.at) - Date.parse(start.client_ts),
+    plusMinus: end.scores.team - from.team - (end.scores.opponent - from.opponent),
+  };
+};
 
 /** A Score Snapshot takes whole, non-negative scores. */
 const isScore = (n: number) => Number.isInteger(n) && n >= 0;
@@ -111,6 +139,13 @@ const pointsOf = (event: EventRow): number => {
   if (!event.made) return 0;
   if (event.type === 'shot') return event.shot_value ?? 0;
   return event.type === 'free_throw' ? 1 : 0;
+};
+
+// the Athlete is on court when the newest Sub Event not retracted is a Sub In
+const onCourtOf = (events: EventRow[]) => {
+  const retracted = retractedIds(events);
+  const subs = events.filter((e) => (e.type === 'sub_in' || e.type === 'sub_out') && !retracted.has(e.id));
+  return subs.at(-1)?.type === 'sub_in';
 };
 
 const isTile = (type: EventRow['type']): type is TileEventType =>
@@ -438,6 +473,23 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
+    /** Sub In when the Athlete is off court, else Sub Out; each records the strip's Score Snapshot (GLOSSARY: Sub In / Sub Out). */
+    toggleSub(gameId: string): Promise<EventRow> {
+      return write([store.events], async () => {
+        const events = await gameEvents(gameId).toArray();
+        const scores = latestScores(events);
+        const event = await nextEvent(gameId, {
+          type: onCourtOf(events) ? 'sub_out' : 'sub_in',
+          retracts_id: null,
+          team_score: scores.team,
+          opponent_score: scores.opponent,
+        });
+        await store.events.add(event);
+        await queue('events', event.id);
+        return event;
+      });
+    },
+
     /** End Game: the Final Score, recorded as a game_end Event, closes the Game. Refused without whole scores. */
     async endGame(gameId: string, final: { teamScore: number; opponentScore: number }): Promise<EventRow> {
       if (!isScore(final.teamScore) || !isScore(final.opponentScore)) throw new Error('End Game needs a Final Score');
@@ -535,8 +587,15 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const shots: LiveGame['shots'] = { 2: { made: 0, attempted: 0 }, 3: { made: 0, attempted: 0 } };
       let points = 0;
       let undoable: LiveGame['undoable'];
+      const shifts: Shift[] = [];
+      let onCourtSince: EventRow | undefined;
       for (const event of events) {
         if (event.type === 'retraction' || retracted.has(event.id)) continue;
+        if (event.type === 'sub_in') onCourtSince ??= event;
+        if (event.type === 'sub_out' && onCourtSince) {
+          shifts.push(shiftBetween(onCourtSince, { at: event.client_ts, scores: scoresOf(event) }));
+          onCourtSince = undefined;
+        }
         if (isTile(event.type)) tiles[event.type]++;
         if (event.type === 'free_throw') {
           freeThrows.attempted++;
@@ -551,6 +610,12 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       }
       // End Game is always the last Event, so a finished Game ends on its game_end
       const last = events.at(-1);
+      const score = latestScores(events);
+      // the Shift still on court runs to the strip's latest scores, and to the End Game once the Game is over
+      const endAt = last?.type === 'game_end' ? last.client_ts : now();
+      if (onCourtSince) shifts.push(shiftBetween(onCourtSince, { at: endAt, scores: score }));
+      const total = shifts.reduce((sum, shift) => sum + shift.ms, 0);
+      const elapsed = events.length ? Date.parse(endAt) - Date.parse(events[0].client_ts) : 0;
       return {
         id: game.id,
         sport: game.sport,
@@ -558,9 +623,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         freeThrows,
         shots,
         points,
-        score: latestScores(events),
+        score,
         final: last?.type === 'game_end' ? snapshotOf(last) : undefined,
         undoable,
+        onCourt: onCourtSince !== undefined,
+        shifts,
+        plusMinus: shifts.reduce((sum, shift) => sum + shift.plusMinus, 0),
+        playingShare: elapsed > 0 ? total / elapsed : 0,
       };
     },
 
