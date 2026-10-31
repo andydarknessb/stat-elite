@@ -92,6 +92,36 @@ export interface LiveGame extends Counts {
   playingShare: number;
 }
 
+/** The Athlete's stats summed over Games: points, shooting, rebounds, assists and Plus/Minus (GLOSSARY: Plus/Minus). */
+export interface Line {
+  points: number;
+  fg: { made: number; attempted: number };
+  ft: { made: number; attempted: number };
+  rebounds: number;
+  assists: number;
+  plusMinus: number;
+}
+
+/** A finished Game in the Games feed, or its summary: the Opponent, date, Final Score and the Athlete's stats. */
+export interface FeedGame {
+  id: string;
+  sport: GameRow['sport'];
+  opponent: string;
+  gameDate: string;
+  /** Today, Yesterday, This Week (2 to 6 days back) or Earlier, by the phone's local date. */
+  group: 'today' | 'yesterday' | 'this-week' | 'earlier';
+  final: Scores;
+  line: Line;
+  tiles: Record<TileEventType, number>;
+  playingShare: number;
+}
+
+/** The Games feed: the season line over the Athlete's finished basketball Games, and every finished Game, newest first. */
+export interface GameFeed {
+  season: Line;
+  games: FeedGame[];
+}
+
 /** IDs of the Events that a Retraction in this list undoes. */
 const retractedIds = (events: EventRow[]) => new Set(events.flatMap((e) => (e.retracts_id ? [e.retracts_id] : [])));
 
@@ -198,6 +228,32 @@ const countOf = (live: EventRow[]): Counts => {
 /** The phone's local calendar date, not UTC, as YYYY-MM-DD. */
 const localDate = (date: Date) =>
   new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+
+// the stats Games sum to: a Game's own line is the one-Game case
+const lineOf = (games: LiveGame[]): Line => {
+  const line: Line = { points: 0, fg: { made: 0, attempted: 0 }, ft: { made: 0, attempted: 0 }, rebounds: 0, assists: 0, plusMinus: 0 };
+  for (const game of games) {
+    line.points += game.points;
+    for (const value of [2, 3] as const) {
+      line.fg.made += game.shots[value].made;
+      line.fg.attempted += game.shots[value].attempted;
+    }
+    line.ft.made += game.freeThrows.made;
+    line.ft.attempted += game.freeThrows.attempted;
+    line.rebounds += game.tiles.reb_off + game.tiles.reb_def;
+    line.assists += game.tiles.assist;
+    line.plusMinus += game.plusMinus;
+  }
+  return line;
+};
+
+// Today, Yesterday, This Week (2 to 6 days back), else Earlier; both dates are local calendar days, so the difference is whole days
+const groupOf = (gameDate: string, today: string): FeedGame['group'] => {
+  const days = (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${gameDate}T00:00:00Z`)) / 86_400_000;
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return days <= 6 ? 'this-week' : 'earlier';
+};
 
 // The phone keeps its own columns of a downloaded row, whatever more the server sends.
 const athleteOf = ({ id, owner_id, name, jersey_number, created_at, updated_at }: AthleteRow): AthleteRow => ({
@@ -411,6 +467,77 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const isOwner = async (athleteId: string) => {
     const owner = (await store.athletes.get(athleteId))?.owner_id;
     return owner === undefined || owner === (await server.session());
+  };
+
+  const liveGame = async (gameId: string): Promise<LiveGame | undefined> => {
+    const game = await store.games.get(gameId);
+    if (!game) return undefined;
+    const events = await gameEvents(gameId).toArray();
+    const retracted = retractedIds(events);
+    // the Events the stats count: none a Retraction and none retracted
+    const live = events.filter((e): e is EventRow & { type: UndoableType } => e.type !== 'retraction' && !retracted.has(e.id));
+    const shifts: Shift[] = [];
+    let onCourtSince: EventRow | undefined;
+    for (const event of live) {
+      if (event.type === 'sub_in') onCourtSince ??= event;
+      if (event.type === 'sub_out' && onCourtSince) {
+        shifts.push(shiftBetween(onCourtSince, { at: event.client_ts, scores: scoresOf(event) }));
+        onCourtSince = undefined;
+      }
+    }
+    // End Game is always the last Event, so a finished Game ends on its game_end
+    const last = events.at(-1);
+    const period = currentPeriod(events);
+    const byPeriod: Record<number, Counts> = {};
+    for (let p = 1; p <= period; p++) byPeriod[p] = countOf(live.filter((e) => e.period === p));
+    const latest = live.at(-1);
+    const score = latestScores(events);
+    // the Shift still on court runs to the strip's latest scores, and to the End Game once the Game is over
+    const endAt = last?.type === 'game_end' ? last.client_ts : now();
+    if (onCourtSince) shifts.push(shiftBetween(onCourtSince, { at: endAt, scores: score }));
+    const total = shifts.reduce((sum, shift) => sum + shift.ms, 0);
+    // the Game's elapsed time runs from its start (startGame's created_at), so a late first Sub In reads its true share
+    const elapsed = Date.parse(endAt) - Date.parse(game.created_at);
+    return {
+      ...countOf(live),
+      id: game.id,
+      sport: game.sport,
+      periodLabel: game.period_format === 'innings' ? undefined : periodLabel(game.period_format, period),
+      byPeriod,
+      score,
+      final: last?.type === 'game_end' ? snapshotOf(last) : undefined,
+      undoable: latest && {
+        id: latest.id,
+        type: latest.type,
+        made: latest.made ?? undefined,
+        value: latest.shot_value ?? undefined,
+      },
+      onCourt: onCourtSince !== undefined,
+      shifts,
+      plusMinus: shifts.reduce((sum, shift) => sum + shift.plusMinus, 0),
+      playingShare: elapsed > 0 ? Math.min(1, Math.max(0, total / elapsed)) : 0,
+    };
+  };
+
+  // a Game as the feed and its summary show it, from its live read; undefined while the Game is still in progress
+  const finishedGame = async (game: GameRow, today: string): Promise<{ row: FeedGame; live: LiveGame } | undefined> => {
+    const live = await liveGame(game.id);
+    const final = live?.final;
+    if (!live || !final) return undefined;
+    return {
+      live,
+      row: {
+        id: game.id,
+        sport: game.sport,
+        opponent: game.opponent_name,
+        gameDate: game.game_date,
+        group: groupOf(game.game_date, today),
+        final,
+        line: lineOf([live]),
+        tiles: live.tiles,
+        playingShare: live.playingShare,
+      },
+    };
   };
 
   return {
@@ -632,54 +759,23 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
-    async liveGame(gameId: string): Promise<LiveGame | undefined> {
+    liveGame,
+
+    /** The Games feed: the season line over the Athlete's finished basketball Games, and every finished Game, newest first. */
+    async gameFeed(athleteId: string): Promise<GameFeed> {
+      // shortcut: reads every Game's Events on each feed read, fine for one Athlete's season; upgrade with a stored season line when the feed reads slow
+      const today = localDate(clock());
+      const rows = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).reverse();
+      const finished = (await Promise.all(rows.map((row) => finishedGame(row, today)))).flatMap((f) => (f ? [f] : []));
+      // the sort is stable, so Games on one date stay newest-started first
+      const games = finished.map(({ row }) => row).sort((a, b) => b.gameDate.localeCompare(a.gameDate));
+      return { season: lineOf(finished.map(({ live }) => live).filter((live) => live.sport === 'basketball')), games };
+    },
+
+    /** A finished Game's summary; undefined while the Game is still in progress. */
+    async gameSummary(gameId: string): Promise<FeedGame | undefined> {
       const game = await store.games.get(gameId);
-      if (!game) return undefined;
-      const events = await gameEvents(gameId).toArray();
-      const retracted = retractedIds(events);
-      // the Events the stats count: none a Retraction and none retracted
-      const live = events.filter((e): e is EventRow & { type: UndoableType } => e.type !== 'retraction' && !retracted.has(e.id));
-      const shifts: Shift[] = [];
-      let onCourtSince: EventRow | undefined;
-      for (const event of live) {
-        if (event.type === 'sub_in') onCourtSince ??= event;
-        if (event.type === 'sub_out' && onCourtSince) {
-          shifts.push(shiftBetween(onCourtSince, { at: event.client_ts, scores: scoresOf(event) }));
-          onCourtSince = undefined;
-        }
-      }
-      // End Game is always the last Event, so a finished Game ends on its game_end
-      const last = events.at(-1);
-      const period = currentPeriod(events);
-      const byPeriod: Record<number, Counts> = {};
-      for (let p = 1; p <= period; p++) byPeriod[p] = countOf(live.filter((e) => e.period === p));
-      const latest = live.at(-1);
-      const score = latestScores(events);
-      // the Shift still on court runs to the strip's latest scores, and to the End Game once the Game is over
-      const endAt = last?.type === 'game_end' ? last.client_ts : now();
-      if (onCourtSince) shifts.push(shiftBetween(onCourtSince, { at: endAt, scores: score }));
-      const total = shifts.reduce((sum, shift) => sum + shift.ms, 0);
-      // the Game's elapsed time runs from its start (startGame's created_at), so a late first Sub In reads its true share
-      const elapsed = Date.parse(endAt) - Date.parse(game.created_at);
-      return {
-        ...countOf(live),
-        id: game.id,
-        sport: game.sport,
-        periodLabel: game.period_format === 'innings' ? undefined : periodLabel(game.period_format, period),
-        byPeriod,
-        score,
-        final: last?.type === 'game_end' ? snapshotOf(last) : undefined,
-        undoable: latest && {
-          id: latest.id,
-          type: latest.type,
-          made: latest.made ?? undefined,
-          value: latest.shot_value ?? undefined,
-        },
-        onCourt: onCourtSince !== undefined,
-        shifts,
-        plusMinus: shifts.reduce((sum, shift) => sum + shift.plusMinus, 0),
-        playingShare: elapsed > 0 ? Math.min(1, Math.max(0, total / elapsed)) : 0,
-      };
+      return game && (await finishedGame(game, localDate(clock())))?.row;
     },
 
     /** Signs the Recorder in with a magic link, then uploads everything recorded so far. An Invite's token rides in the link. */

@@ -8,7 +8,9 @@ import {
   type ButtonSize,
   type GameFormat,
   type GameSetup,
+  type FeedGame,
   type Home,
+  type Line,
   type LiveGame,
   type Scores,
   type TileEventType,
@@ -344,6 +346,9 @@ function SetupFields({
 
 function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
   const [form, setForm] = useState<'add' | 'edit' | 'setup' | 'settings'>();
+  const [tab, setTab] = useState<Tab>('home');
+  // the finished Game whose summary is open, from either tab
+  const [summary, setSummary] = useState<string>();
   // a Member records Games on the Athlete too; Edit stays the Owner's
   const owner = useReadModel(() => core.isOwner(athlete.id), [core, athlete.id]);
   if (form === 'setup') {
@@ -352,6 +357,15 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
   if (form === 'settings') return <SettingsScreen core={core} onDone={() => setForm(undefined)} />;
   if (form) {
     return <AthleteForm core={core} athlete={form === 'edit' ? athlete : undefined} onDone={() => setForm(undefined)} />;
+  }
+  if (summary) return <GameSummary core={core} gameId={summary} onBack={() => setSummary(undefined)} />;
+  if (tab === 'games') {
+    return (
+      <>
+        <GamesTab core={core} athleteId={athlete.id} onOpen={setSummary} />
+        <TabBar tab={tab} onTab={setTab} />
+      </>
+    );
   }
   return (
     <>
@@ -382,7 +396,9 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         <button onClick={() => setForm('add')}>Add Athlete</button>
         <button onClick={() => setForm('settings')}>Settings</button>
         <InviteCoParent core={core} athleteId={athlete.id} />
+        <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
       </main>
+      <TabBar tab={tab} onTab={setTab} />
       <InstallPrompt />
     </>
   );
@@ -425,6 +441,108 @@ const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
       : EVENT_LABELS[undoable.type];
 
 const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 'Standard', bleacher: 'Bleacher' };
+
+type Tab = 'home' | 'games';
+
+/** The bottom tabs: Home and Games (plan: navigation). */
+function TabBar({ tab, onTab }: { tab: Tab; onTab: (tab: Tab) => void }) {
+  return (
+    <nav className="tabs" aria-label="Tabs">
+      <button aria-pressed={tab === 'home'} onClick={() => onTab('home')}>
+        Home
+      </button>
+      <button aria-pressed={tab === 'games'} onClick={() => onTab('games')}>
+        Games
+      </button>
+    </nav>
+  );
+}
+
+// the totals a season or a Game shows, in words
+const lineText = (line: Line) =>
+  `${line.points} PTS · FG ${line.fg.made}/${line.fg.attempted} · FT ${line.ft.made}/${line.ft.attempted} · ${line.rebounds} REB · ${line.assists} AST`;
+
+const GROUP_LABELS: Record<FeedGame['group'], string> = {
+  today: 'Today',
+  yesterday: 'Yesterday',
+  'this-week': 'This Week',
+  earlier: 'Earlier',
+};
+
+/** Finished Games grouped Today, Yesterday, This Week, Earlier; each row opens that Game's summary. */
+function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: string) => void }) {
+  if (games.length === 0) return <p>No finished Games yet.</p>;
+  return (
+    <>
+      {(Object.keys(GROUP_LABELS) as FeedGame['group'][]).map((group) => {
+        const rows = games.filter((game) => game.group === group);
+        if (rows.length === 0) return null;
+        return (
+          <section key={group} aria-label={GROUP_LABELS[group]}>
+            <h2>{GROUP_LABELS[group]}</h2>
+            {rows.map((game) => (
+              <button key={game.id} className="feed-row" onClick={() => onOpen(game.id)}>
+                <span className="opponent">{game.opponent}</span>
+                <span>
+                  {game.final.team}–{game.final.opponent}
+                </span>
+                <span className="line">{lineText(game.line)}</span>
+                <span>{signed(game.line.plusMinus)}</span>
+              </button>
+            ))}
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
+/** Home's season line and the Athlete's three most recent finished Games. */
+function SeasonAndRecent({ core, athleteId, onOpen }: { core: AppCore; athleteId: string; onOpen: (gameId: string) => void }) {
+  const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
+  if (!feed) return null;
+  return (
+    <section aria-label="Season">
+      <p className="season">
+        Season: {lineText(feed.season)} · Plus/Minus {signed(feed.season.plusMinus)}
+      </p>
+      <FeedRows games={feed.games.slice(0, 3)} onOpen={onOpen} />
+    </section>
+  );
+}
+
+/** The Games tab: every finished Game of the Athlete, grouped by date. */
+function GamesTab({ core, athleteId, onOpen }: { core: AppCore; athleteId: string; onOpen: (gameId: string) => void }) {
+  const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
+  if (!feed) return null;
+  return (
+    <main>
+      <h1>Games</h1>
+      <FeedRows games={feed.games} onOpen={onOpen} />
+    </main>
+  );
+}
+
+/** A finished Game's summary: its Final Score, the Athlete's line, Plus/Minus, Playing Share and the other stats. */
+function GameSummary({ core, gameId, onBack }: { core: AppCore; gameId: string; onBack: () => void }) {
+  const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
+  if (!game) return null;
+  return (
+    <main>
+      <button onClick={onBack}>Back</button>
+      <h1>{game.opponent}</h1>
+      <p>{game.gameDate}</p>
+      <p className="final">
+        Team {game.final.team} – Opponent {game.final.opponent}
+      </p>
+      <p>{lineText(game.line)}</p>
+      <p>
+        Plus/Minus {signed(game.line.plusMinus)} · Playing Share {Math.round(game.playingShare * 100)}%
+      </p>
+      <p>{(['steal', 'block', 'turnover', 'foul'] as const).map((type) => `${TILE_LABELS[type]} ${game.tiles[type]}`).join(' · ')}</p>
+    </main>
+  );
+}
 
 /** Settings: Button Size, the phone setting the live screen reads (GLOSSARY: Button Size). */
 function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void }) {
