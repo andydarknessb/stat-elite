@@ -133,7 +133,7 @@ Drill recommendations drawn from the Athlete's recent Games.
 _Avoid_: insights, practice insights, recommendations
 
 **Zone**:
-One of the places a Shot counts for Practice Focus: `rim` under 8 ft from the basket, or `mid` or `three` by the Shot's value, each on the `left`, `center` or `right` by its spot across the court.
+One of the places a Shot counts for Practice Focus: `rim` under 8 ft from the basket, or `mid` or `three` by the Shot's value, each on the `left` (`court_x` under 40), `center` (40 to 60 inclusive) or `right` (over 60) side.
 _Avoid_: area, section, region
 
 ## App

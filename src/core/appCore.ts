@@ -273,10 +273,10 @@ const currentPeriod = (events: EventRow[]) => {
   return events.filter((e) => e.type === 'period_start' && !retracted.has(e.id)).at(-1)?.period ?? 1;
 };
 
-/** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, then OT1, OT2 past regulation; Inn 1, Inn 2 for innings (GLOSSARY: Period). */
 // the Periods a regulation Game has: 2 halves, else 4 quarters (innings are not counted here)
 const regulationOf = (periodFormat: GameRow['period_format']) => (periodFormat === 'halves' ? 2 : 4);
 
+/** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, then OT1, OT2 past regulation; Inn 1, Inn 2 for innings (GLOSSARY: Period). */
 export function periodLabel(periodFormat: GameRow['period_format'], period: number): string {
   if (periodFormat === 'innings') return `Inn ${period}`;
   const regulation = regulationOf(periodFormat);
@@ -609,6 +609,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const now = () => clock().toISOString();
   // a Game's Events in seq order
   const gameEvents = (gameId: string) => store.events.where('[game_id+seq]').between([gameId, 0], [gameId, Infinity]);
+  // the Athlete's Games in the Games tab's order: game_date newest first, created_at newest first within a date (the sort is stable)
+  const gamesNewestFirst = async (athleteId: string) =>
+    (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).reverse().sort((a, b) => b.game_date.localeCompare(a.game_date));
   // the strip: the latest Score Snapshot not retracted, plus the points of the made Shots and Free Throws after it (ADR 0002); 0–0 before the first one
   const latestScores = (events: EventRow[]): Scores => {
     const retracted = retractedIds(events);
@@ -1150,10 +1153,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     async gameFeed(athleteId: string): Promise<GameFeed> {
       // shortcut: reads every Game's Events on each feed read, fine for one Athlete's season; upgrade with a stored season line when the feed reads slow
       const today = localDate(clock());
-      const rows = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).reverse();
+      const rows = await gamesNewestFirst(athleteId);
       const finished = (await Promise.all(rows.map((row) => finishedGame(row, today)))).flatMap((f) => (f ? [f] : []));
-      // the sort is stable, so Games on one date stay newest-started first
-      const games = finished.map(({ row }) => row).sort((a, b) => b.gameDate.localeCompare(a.gameDate));
+      const games = finished.map(({ row }) => row);
       const lives = finished.map(({ live }) => live);
       // a season for each sport played; with no finished Game, the basketball season reads zero, as Home always has
       const seasons: Season[] = (['basketball', 'softball', 'baseball'] as const).flatMap((sport) => {
@@ -1187,7 +1189,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** Practice Focus: the rules over the Athlete's last 5 finished basketball Games, newest first, read from this phone's store only (GLOSSARY: Practice Focus). */
     async practiceFocus(athleteId: string): Promise<PracticeFocus[]> {
       const games: { periodFormat: GameRow['period_format']; events: EventRow[] }[] = [];
-      for (const game of (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).reverse()) {
+      for (const game of await gamesNewestFirst(athleteId)) {
         if (games.length === 5) break;
         if (game.sport !== 'basketball') continue;
         const events = await gameEvents(game.id).toArray();
