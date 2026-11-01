@@ -2432,6 +2432,48 @@ test("a Member's deletion clears only the Recorder link on the Games it recorded
   expect(await core.members(athleteId)).toEqual([]);
 });
 
+test("a Member's phone takes the Athlete's new Owner at its next refresh, so an edit it has not sent reaches the server under that Owner", async () => {
+  const { core, server, link } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.flush();
+  const invite = await core.createInvite(athleteId);
+  // sam's clock runs a day ahead of the server's, so its edit below is newer than the copy the deletion stamps
+  const samServer = server.phone();
+  const sam = createAppCore({ clock: () => new Date(Date.now() + 86_400_000), store: openStore(`test-${++stores}`), server: samServer });
+  await signInWithCode(sam, 'sam@example.com');
+  await sam.acceptInvite(invite);
+  // sam's edit waits on its phone while the link is down; the deletion runs once it is back
+  link.up = false;
+  await sam.editAthlete({ id: athleteId, name: 'Casey S', jerseyNumber: '' });
+  await sam.flush();
+  link.up = true;
+  await core.deleteAccount();
+
+  await sam.refresh();
+
+  expect(await sam.canInvite(athleteId)).toBe(true);
+  expect(server.rows.athletes.get(athleteId)).toMatchObject({ owner_id: await samServer.session(), name: 'Casey S' });
+  expect(await sam.sync()).toEqual({ signedIn: true, notSynced: 0 });
+});
+
+test("a Member's deletion summary names the Athlete that passed to it, even before its phone has downloaded the move", async () => {
+  const { core, server } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.flush();
+  const invite = await core.createInvite(athleteId);
+  const sam = otherAccount(server);
+  await signInWithCode(sam.core, 'sam@example.com');
+  await sam.core.acceptInvite(invite);
+
+  await core.deleteAccount();
+
+  // sam is the only Member, so Casey is its own now, with no Members: deleting the account deletes Casey with its Game
+  expect(await sam.core.deletionSummary()).toEqual({ athletes: [{ name: 'Casey', fate: 'deleted', games: 1 }], photos: 0, unsynced: 0 });
+});
+
 test('a phone signed out names every Athlete it holds, since its deletion clears them all', async () => {
   const { core, inspect, server } = setup();
   await signInWithCode(core, 'casey@example.com');
@@ -2448,6 +2490,7 @@ test('the deletion summary counts the rows not yet uploaded, which the deletion 
   await signInWithCode(core, 'casey@example.com');
   link.up = false;
   await core.addAthlete({ name: 'Casey' });
+  await core.flush();
 
   // the summary asks the server who the Athlete's Members are, so the connection is back for it; the row stays unuploaded
   link.up = true;

@@ -675,6 +675,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       }
       const athleteRows = athletes.map(athleteOf);
       const athleteHeld = await store.athletes.bulkGet(athleteRows.map((r) => r.id));
+      // ownership moves only on the server (ADR 0004), so a held Athlete takes the server's owner even when its own edit is not newer
+      for (const [i, row] of athleteRows.entries()) {
+        const held = athleteHeld[i];
+        if (held && held.owner_id !== row.owner_id) await store.athletes.update(row.id, { owner_id: row.owner_id });
+      }
       await store.athletes.bulkPut(athleteRows.filter((r, i) => later(r, athleteHeld[i])));
       const gameRows = games.map(gameOf);
       const gameHeld = await store.games.bulkGet(gameRows.map((r) => r.id));
@@ -1200,6 +1205,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** What deleting the account does to each Athlete the phone holds: it passes to its first Member, is deleted with its Games, or this account leaves it. Signed out, the phone clears all of it. */
     async deletionSummary(): Promise<DeletionSummary> {
       const me = await server.session();
+      // a signed-in phone first brings the server's owners down, so an Athlete that passed to this account reads as its own
+      if (me !== undefined) await exclusive(download);
       const athletes = await store.athletes.orderBy('created_at').toArray();
       const fates = await Promise.all(
         athletes.map(async (a): Promise<AthleteFate> => {
