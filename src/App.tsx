@@ -733,6 +733,8 @@ function GameSummary({ core, gameId, onBack }: { core: AppCore; gameId: string; 
 function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void }) {
   const size = useReadModel(() => core.buttonSize(), [core]);
   const [deleting, setDeleting] = useState(false);
+  // a Button Size the store refused: the alert shows until a size lands
+  const [failed, setFailed] = useState(false);
   if (deleting) return <DeleteAccount core={core} onCancel={() => setDeleting(false)} />;
   if (!size) return null;
   return (
@@ -744,12 +746,13 @@ function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void })
             key={option}
             aria-pressed={option === size}
             className={option === size ? 'primary' : undefined}
-            onClick={() => void core.setButtonSize(option)}
+            onClick={() => void core.setButtonSize(option).then(() => setFailed(false), () => setFailed(true))}
           >
             {SIZE_LABELS[option]}
           </button>
         ))}
       </div>
+      {failed && <p role="alert">{NOT_SAVED}</p>}
       <button onClick={() => setDeleting(true)}>Delete my account and all data</button>
       <button className="primary" onClick={onDone}>
         Done
@@ -987,12 +990,14 @@ function ShotEntry({
   shots,
   points,
   onRecorded,
+  attempt,
 }: {
   core: AppCore;
   gameId: string;
   shots: LiveGame['shots'];
   points: number;
   onRecorded: (label: string) => void;
+  attempt: (write: Promise<unknown>, onSaved: () => void, onRefused?: () => void) => void;
 }) {
   const [pending, setPending] = useState<PendingShot>();
   // the court is drawn in feet, so a spot is read off the box as 0–100 on each axis
@@ -1006,11 +1011,16 @@ function ShotEntry({
   const flip = () => {
     if (pending) setPending({ ...pending, value: pending.value === 2 ? 3 : 2 });
   };
+  // the spot clears at the tap and comes back if the store refuses the Shot, so a retry records the same spot
   const record = (made: boolean) => {
     if (!pending) return;
+    const spot = pending;
     setPending(undefined);
-    void core.recordShot(gameId, { x: pending.x, y: pending.y, value: pending.value, made });
-    onRecorded(shotLabel(pending.value, made));
+    attempt(
+      core.recordShot(gameId, { x: spot.x, y: spot.y, value: spot.value, made }),
+      () => onRecorded(shotLabel(spot.value, made)),
+      () => setPending((current) => current ?? spot),
+    );
   };
   return (
     <div className="shot-entry">
@@ -1106,32 +1116,38 @@ function LiveGame({
       </main>
     );
   }
-  // a write that lands clears the alert and runs onSaved; one the store refuses shows the alert and leaves the screen as it was
-  const attempt = (write: Promise<unknown>, onSaved: () => void) =>
+  // a write that lands clears the alert and runs onSaved; one the store refuses shows the alert, runs onRefused to put back what the tap cleared, and leaves the screen as it was
+  const attempt = (write: Promise<unknown>, onSaved: () => void, onRefused?: () => void) =>
     write.then(() => {
       setNotSaved(false);
       onSaved();
-    }, () => setNotSaved(true));
+    }, () => {
+      setNotSaved(true);
+      onRefused?.();
+    });
   const tap = (type: TileEventType) => attempt(core.recordTile(gameId, type), () => setToast({ label: TILE_LABELS[type] }));
-  const tapFreeThrow = async (made: boolean) => {
-    await core.recordFreeThrow(gameId, made);
-    setToast({ label: freeThrowLabel(made) });
-  };
-  const tapPitch = async (pitch: Pitch) => {
-    await core.recordPitch(gameId, pitch);
-    setToast({ label: PITCH_LABELS[pitch] });
-  };
-  const pick = async (rbi: number) => {
+  const tapFreeThrow = (made: boolean) => attempt(core.recordFreeThrow(gameId, made), () => setToast({ label: freeThrowLabel(made) }));
+  const tapPitch = (pitch: Pitch) => attempt(core.recordPitch(gameId, pitch), () => setToast({ label: PITCH_LABELS[pitch] }));
+  // the armed Outcome clears at the tap and comes back if the store refuses it
+  const pick = (rbi: number) => {
     if (!pending) return;
+    const outcome = pending;
     setPending(undefined);
-    await core.recordPlateAppearance(gameId, { outcome: pending, rbi });
-    setToast({ label: outcomeLabel(pending, game.count?.strikeout) });
+    void attempt(
+      core.recordPlateAppearance(gameId, { outcome, rbi }),
+      () => setToast({ label: outcomeLabel(outcome, game.count?.strikeout) }),
+      () => setPending((current) => current ?? outcome),
+    );
   };
-  const tapBase = async (base: BaseMove) => {
+  // Stole clears at the tap and comes back if the store refuses the move
+  const tapBase = (base: BaseMove) => {
     const stolen = stealing;
     setStealing(false);
-    await core.recordBaserunning(gameId, { base, stolen });
-    setToast({ label: baseLabel(base, stolen) });
+    void attempt(
+      core.recordBaserunning(gameId, { base, stolen }),
+      () => setToast({ label: baseLabel(base, stolen) }),
+      () => setStealing(stolen),
+    );
   };
   const adjust = (side: 'team' | 'opponent', delta: 1 | -1) => {
     void attempt(core.adjustScore(gameId, side, delta), () => setToast({ label: EVENT_LABELS.score }));
@@ -1142,15 +1158,19 @@ function LiveGame({
       setPending(undefined);
     });
   };
+  // the toast and the pulse wait for the write, so a refused Sub shows neither
   const sub = () => {
-    setToast({ label: game.onCourt ? EVENT_LABELS.sub_out : EVENT_LABELS.sub_in });
-    setPulse((n) => n + 1);
-    void core.toggleSub(gameId);
+    const label = game.onCourt ? EVENT_LABELS.sub_out : EVENT_LABELS.sub_in;
+    void attempt(core.toggleSub(gameId), () => {
+      setToast({ label });
+      setPulse((n) => n + 1);
+    });
   };
   const nextPeriod = () => {
-    setToast({ label: EVENT_LABELS.period_start });
-    setPending(undefined);
-    void core.nextPeriod(gameId);
+    void attempt(core.nextPeriod(gameId), () => {
+      setToast({ label: EVENT_LABELS.period_start });
+      setPending(undefined);
+    });
   };
   // the Shift on court, if any: its timer and Plus/Minus so far
   const current = game.onCourt ? game.shifts.at(-1) : undefined;
@@ -1164,6 +1184,7 @@ function LiveGame({
         shots={game.shots}
         points={game.points}
         onRecorded={(label) => setToast({ label })}
+        attempt={attempt}
       />
       <div className="free-throws" role="group" aria-label="Free Throw">
         <button className="make" onClick={() => void tapFreeThrow(true)}>
@@ -1280,6 +1301,8 @@ function LiveGame({
         <ScoreSide label="Team" value={game.score.team} onAdjust={(delta) => adjust('team', delta)} />
         <ScoreSide label="Opponent" value={game.score.opponent} onAdjust={(delta) => adjust('opponent', delta)} />
       </section>
+      {/* on screen right under the score, not below the Period row the Recorder may not see */}
+      {notSaved && <p role="alert">{NOT_SAVED}</p>}
       {game.sport !== 'basketball' ? (
         plateAppearance
       ) : size === 'bleacher' ? (
@@ -1310,7 +1333,6 @@ function LiveGame({
         )}
         {!ending && <button onClick={() => setEnding(true)}>End Game</button>}
       </div>
-      {notSaved && <p role="alert">{NOT_SAVED}</p>}
       {ending && (
         <EndGameForm
           core={core}
