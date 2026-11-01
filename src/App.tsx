@@ -410,9 +410,10 @@ function SetupFields({
         <label>
           Period format
           {sport === 'basketball' ? (
-            <select value={periods} onChange={(e) => setPeriods(e.target.value === 'halves' ? 'halves' : 'quarters')}>
+            <select value={periods} onChange={(e) => setPeriods(e.target.value as GameSetup['basketballPeriods'])}>
               <option value="quarters">Quarters</option>
               <option value="halves">Halves</option>
+              <option value="eighths">8 Periods</option>
             </select>
           ) : (
             <select value="innings" disabled>

@@ -26,7 +26,7 @@ export interface GameRow {
   /** The Recorder's account: set at sign-in for a Game recorded before it; null once that account is deleted (ADR 0004). */
   recorded_by?: string | null;
   sport: 'basketball' | 'softball' | 'baseball';
-  period_format: 'halves' | 'quarters' | 'innings';
+  period_format: 'halves' | 'quarters' | 'eighths' | 'innings';
   opponent_name: string;
   game_date: string;
   created_at: string;

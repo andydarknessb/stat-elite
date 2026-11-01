@@ -19,14 +19,14 @@ import type { MemberRow, Server, SyncedTable, UploadRow } from './server';
 export type { TileEventType };
 
 export type GameFormat =
-  | { sport: 'basketball'; periodFormat: 'halves' | 'quarters' }
+  | { sport: 'basketball'; periodFormat: 'halves' | 'quarters' | 'eighths' }
   | { sport: 'softball' | 'baseball'; periodFormat: 'innings' };
 
 /** What Game setup opens with: the Athlete's last Game's sport and Opponent, and today's date. */
 export interface GameSetup {
   sport: GameFormat['sport'];
   /** Basketball's period format; softball and baseball are always innings. */
-  basketballPeriods: 'halves' | 'quarters';
+  basketballPeriods: 'halves' | 'quarters' | 'eighths';
   opponentName: string;
   gameDate: string;
 }
@@ -273,15 +273,16 @@ const currentPeriod = (events: EventRow[]) => {
   return events.filter((e) => e.type === 'period_start' && !retracted.has(e.id)).at(-1)?.period ?? 1;
 };
 
-// the Periods a regulation Game has: 2 halves, else 4 quarters (innings are not counted here)
-const regulationOf = (periodFormat: GameRow['period_format']) => (periodFormat === 'halves' ? 2 : 4);
+// the Periods a regulation Game has: 2 halves, 8 eighths, else 4 quarters (innings are not counted here)
+const regulationOf = (periodFormat: GameRow['period_format']) => (periodFormat === 'halves' ? 2 : periodFormat === 'eighths' ? 8 : 4);
 
-/** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, then OT1, OT2 past regulation; Inn 1, Inn 2 for innings (GLOSSARY: Period). */
+/** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, P1–P8 for eighths, then OT1, OT2 past regulation; Inn 1, Inn 2 for innings (GLOSSARY: Period). */
 export function periodLabel(periodFormat: GameRow['period_format'], period: number): string {
   if (periodFormat === 'innings') return `Inn ${period}`;
   const regulation = regulationOf(periodFormat);
   if (period > regulation) return `OT${period - regulation}`;
-  return `${periodFormat === 'halves' ? 'H' : 'Q'}${period}`;
+  const prefix = periodFormat === 'halves' ? 'H' : periodFormat === 'eighths' ? 'P' : 'Q';
+  return `${prefix}${period}`;
 }
 
 // the stats a list of live Events counts, each Event once
@@ -579,7 +580,7 @@ const practiceFocusOf = (games: { periodFormat: GameRow['period_format']; events
   const zones: Partial<Record<Zone, Tally>> = {};
   for (const { periodFormat, events } of games) {
     for (const event of events) {
-      // late is past half of regulation: Q3 on in quarters, H2 on in halves, every overtime
+      // late is past half of regulation: Q3 on in quarters, H2 on in halves, P5 on in 8 Periods, every overtime
       if (event.type === 'free_throw') count(event.period > regulationOf(periodFormat) / 2 ? freeThrows.late : freeThrows.early, event.made);
       if (event.type === 'shot' && event.court_x !== null && event.court_y !== null && event.shot_value !== null) {
         const where = zoneOf(event.court_x, event.court_y, event.shot_value);
@@ -1098,7 +1099,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const last = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).at(-1);
       return {
         sport: last?.sport ?? 'basketball',
-        basketballPeriods: last?.sport === 'basketball' && last.period_format === 'halves' ? 'halves' : 'quarters',
+        basketballPeriods: last?.sport === 'basketball' && last.period_format !== 'innings' ? last.period_format : 'quarters',
         opponentName: last?.opponent_name ?? 'Opponent',
         gameDate: localDate(clock()),
       };

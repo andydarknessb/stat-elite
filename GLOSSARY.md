@@ -47,7 +47,7 @@ The Score Snapshot taken when the Game ends.
 _Avoid_: result
 
 **Period**:
-One segment of a Game: a quarter, a half, an overtime, or an inning.
+One segment of a Game: a quarter, a half, one of eight periods, an overtime, or an inning.
 _Avoid_: game period, segment
 
 **Event**:
