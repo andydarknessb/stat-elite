@@ -230,6 +230,8 @@ const cornerFt = 5.25;
 // the corner line runs from the baseline to where it meets the arc
 const cornerEndFt = basketFt + Math.sqrt(arcFt ** 2 - (widthFt / 2 - cornerFt) ** 2);
 export const HALF_COURT = { widthFt, lengthFt: 42, basketFt, arcFt, cornerFt, cornerEndFt };
+// a spot's distance in feet from the basket: the measure arcPreset and the Zones share
+const basketDistanceFt = (x: number, y: number) => Math.hypot((x / 100) * widthFt - widthFt / 2, (y / 100) * HALF_COURT.lengthFt - basketFt);
 
 /**
  * The value a spot presets: 3 beyond the three-point line, which is the NFHS arc from the basket plus the corners
@@ -238,7 +240,7 @@ export const HALF_COURT = { widthFt, lengthFt: 42, basketFt, arcFt, cornerFt, co
 export function arcPreset(x: number, y: number): 2 | 3 {
   const fx = (x / 100) * HALF_COURT.widthFt;
   const fy = (y / 100) * HALF_COURT.lengthFt;
-  const fromBasket = Math.hypot(fx - widthFt / 2, fy - basketFt);
+  const fromBasket = basketDistanceFt(x, y);
   const inCorner = (fx < cornerFt || fx > widthFt - cornerFt) && fy < cornerEndFt;
   return fromBasket > arcFt || inCorner ? 3 : 2;
 }
@@ -272,9 +274,12 @@ const currentPeriod = (events: EventRow[]) => {
 };
 
 /** A Period's label in its Game's format: H1–H2 for halves, Q1–Q4 for quarters, then OT1, OT2 past regulation; Inn 1, Inn 2 for innings (GLOSSARY: Period). */
+// the Periods a regulation Game has: 2 halves, else 4 quarters (innings are not counted here)
+const regulationOf = (periodFormat: GameRow['period_format']) => (periodFormat === 'halves' ? 2 : 4);
+
 export function periodLabel(periodFormat: GameRow['period_format'], period: number): string {
   if (periodFormat === 'innings') return `Inn ${period}`;
-  const regulation = periodFormat === 'halves' ? 2 : 4;
+  const regulation = regulationOf(periodFormat);
   if (period > regulation) return `OT${period - regulation}`;
   return `${periodFormat === 'halves' ? 'H' : 'Q'}${period}`;
 }
@@ -538,6 +543,67 @@ export interface DeletionSummary {
   photos: number;
   unsynced: number;
 }
+
+/** A Practice Focus card: the rule that fired, its title, and the drill it recommends (GLOSSARY: Practice Focus). */
+export interface PracticeFocus {
+  title: string;
+  drill: string;
+}
+
+/** Attempts of one kind and how many went in (GLOSSARY: Practice Focus). */
+interface Tally {
+  made: number;
+  attempted: number;
+}
+const tally = (): Tally => ({ made: 0, attempted: 0 });
+const count = (t: Tally, made: boolean | null) => {
+  t.attempted++;
+  if (made) t.made++;
+};
+
+/** A Zone: where a Shot falls for Practice Focus (GLOSSARY: Zone). rim and the two center Zones feed no rule. */
+type Zone = 'rim' | `${'mid' | 'three'}-${'left' | 'center' | 'right'}`;
+// rim under 8 ft from the basket, else mid or three by the Shot's value, then left, center or right by its court_x
+const zoneOf = (x: number, y: number, value: 2 | 3): Zone => {
+  if (basketDistanceFt(x, y) < 8) return 'rim';
+  const side = x < 40 ? 'left' : x <= 60 ? 'center' : 'right';
+  return `${value === 2 ? 'mid' : 'three'}-${side}`;
+};
+
+// high is at least 20 points above low: exact fractions, cross-multiplied so no float rounding (high − low ≥ 1/5)
+const atLeast20Above = (high: Tally, low: Tally) => 5 * (high.made * low.attempted - low.made * high.attempted) >= high.attempted * low.attempted;
+
+// the cards the rules make over the given Games, each Game's Events already live (none retracted)
+const practiceFocusOf = (games: { periodFormat: GameRow['period_format']; events: EventRow[] }[]): PracticeFocus[] => {
+  const freeThrows = { early: tally(), late: tally() };
+  const zones: Partial<Record<Zone, Tally>> = {};
+  for (const { periodFormat, events } of games) {
+    for (const event of events) {
+      // late is past half of regulation: Q3 on in quarters, H2 on in halves, every overtime
+      if (event.type === 'free_throw') count(event.period > regulationOf(periodFormat) / 2 ? freeThrows.late : freeThrows.early, event.made);
+      if (event.type === 'shot' && event.court_x !== null && event.court_y !== null && event.shot_value !== null) {
+        const where = zoneOf(event.court_x, event.court_y, event.shot_value);
+        count((zones[where] ??= tally()), event.made);
+      }
+    }
+  }
+  const zoneTally = (z: Zone) => zones[z] ?? tally();
+
+  const { early, late } = freeThrows;
+  const freeThrowCards: PracticeFocus[] =
+    early.attempted >= 10 && late.attempted >= 10 && atLeast20Above(early, late)
+      ? [{ title: 'Free Throws when tired', drill: 'End practice with 10 Free Throws right after a hard sprint. Count the makes.' }]
+      : [];
+  // a mirrored pair of Zones with 10 attempts each: the lower one, 20 points under its mirror, names the weak side
+  const weakSide = (spot: 'mid' | 'three', label: string): PracticeFocus[] => {
+    const left = zoneTally(`${spot}-left`);
+    const right = zoneTally(`${spot}-right`);
+    if (left.attempted < 10 || right.attempted < 10) return [];
+    const side = atLeast20Above(right, left) ? 'left' : atLeast20Above(left, right) ? 'right' : undefined;
+    return side ? [{ title: 'Weak side', drill: `25 shots from the ${side} ${label} spot, then 10 drives to that side finishing with that hand.` }] : [];
+  };
+  return [...freeThrowCards, ...weakSide('mid', 'mid-range'), ...weakSide('three', '3-point')];
+};
 
 export function createAppCore({ clock, store, server }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
@@ -1116,6 +1182,20 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         `${name}: ${gameLineText(summary)}${summary.sport === 'basketball' ? ` · Plus/Minus ${signed(summary.line.plusMinus)}` : ''}`,
         SPORT_TAG[game.sport],
       ].join('\n');
+    },
+
+    /** Practice Focus: the rules over the Athlete's last 5 finished basketball Games, newest first, read from this phone's store only (GLOSSARY: Practice Focus). */
+    async practiceFocus(athleteId: string): Promise<PracticeFocus[]> {
+      const games: { periodFormat: GameRow['period_format']; events: EventRow[] }[] = [];
+      for (const game of (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).reverse()) {
+        if (games.length === 5) break;
+        if (game.sport !== 'basketball') continue;
+        const events = await gameEvents(game.id).toArray();
+        // End Game is always a finished Game's last Event
+        if (events.at(-1)?.type !== 'game_end') continue;
+        games.push({ periodFormat: game.period_format, events: liveOf(events) });
+      }
+      return practiceFocusOf(games);
     },
 
     /** Game Complete's share card: the Athlete's name and photo, the Opponent, the Final Score and the line; undefined while the Game is in progress. The photo only leaves the phone inside the image. */

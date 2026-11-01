@@ -132,6 +132,10 @@ _Avoid_: runner, base event
 Drill recommendations drawn from the Athlete's recent Games.
 _Avoid_: insights, practice insights, recommendations
 
+**Zone**:
+One of the places a Shot counts for Practice Focus: `rim` under 8 ft from the basket, or `mid` or `three` by the Shot's value, each on the `left`, `center` or `right` by its spot across the court.
+_Avoid_: area, section, region
+
 ## App
 
 **Button Size**:
