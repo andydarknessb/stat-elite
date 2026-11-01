@@ -31,6 +31,9 @@ import { renderShareCard } from './core/shareCard';
 import { OUTCOMES, PITCHES, type BaseMove, type Outcome, type Pitch } from './core/store';
 import { InstallPrompt } from './InstallPrompt';
 
+/** What the Recorder sees when the phone's store refuses a write; the screen keeps what it had (#42). */
+const NOT_SAVED = 'Not saved. Try again.';
+
 /** Re-renders whenever the store data behind a read model changes. */
 function useReadModel<T>(read: () => Promise<T>, deps: unknown[]): T | undefined {
   const [value, setValue] = useState<T>();
@@ -293,12 +296,21 @@ function AthleteForm({ core, athlete, onDone }: { core: AppCore; athlete?: Athle
   const [name, setName] = useState(athlete?.name ?? '');
   const [number, setNumber] = useState(athlete?.jerseyNumber ?? '');
   const [photo, setPhoto] = useState<File>();
-  const submit = (e: FormEvent) => {
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    if (athlete) void core.editAthlete({ id: athlete.id, name: name.trim(), jerseyNumber: number, photo });
-    else void core.addAthlete({ name: name.trim(), jerseyNumber: number, photo });
-    onDone?.();
+    // a second tap while the save is in flight would add a second Athlete
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      if (athlete) await core.editAthlete({ id: athlete.id, name: name.trim(), jerseyNumber: number, photo });
+      else await core.addAthlete({ name: name.trim(), jerseyNumber: number, photo });
+      onDone?.();
+    } catch {
+      setFailed(true);
+      setSaving(false);
+    }
   };
   return (
     <main>
@@ -322,6 +334,7 @@ function AthleteForm({ core, athlete, onDone }: { core: AppCore; athlete?: Athle
             Cancel
           </button>
         )}
+        {failed && <p role="alert">{NOT_SAVED}</p>}
       </form>
     </main>
   );
@@ -367,14 +380,20 @@ function SetupFields({
   const [gameDate, setGameDate] = useState(setup.gameDate);
   // a second tap before the Game shows on screen would start a second Game
   const [starting, setStarting] = useState(false);
+  const [failed, setFailed] = useState(false);
   const valid = opponent.trim() !== '' && gameDate !== '';
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!valid || starting) return;
     setStarting(true);
     const format: GameFormat =
       sport === 'basketball' ? { sport, periodFormat: periods } : { sport, periodFormat: 'innings' };
-    void core.startGame({ athleteId, opponentName: opponent, gameDate, ...format });
+    try {
+      await core.startGame({ athleteId, opponentName: opponent, gameDate, ...format });
+    } catch {
+      setFailed(true);
+      setStarting(false);
+    }
   };
   return (
     <main>
@@ -415,8 +434,36 @@ function SetupFields({
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
+        {failed && <p role="alert">{NOT_SAVED}</p>}
       </form>
     </main>
+  );
+}
+
+/** The photo: tapping it switches to the next Athlete. A switch the store refuses says so and keeps the Athlete on screen (#42). */
+function SwitchPhoto({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <>
+      <button
+        className="photo"
+        disabled={!next}
+        aria-label={next ? `Switch to ${next.name}` : athlete.name}
+        onClick={() => {
+          if (next) void core.switchAthlete(next.id).then(() => setFailed(false), () => setFailed(true));
+        }}
+      >
+        {athlete.photo ? (
+          <AthletePhoto key={athlete.id} photo={athlete.photo} />
+        ) : (
+          // a downloaded Athlete has no photo here: photos stay on the phone that picked them
+          <span className="photo-placeholder" aria-hidden="true">
+            {initials(athlete.name)}
+          </span>
+        )}
+      </button>
+      {failed && <p role="alert">{NOT_SAVED}</p>}
+    </>
   );
 }
 
@@ -444,23 +491,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
   return (
     <>
       <main>
-        <button
-          className="photo"
-          disabled={!next}
-          aria-label={next ? `Switch to ${next.name}` : athlete.name}
-          onClick={() => {
-            if (next) void core.switchAthlete(next.id);
-          }}
-        >
-          {athlete.photo ? (
-            <AthletePhoto key={athlete.id} photo={athlete.photo} />
-          ) : (
-            // a downloaded Athlete has no photo here: photos stay on the phone that picked them
-            <span className="photo-placeholder" aria-hidden="true">
-              {initials(athlete.name)}
-            </span>
-          )}
-        </button>
+        <SwitchPhoto core={core} athlete={athlete} next={next} />
         <h1>{athlete.name}</h1>
         {athlete.jerseyNumber && <p>#{athlete.jerseyNumber}</p>}
         <button className="primary" onClick={() => setForm('setup')}>
@@ -819,12 +850,14 @@ function EndGameForm({
   score,
   onEnded,
   onCancel,
+  onFailed,
 }: {
   core: AppCore;
   gameId: string;
   score: Scores;
   onEnded: () => void;
   onCancel: () => void;
+  onFailed: () => void;
 }) {
   const [team, setTeam] = useState(String(score.team));
   const [opponent, setOpponent] = useState(String(score.opponent));
@@ -834,7 +867,8 @@ function EndGameForm({
     if (!valid) return;
     // leaves the Game on screen before the store closes it, so Home does not flash in between
     onEnded();
-    void core.endGame(gameId, { teamScore: Number(team), opponentScore: Number(opponent) });
+    // a refused End Game leaves the Game live, and the live screen says so
+    void core.endGame(gameId, { teamScore: Number(team), opponentScore: Number(opponent) }).catch(onFailed);
   };
   return (
     <form onSubmit={submit}>
@@ -1044,6 +1078,8 @@ function LiveGame({
   const size = useReadModel(() => core.buttonSize(), [core]) ?? 'standard';
   // the toast for the last tap, shown 3 seconds; each call sets a new object, so a repeated label still restarts the timer
   const [toast, setToast] = useState<{ label: string }>();
+  // a write the store refused: the alert shows until the next write lands
+  const [notSaved, setNotSaved] = useState(false);
   const [ending, setEnding] = useState(false);
   // the Outcome picked on softball or baseball, waiting for its RBI chip
   const [pending, setPending] = useState<Outcome>();
@@ -1070,10 +1106,13 @@ function LiveGame({
       </main>
     );
   }
-  const tap = async (type: TileEventType) => {
-    await core.recordTile(gameId, type);
-    setToast({ label: TILE_LABELS[type] });
-  };
+  // a write that lands clears the alert and runs onSaved; one the store refuses shows the alert and leaves the screen as it was
+  const attempt = (write: Promise<unknown>, onSaved: () => void) =>
+    write.then(() => {
+      setNotSaved(false);
+      onSaved();
+    }, () => setNotSaved(true));
+  const tap = (type: TileEventType) => attempt(core.recordTile(gameId, type), () => setToast({ label: TILE_LABELS[type] }));
   const tapFreeThrow = async (made: boolean) => {
     await core.recordFreeThrow(gameId, made);
     setToast({ label: freeThrowLabel(made) });
@@ -1095,13 +1134,13 @@ function LiveGame({
     setToast({ label: baseLabel(base, stolen) });
   };
   const adjust = (side: 'team' | 'opponent', delta: 1 | -1) => {
-    setToast({ label: EVENT_LABELS.score });
-    void core.adjustScore(gameId, side, delta);
+    void attempt(core.adjustScore(gameId, side, delta), () => setToast({ label: EVENT_LABELS.score }));
   };
   const undo = () => {
-    setToast(undefined);
-    setPending(undefined);
-    void core.undo(gameId);
+    void attempt(core.undo(gameId), () => {
+      setToast(undefined);
+      setPending(undefined);
+    });
   };
   const sub = () => {
     setToast({ label: game.onCourt ? EVENT_LABELS.sub_out : EVENT_LABELS.sub_in });
@@ -1271,6 +1310,7 @@ function LiveGame({
         )}
         {!ending && <button onClick={() => setEnding(true)}>End Game</button>}
       </div>
+      {notSaved && <p role="alert">{NOT_SAVED}</p>}
       {ending && (
         <EndGameForm
           core={core}
@@ -1281,6 +1321,7 @@ function LiveGame({
             setEnding(false);
             onEnded(gameId);
           }}
+          onFailed={() => setNotSaved(true)}
         />
       )}
       {toast && (
