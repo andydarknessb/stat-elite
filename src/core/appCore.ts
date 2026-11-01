@@ -522,12 +522,13 @@ const later = (row: { updated_at: string }, held?: { updated_at: string }) =>
 /** A Member as the Owner's list shows it: named by its sign-in email, or by when it joined when none was recorded. */
 export type Member = MemberRow & { label: string };
 
-/** What deleting the account removes: the Athletes it owns on this phone by name, and their Games, Events and photos. */
+/** What deleting the account removes from this phone: the Athletes by name, their Games, Events and photos, and the rows not yet uploaded. */
 export interface DeletionSummary {
   athletes: string[];
   games: number;
   events: number;
   photos: number;
+  unsynced: number;
 }
 
 export function createAppCore({ clock, store, server }: { clock: () => Date; store: Store; server: Server }) {
@@ -1151,7 +1152,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       // cleared first, so a download that fails after the accept is retried by the next flush
       await store.settings.delete(DOWNLOADED_FOR);
       await server.acceptInvite(token);
-      await download();
+      await exclusive(download);
     },
 
     /** The Owner's Members list for one of its Athletes, each named for the screen (ADR 0004). */
@@ -1179,7 +1180,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       if (await queuedOn(athleteId)) {
         // a removed Member's download no longer sends the Athlete, so it drops it; if the download fails, the rows still wait
         try {
-          await download();
+          // queued like a drain, so a deletion that starts meanwhile waits for it and it cannot refill the phone
+          await exclusive(download);
         } catch {
           throw new Error(NOT_SYNCED);
         }
@@ -1191,17 +1193,21 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       void flush();
     },
 
-    /** The Athletes the account owns on this phone, with what deleting the account removes of them. Athletes another account owns are left out: their Owner keeps them. */
+    /** What deleting the account removes from this phone. Signed in, only the Athletes the account owns are named: their Owner keeps any other. Signed out, the phone clears all of it. */
     async deletionSummary(): Promise<DeletionSummary> {
       const me = await server.session();
-      const athletes = (await store.athletes.orderBy('created_at').toArray()).filter((a) => a.owner_id === undefined || a.owner_id === me);
+      const athletes = (await store.athletes.orderBy('created_at').toArray()).filter(
+        (a) => me === undefined || a.owner_id === undefined || a.owner_id === me,
+      );
       const ids = athletes.map((a) => a.id);
       const gone = new Set(await store.games.where('athlete_id').anyOf(ids).primaryKeys());
+      const pending = await store.outbox.toArray();
       return {
         athletes: athletes.map((a) => a.name),
         games: gone.size,
         events: await store.events.filter((e) => gone.has(e.game_id)).count(),
         photos: await store.athletePhotos.where('athlete_id').anyOf(ids).count(),
+        unsynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size,
       };
     },
 

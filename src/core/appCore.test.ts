@@ -2351,6 +2351,7 @@ test('the deletion summary names the Athletes the account owns, and counts their
   // a later Athlete, so the list reads in the order the phone shows them (created_at)
   const later = createAppCore({ clock: () => new Date('2026-10-30T19:00:00Z'), store: inspect, server });
   await later.addAthlete({ name: 'Riley' });
+  await later.flush();
   // an Athlete another account owns and shared with this phone is not the account's to delete
   await inspect.athletes.put({
     id: 'shared-here',
@@ -2361,7 +2362,77 @@ test('the deletion summary names the Athletes the account owns, and counts their
     updated_at: '2026-10-30T10:00:00.000Z',
   });
 
-  expect(await core.deletionSummary()).toEqual({ athletes: ['Casey', 'Riley'], games: 1, events: 2, photos: 1 });
+  expect(await core.deletionSummary()).toEqual({ athletes: ['Casey', 'Riley'], games: 1, events: 2, photos: 1, unsynced: 0 });
+});
+
+test('a phone signed out names every Athlete it holds, since its deletion clears them all', async () => {
+  const { core, inspect, server } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  await core.addAthlete({ name: 'Casey' });
+  await core.flush();
+  // the same store, seen by a phone whose session has lapsed: its rows still carry the account's owner
+  const lapsed = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: inspect, server: server.phone() });
+
+  expect(await lapsed.deletionSummary()).toMatchObject({ athletes: ['Casey'], unsynced: 0 });
+});
+
+test('the deletion summary counts the rows not yet uploaded, which the deletion discards', async () => {
+  const { core, link } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  link.up = false;
+  await core.addAthlete({ name: 'Casey' });
+
+  expect(await core.deletionSummary()).toMatchObject({ athletes: ['Casey'], unsynced: 1 });
+});
+
+test("a deletion that follows a Member's leave waits for the download the leave is still running, so the download cannot refill the phone", async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  let reached!: () => void;
+  const inDownload = new Promise<void>((resolve) => (reached = resolve));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let holding = false;
+  // the server refuses the Member's Events, so the one it records waits on the phone when the Member leaves
+  const member = otherAccount(server, (phone) => ({
+    ...phone,
+    upload: async (table, row) => {
+      if (table === 'events') throw new Error('refused');
+      return phone.upload(table, row);
+    },
+    download: async (table) => {
+      const rows = await phone.download(table);
+      if (holding) {
+        reached();
+        await gate;
+      }
+      return rows;
+    },
+  }));
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const gameId = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
+  await member.core.recordTile(gameId, 'steal');
+  // sets the download marker, so the leave's own flush does not download before the held one
+  await member.core.flush();
+
+  holding = true;
+  const leaving = member.core.leave(athleteId).then(
+    () => 'left',
+    (error: Error) => error.message,
+  );
+  await inDownload;
+  const deleting = member.core.deleteAccount();
+  // long enough for an unqueued deletion to clear the phone, before the held download writes its rows back
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  release();
+
+  expect(await leaving).toBe('Not everything on this Athlete has synced yet');
+  await deleting;
+  expect(await member.inspect.athletes.count()).toBe(0);
+  expect(await member.core.home()).toEqual({});
 });
 
 test('a download still in flight when the account is deleted cannot refill the phone', async () => {

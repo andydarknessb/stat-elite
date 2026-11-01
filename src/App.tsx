@@ -734,6 +734,7 @@ function DeleteAccount({ core, onCancel }: { core: AppCore; onCancel: () => void
         <li>Games: {summary.games}</li>
         <li>Events: {summary.events}</li>
         <li>Photos on this phone: {summary.photos}</li>
+        <li>Not yet synced: {summary.unsynced}</li>
       </ul>
       <button className="primary" disabled={deleting} onClick={() => void remove()}>
         Delete everything
