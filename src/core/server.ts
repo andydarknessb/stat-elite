@@ -49,6 +49,8 @@ export interface Server {
   removeMember(athleteId: string, memberId: string): Promise<void>;
   /** Removes the signed-in account's membership of an Athlete. */
   leave(athleteId: string): Promise<void>;
+  /** Deletes the signed-in account and everything it owns, then signs the phone out. Rejects when the server cannot be reached or refuses. */
+  deleteAccount(): Promise<void>;
 }
 
 const DAY = 24 * 60 * 60_000;
@@ -144,6 +146,25 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
         reach();
         members.delete(`${athleteId} ${account}`);
       },
+      async deleteAccount() {
+        reach();
+        if (account === undefined) throw new Error('Sign in before deleting the account');
+        // what removing the auth user cascades to: the account's Athletes with their Games and Events, its Invites, and its memberships
+        const owned = new Set([...rows.athletes].filter(([, row]) => row.owner_id === account).map(([id]) => id));
+        for (const id of owned) rows.athletes.delete(id);
+        for (const table of ['games', 'events'] as const) {
+          for (const [id, row] of rows[table]) if (row.owner_id === account) rows[table].delete(id);
+        }
+        for (const [token, invite] of invites) {
+          if (invite.owner_id === account || invite.used_by === account) invites.delete(token);
+        }
+        for (const key of [...members.keys()]) {
+          const [athleteId, memberId] = key.split(' ');
+          if (owned.has(athleteId) || memberId === account) members.delete(key);
+        }
+        emails.delete(account);
+        account = undefined;
+      },
     };
   };
   return { ...phone(), rows, uploads, invites, phone };
@@ -232,6 +253,12 @@ export function createSupabaseServer(client: SupabaseClient): Server {
       const { error } = await client.from('members').delete().eq('athlete_id', athleteId).eq('member_id', await session());
       if (error) throw error;
     },
+    async deleteAccount() {
+      const { error } = await client.rpc('delete_my_account');
+      if (error) throw error;
+      // the account is gone, so this phone's session must not outlive it; local only, since the server has no user to sign out
+      await client.auth.signOut({ scope: 'local' });
+    },
   };
 }
 
@@ -267,5 +294,6 @@ export function serverFor({ url, key, host }: { url?: string; key?: string; host
     members: refuse,
     removeMember: refuse,
     leave: refuse,
+    deleteAccount: refuse,
   };
 }
