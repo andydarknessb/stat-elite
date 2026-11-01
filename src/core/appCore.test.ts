@@ -2623,3 +2623,144 @@ test('the Supabase server keeps the phone signed in when the database refuses th
   });
   expect(calls).toEqual([['rpc', 'delete_my_account']]);
 });
+
+// Practice Focus (GLOSSARY: Practice Focus, Zone): the rules over the last 5 finished basketball Games
+
+type Core = ReturnType<typeof createAppCore>;
+type Spot = { x: number; y: number };
+
+const QUARTERS: GameFormat = { sport: 'basketball', periodFormat: 'quarters' };
+const HALVES: GameFormat = { sport: 'basketball', periodFormat: 'halves' };
+// spots as 0–100 on each axis: the mid spots about 18 ft from the basket, the 3 spots about 35 ft, the rim spot 7 ft (left side)
+const MID_LEFT: Spot = { x: 20, y: 35 };
+const MID_RIGHT: Spot = { x: 80, y: 35 };
+const THREE_LEFT: Spot = { x: 10, y: 80 };
+const THREE_RIGHT: Spot = { x: 90, y: 80 };
+const RIM_LEFT: Spot = { x: 36, y: 12.5 };
+
+const FREE_THROWS = { title: 'Free Throws when tired', drill: 'End practice with 10 Free Throws right after a hard sprint. Count the makes.' };
+const WEAK_MID = { title: 'Weak side', drill: '25 shots from the left mid-range spot, then 10 drives to that side finishing with that hand.' };
+const WEAK_THREE = { title: 'Weak side', drill: '25 shots from the left 3-point spot, then 10 drives to that side finishing with that hand.' };
+
+// a Game started at `at` on the test's store, so its moment orders it among the Athlete's Games
+async function startedAt(t: ReturnType<typeof setup>, athleteId: string, at: string, format: GameFormat = QUARTERS) {
+  const core = createAppCore({ clock: () => new Date(at), store: t.inspect, server: t.server });
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: at.slice(0, 10), ...format });
+  return { core, gameId };
+}
+
+// one finished Game for the Athlete, played by `play`
+async function finished(t: ReturnType<typeof setup>, athleteId: string, at: string, play: (core: Core, gameId: string) => Promise<void>, format?: GameFormat) {
+  const { core, gameId } = await startedAt(t, athleteId, at, format);
+  await play(core, gameId);
+  await core.endGame(gameId, { teamScore: 0, opponentScore: 0 });
+}
+
+// the cards a single finished Game makes for its Athlete
+async function cardsOf(play: (core: Core, gameId: string) => Promise<void>, format?: GameFormat) {
+  const t = setup();
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  await finished(t, athleteId, '2026-10-21T18:00:00Z', play, format);
+  return t.core.practiceFocus(athleteId);
+}
+
+async function freeThrows(core: Core, gameId: string, made: number, missed: number) {
+  for (let i = 0; i < made + missed; i++) await core.recordFreeThrow(gameId, i < made);
+}
+
+async function shoot(core: Core, gameId: string, spot: Spot, value: 2 | 3, made: number, missed: number) {
+  for (let i = 0; i < made + missed; i++) await core.recordShot(gameId, { ...spot, value, made: i < made });
+}
+
+// Free Throws made of attempted in Period 1 (7 of 10 by default), then in Period `late`, reached by Next period (5 of 10 by default)
+async function splitAt(core: Core, gameId: string, late: number, [earlyMade, earlyMissed] = [7, 3], [lateMade, lateMissed] = [5, 5]) {
+  await freeThrows(core, gameId, earlyMade, earlyMissed);
+  for (let period = 1; period < late; period++) await core.nextPeriod(gameId);
+  await freeThrows(core, gameId, lateMade, lateMissed);
+}
+
+// 7 of 10 from the right spot and 5 of 10 from its left mirror, Shots of one value
+async function weakLeft(core: Core, gameId: string, left: Spot, right: Spot, value: 2 | 3) {
+  await shoot(core, gameId, right, value, 7, 3);
+  await shoot(core, gameId, left, value, 5, 5);
+}
+
+test('Free Throws when tired: 7 of 10 early against 5 of 10 late gives the card', async () => {
+  expect(await cardsOf((core, gameId) => splitAt(core, gameId, 3))).toEqual([FREE_THROWS]);
+});
+
+test('Free Throws when tired: 6 of 10 early against 5 of 10 late gives none, and 9 attempts on either side give none', async () => {
+  // [early made, early missed], [late made, late missed]
+  const cases: [[number, number], [number, number]][] = [
+    [[6, 4], [5, 5]],
+    [[7, 2], [5, 5]],
+    [[7, 3], [5, 4]],
+  ];
+  for (const [early, late] of cases) {
+    expect(await cardsOf((core, gameId) => splitAt(core, gameId, 3, early, late))).toEqual([]);
+  }
+});
+
+test('Period 2 is late in halves and early in quarters, and overtime is late', async () => {
+  expect(await cardsOf((core, gameId) => splitAt(core, gameId, 2), HALVES)).toEqual([FREE_THROWS]);
+  expect(await cardsOf((core, gameId) => splitAt(core, gameId, 2), QUARTERS)).toEqual([]);
+  expect(await cardsOf((core, gameId) => splitAt(core, gameId, 5), QUARTERS)).toEqual([FREE_THROWS]);
+});
+
+test('Weak side: 7 of 10 on the right against 5 of 10 on the left names the left spot', async () => {
+  expect(await cardsOf((core, gameId) => weakLeft(core, gameId, MID_LEFT, MID_RIGHT, 2))).toEqual([WEAK_MID]);
+  expect(await cardsOf((core, gameId) => weakLeft(core, gameId, THREE_LEFT, THREE_RIGHT, 3))).toEqual([WEAK_THREE]);
+});
+
+test('Weak side: a zone with 9 attempts, on either side of the pair, gives no card', async () => {
+  expect(await cardsOf(async (core, gameId) => {
+    await shoot(core, gameId, MID_RIGHT, 2, 7, 3);
+    await shoot(core, gameId, MID_LEFT, 2, 5, 4);
+  })).toEqual([]);
+  expect(await cardsOf(async (core, gameId) => {
+    await shoot(core, gameId, MID_RIGHT, 2, 7, 2);
+    await shoot(core, gameId, MID_LEFT, 2, 5, 5);
+  })).toEqual([]);
+});
+
+test('Weak side: Shots at court_x 40 and 60 count for neither side, and a spot under 8 ft counts for neither', async () => {
+  expect(await cardsOf(async (core, gameId) => {
+    await weakLeft(core, gameId, MID_LEFT, MID_RIGHT, 2);
+    await shoot(core, gameId, { x: 40, y: 35 }, 2, 10, 0);
+    await shoot(core, gameId, { x: 60, y: 35 }, 2, 0, 10);
+  })).toEqual([WEAK_MID]);
+  expect(await cardsOf(async (core, gameId) => {
+    await weakLeft(core, gameId, MID_LEFT, MID_RIGHT, 2);
+    await shoot(core, gameId, RIM_LEFT, 2, 10, 0);
+  })).toEqual([WEAK_MID]);
+});
+
+test('Practice Focus leaves out a retracted Event, an unfinished Game, a softball Game and the sixth-newest finished Game', async () => {
+  const t = setup();
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  // the sixth-newest finished Game: 10 early Free Throws missed, which would sink the card if counted
+  await finished(t, athleteId, '2026-10-20T18:00:00Z', (core, gameId) => freeThrows(core, gameId, 0, 10));
+  // the newest five finished Games: the card's Free Throws, plus 5 late made Free Throws Undo retracts
+  await finished(t, athleteId, '2026-10-21T18:00:00Z', async (core, gameId) => {
+    await splitAt(core, gameId, 3);
+    for (let i = 0; i < 5; i++) await core.recordFreeThrow(gameId, true);
+    for (let i = 0; i < 5; i++) await core.undo(gameId);
+  });
+  for (const day of ['22', '23', '24', '25']) await finished(t, athleteId, `2026-10-${day}T18:00:00Z`, async () => {});
+  // a softball Game with 10 early Free Throws missed, and a basketball Game still in progress with 10 more
+  await finished(t, athleteId, '2026-10-26T18:00:00Z', (core, gameId) => freeThrows(core, gameId, 0, 10), { sport: 'softball', periodFormat: 'innings' });
+  const { core, gameId } = await startedAt(t, athleteId, '2026-10-27T18:00:00Z');
+  await freeThrows(core, gameId, 0, 10);
+
+  expect(await t.core.practiceFocus(athleteId)).toEqual([FREE_THROWS]);
+});
+
+test('the cards come in order when every rule fires: Free Throws, then the mid pair, then the three pair', async () => {
+  expect(
+    await cardsOf(async (core, gameId) => {
+      await splitAt(core, gameId, 3);
+      await weakLeft(core, gameId, MID_LEFT, MID_RIGHT, 2);
+      await weakLeft(core, gameId, THREE_LEFT, THREE_RIGHT, 3);
+    }),
+  ).toEqual([FREE_THROWS, WEAK_MID, WEAK_THREE]);
+});
