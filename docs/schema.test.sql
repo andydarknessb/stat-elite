@@ -299,6 +299,14 @@ begin
   if (select recorded_by from games where id = '20000000-0000-0000-0000-0000000000c1') is not null then
     raise exception 'a deleted Member''s Game should lose its Recorder';
   end if;
+  -- and nothing else: the Game keeps its Owner and Athlete, and its Event stays
+  if not exists (select 1 from games where id = '20000000-0000-0000-0000-0000000000c1'
+                 and owner_id = '00000000-0000-0000-0000-00000000000a' and athlete_id = '10000000-0000-0000-0000-00000000000a') then
+    raise exception 'a deleted Member''s Game should stay with its Owner and Athlete';
+  end if;
+  if not exists (select 1 from events where id = '30000000-0000-0000-0000-0000000000c2') then
+    raise exception 'a deleted Member''s Event should stay with its Game';
+  end if;
 end $$;
 set role authenticated;
 
@@ -318,16 +326,78 @@ begin
   end if;
 end $$;
 
--- Delete my account, signed in as A: everything of A's goes, B is untouched.
+-- A second Member, E, joins Casey after B (ADR 0004).
+reset role;
+insert into auth.users values ('00000000-0000-0000-0000-00000000000e');
+insert into invites (token, athlete_id, owner_id) values ('40000000-0000-0000-0000-0000000000e5', '10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+select accept_invite('40000000-0000-0000-0000-0000000000e5');
+-- The script runs in one transaction, so every join has the same now(). E is set to have joined a day before B: the earlier
+-- joiner then has the larger id, so only joined_at picks it as the heir (ADR 0004).
+reset role;
+update members set joined_at = now() - interval '1 day' where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000e';
+update members set joined_at = now() - interval '1 hour' where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000b';
+set role authenticated;
+-- Morgan is A's alone: with no Members it goes with A's account, its Game and its Event.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000a', 'Morgan');
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-0000000000f1', 'basketball', 'quarters', '2026-10-31', '00000000-0000-0000-0000-00000000000a');
+insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000f1', 1, now(), 1, 'steal');
+-- Casey's Events as they are before the deletion, owner left out, to compare after it.
+reset role;
+create temp table casey_events as
+  select e.id, to_jsonb(e) - 'owner_id' as content from events e join games g on g.id = e.game_id
+  where g.athlete_id = '10000000-0000-0000-0000-00000000000a';
+
+-- Delete my account, signed in as A (ADR 0004): Casey passes to E, the Member who joined first, with its Games and Events;
+-- B stays a Member of it, and Morgan goes with A.
+set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
 select delete_my_account();
 reset role;
 do $$
+declare n int;
 begin
-  if exists (select 1 from games where owner_id = '00000000-0000-0000-0000-00000000000a') then raise exception 'A''s Games survived account deletion'; end if;
-  if exists (select 1 from events where owner_id = '00000000-0000-0000-0000-00000000000a') then raise exception 'A''s Events survived account deletion'; end if;
-  if exists (select 1 from athletes where owner_id = '00000000-0000-0000-0000-00000000000a') then raise exception 'A''s Athletes survived account deletion'; end if;
-  if (select count(*) from events) <> 1 then raise exception 'B''s Event should remain'; end if;
+  if (select owner_id from athletes where id = '10000000-0000-0000-0000-00000000000a') is distinct from '00000000-0000-0000-0000-00000000000e' then
+    raise exception 'Casey should pass to E, the Member who joined first';
+  end if;
+  if (select count(*) from games where athlete_id = '10000000-0000-0000-0000-00000000000a' and owner_id = '00000000-0000-0000-0000-00000000000e') <> 3 then
+    raise exception 'Casey''s 3 Games should pass to E with it';
+  end if;
+  select count(*) into n from events e join games g on g.id = e.game_id
+    where g.athlete_id = '10000000-0000-0000-0000-00000000000a' and e.owner_id = '00000000-0000-0000-0000-00000000000e';
+  if n <> 8 then raise exception 'Casey''s 8 Events should pass to E with it, saw %', n; end if;
+  select count(*) into n from casey_events c join events e on e.id = c.id where to_jsonb(e) - 'owner_id' = c.content;
+  if n <> 8 then raise exception 'Casey''s Events should keep their contents, % of 8 match', n; end if;
+  -- E is the Owner now, so it is no Member of Casey; B, which joined later, stays one
+  if (select array_agg(member_id) from members where athlete_id = '10000000-0000-0000-0000-00000000000a')
+     is distinct from array['00000000-0000-0000-0000-00000000000b'::uuid] then
+    raise exception 'Casey should keep only B as a Member once E is its Owner';
+  end if;
+  if exists (select 1 from athletes where id = '10000000-0000-0000-0000-0000000000f1')
+     or exists (select 1 from games where id = '20000000-0000-0000-0000-0000000000f1')
+     or exists (select 1 from events where id = '30000000-0000-0000-0000-0000000000f1') then
+    raise exception 'Morgan, its Game and its Event should go with A';
+  end if;
+  if exists (select 1 from athletes where owner_id = '00000000-0000-0000-0000-00000000000a')
+     or exists (select 1 from events where owner_id = '00000000-0000-0000-0000-00000000000a') then
+    raise exception 'A''s rows survived account deletion';
+  end if;
+  if (select count(*) from events) <> 9 then
+    raise exception 'B''s Event and Casey''s 8 should remain, saw %', (select count(*) from events);
+  end if;
 end $$;
+-- The Events that came with Casey are not editable by their new Owner either (ADR 0004).
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+do $$
+declare n int;
+begin
+  update events set type = 'block' where owner_id = '00000000-0000-0000-0000-00000000000e';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'Events must not be editable by their Owner, % updated', n; end if;
+end $$;
+reset role;
 
 \echo 'schema.test.sql: all checks passed'

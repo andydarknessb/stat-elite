@@ -521,12 +521,20 @@ const later = (row: { updated_at: string }, held?: { updated_at: string }) =>
 
 /** A Member as the Owner's list shows it: named by its sign-in email, or by when it joined when none was recorded. */
 export type Member = MemberRow & { label: string };
+const labelled = (member: MemberRow): Member => ({
+  ...member,
+  label: member.email ?? `Joined ${new Date(member.joined_at).toLocaleDateString()}`,
+});
 
-/** What deleting the account removes from this phone: the Athletes by name, their Games, Events and photos, and the rows not yet uploaded. */
+/** What deleting the account does to one Athlete the phone holds (ADR 0004): it passes to its first Member, is deleted with its Games, or this account leaves it. */
+export type AthleteFate =
+  | { name: string; fate: 'passes'; to: string }
+  | { name: string; fate: 'deleted'; games: number }
+  | { name: string; fate: 'left' };
+
+/** What deleting the account does: each Athlete's fate, the photos this phone clears, and the rows not yet uploaded. */
 export interface DeletionSummary {
-  athletes: string[];
-  games: number;
-  events: number;
+  athletes: AthleteFate[];
   photos: number;
   unsynced: number;
 }
@@ -667,6 +675,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       }
       const athleteRows = athletes.map(athleteOf);
       const athleteHeld = await store.athletes.bulkGet(athleteRows.map((r) => r.id));
+      // ownership moves only on the server (ADR 0004), so a held Athlete takes the server's owner even when its own edit is not newer
+      for (const [i, row] of athleteRows.entries()) {
+        const held = athleteHeld[i];
+        if (held && held.owner_id !== row.owner_id) await store.athletes.update(row.id, { owner_id: row.owner_id });
+      }
       await store.athletes.bulkPut(athleteRows.filter((r, i) => later(r, athleteHeld[i])));
       const gameRows = games.map(gameOf);
       const gameHeld = await store.games.bulkGet(gameRows.map((r) => r.id));
@@ -1157,11 +1170,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
     /** The Owner's Members list for one of its Athletes, each named for the screen (ADR 0004). */
     async members(athleteId: string): Promise<Member[]> {
-      const members = await server.members(athleteId);
-      return members.map((member) => ({
-        ...member,
-        label: member.email ?? `Joined ${new Date(member.joined_at).toLocaleDateString()}`,
-      }));
+      return (await server.members(athleteId)).map(labelled);
     },
 
     /** The Owner removes a Member; the Member's phone drops the Athlete at its next download (ADR 0004). */
@@ -1193,20 +1202,27 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       void flush();
     },
 
-    /** What deleting the account removes from this phone. Signed in, only the Athletes the account owns are named: their Owner keeps any other. Signed out, the phone clears all of it. */
+    /** What deleting the account does to each Athlete the phone holds: it passes to its first Member, is deleted with its Games, or this account leaves it. Signed out, the phone clears all of it. */
     async deletionSummary(): Promise<DeletionSummary> {
       const me = await server.session();
-      const athletes = (await store.athletes.orderBy('created_at').toArray()).filter(
-        (a) => me === undefined || a.owner_id === undefined || a.owner_id === me,
+      // a signed-in phone first brings the server's owners down, so an Athlete that passed to this account reads as its own
+      if (me !== undefined) await exclusive(download);
+      const athletes = await store.athletes.orderBy('created_at').toArray();
+      const fates = await Promise.all(
+        athletes.map(async (a): Promise<AthleteFate> => {
+          // another account's Athlete, shared with this phone: this account is one of its Members, and leaves it
+          if (me !== undefined && a.owner_id !== undefined && a.owner_id !== me) return { name: a.name, fate: 'left' };
+          // the account's own Athlete passes to the Member who joined first, if it has one
+          const members = me === undefined ? [] : await server.members(a.id);
+          const [first] = members.sort((x, y) => x.joined_at.localeCompare(y.joined_at));
+          if (first) return { name: a.name, fate: 'passes', to: labelled(first).label };
+          return { name: a.name, fate: 'deleted', games: await store.games.where('athlete_id').equals(a.id).count() };
+        }),
       );
-      const ids = athletes.map((a) => a.id);
-      const gone = new Set(await store.games.where('athlete_id').anyOf(ids).primaryKeys());
       const pending = await store.outbox.toArray();
       return {
-        athletes: athletes.map((a) => a.name),
-        games: gone.size,
-        events: await store.events.filter((e) => gone.has(e.game_id)).count(),
-        photos: await store.athletePhotos.where('athlete_id').anyOf(ids).count(),
+        athletes: fates,
+        photos: await store.athletePhotos.where('athlete_id').anyOf(athletes.map((a) => a.id)).count(),
         unsynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size,
       };
     },

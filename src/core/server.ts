@@ -11,7 +11,7 @@ export type SyncedRow = { athletes: AthleteRow; games: GameRow; events: EventRow
 export type UploadRow = { id: string; owner_id?: string; updated_at?: string };
 
 /** The stand-in's copy of a row: the Athlete a Game or Event belongs to is what Member access checks. */
-type StoredRow = UploadRow & { athlete_id?: string; game_id?: string };
+type StoredRow = UploadRow & { athlete_id?: string; game_id?: string; recorded_by?: string | null };
 
 /** A Member of an Athlete, when it joined, and the sign-in email it accepted the Invite with (null when none was recorded). */
 export type MemberRow = { member_id: string; joined_at: string; email: string | null };
@@ -149,12 +149,29 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       async deleteAccount() {
         reach();
         if (account === undefined) throw new Error('Sign in before deleting the account');
-        // what removing the auth user cascades to: the account's Athletes with their Games and Events, its Invites, and its memberships
+        // ADR 0004: an Athlete with Members passes, with its Games and Events, to the Member who joined first, and that Member's membership ends
+        for (const [athleteId, row] of rows.athletes) {
+          const [first] = [...members]
+            .filter(([key]) => key.startsWith(`${athleteId} `))
+            .sort(([, a], [, b]) => a.joined_at.localeCompare(b.joined_at));
+          if (row.owner_id !== account || !first) continue;
+          const heir = first[0].slice(athleteId.length + 1);
+          row.owner_id = heir;
+          // stamped, so the heir's phone takes the new owner at its next download (latest edit wins, ADR 0001)
+          row.updated_at = new Date().toISOString();
+          for (const table of ['games', 'events'] as const) {
+            for (const stored of rows[table].values()) if (athleteOf(table, stored) === athleteId) stored.owner_id = heir;
+          }
+          members.delete(first[0]);
+        }
+        // what removing the auth user then cascades to: the account's Athletes still unshared, with their Games and Events, its Invites, and its memberships
         const owned = new Set([...rows.athletes].filter(([, row]) => row.owner_id === account).map(([id]) => id));
         for (const id of owned) rows.athletes.delete(id);
         for (const table of ['games', 'events'] as const) {
           for (const [id, row] of rows[table]) if (row.owner_id === account) rows[table].delete(id);
         }
+        // the Games a Member recorded stay with the Athlete; only their link to the deleted Recorder is cleared (ADR 0004)
+        for (const row of rows.games.values()) if (row.recorded_by === account) row.recorded_by = null;
         for (const [token, invite] of invites) {
           if (invite.owner_id === account || invite.used_by === account) invites.delete(token);
         }
