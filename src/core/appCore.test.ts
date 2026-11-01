@@ -2341,7 +2341,7 @@ test('a phone that is not signed in clears itself without calling the server', a
   expect(await core.home()).toEqual({});
 });
 
-test('the deletion summary names the Athletes the account owns, and counts their Games, Events and photos', async () => {
+test('the deletion summary names what happens to each Athlete, and counts the photos the deletion clears', async () => {
   const { core, inspect, server } = setup();
   await signInWithCode(core, 'casey@example.com');
   const casey = await core.addAthlete({ name: 'Casey', photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) });
@@ -2352,7 +2352,7 @@ test('the deletion summary names the Athletes the account owns, and counts their
   const later = createAppCore({ clock: () => new Date('2026-10-30T19:00:00Z'), store: inspect, server });
   await later.addAthlete({ name: 'Riley' });
   await later.flush();
-  // an Athlete another account owns and shared with this phone is not the account's to delete
+  // an Athlete another account owns and shared with this phone: this phone's account is a Member, and leaves it
   await inspect.athletes.put({
     id: 'shared-here',
     owner_id: 'another-account',
@@ -2362,7 +2362,74 @@ test('the deletion summary names the Athletes the account owns, and counts their
     updated_at: '2026-10-30T10:00:00.000Z',
   });
 
-  expect(await core.deletionSummary()).toEqual({ athletes: ['Casey', 'Riley'], games: 1, events: 2, photos: 1, unsynced: 0 });
+  expect(await core.deletionSummary()).toEqual({
+    athletes: [
+      { name: 'Jordan', fate: 'left' },
+      { name: 'Casey', fate: 'deleted', games: 1 },
+      { name: 'Riley', fate: 'deleted', games: 0 },
+    ],
+    photos: 1,
+    unsynced: 0,
+  });
+});
+
+test("an Owner's deletion passes a shared Athlete, with its Games and Events, to the Member who joined first; the others stay", async () => {
+  const { core, server } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.recordTile(gameId, 'steal');
+  await core.flush();
+  const firstInvite = await core.createInvite(athleteId);
+  const secondInvite = await core.createInvite(athleteId);
+  const sam = otherAccount(server);
+  await signInWithCode(sam.core, 'sam@example.com');
+  await sam.core.acceptInvite(firstInvite);
+  const jo = otherAccount(server);
+  await signInWithCode(jo.core, 'jo@example.com');
+  await jo.core.acceptInvite(secondInvite);
+  const samId = (await sam.server.session())!;
+  // the summary names the Member it passes to by the email that Member accepted with
+  expect(await core.deletionSummary()).toEqual({
+    athletes: [{ name: 'Casey', fate: 'passes', to: 'sam@example.com' }],
+    photos: 0,
+    unsynced: 0,
+  });
+
+  await core.deleteAccount();
+
+  expect(server.rows.athletes.get(athleteId)?.owner_id).toBe(samId);
+  expect(server.rows.games.get(gameId)?.owner_id).toBe(samId);
+  expect([...server.rows.events.values()]).toEqual([expect.objectContaining({ owner_id: samId })]);
+  // sam's phone takes the Athlete over at its next download, so it records and invites as the Owner
+  await sam.core.refresh();
+  expect(await sam.core.canInvite(athleteId)).toBe(true);
+  // sam is the Owner now, so it is no Member of Casey; jo, who joined later, still is
+  expect(await sam.server.members(athleteId)).toEqual([expect.objectContaining({ email: 'jo@example.com' })]);
+});
+
+test("a Member's deletion clears only the Recorder link on the Games it recorded, which stay with the Athlete", async () => {
+  const { core, server } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const ownerId = (await server.session())!;
+  await core.flush();
+  const invite = await core.createInvite(athleteId);
+  const sam = otherAccount(server);
+  await signInWithCode(sam.core, 'sam@example.com');
+  await sam.core.acceptInvite(invite);
+  const gameId = await sam.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await sam.core.recordTile(gameId, 'steal');
+  await sam.core.flush();
+  expect(server.rows.games.get(gameId)).toMatchObject({ owner_id: ownerId, recorded_by: (await sam.server.session())! });
+
+  expect(await sam.core.deletionSummary()).toEqual({ athletes: [{ name: 'Casey', fate: 'left' }], photos: 0, unsynced: 0 });
+  await sam.core.deleteAccount();
+
+  expect(server.rows.games.get(gameId)).toMatchObject({ owner_id: ownerId, athlete_id: athleteId, recorded_by: null });
+  expect(server.rows.athletes.get(athleteId)?.owner_id).toBe(ownerId);
+  expect(server.rows.events.size).toBe(1);
+  expect(await core.members(athleteId)).toEqual([]);
 });
 
 test('a phone signed out names every Athlete it holds, since its deletion clears them all', async () => {
@@ -2373,7 +2440,7 @@ test('a phone signed out names every Athlete it holds, since its deletion clears
   // the same store, seen by a phone whose session has lapsed: its rows still carry the account's owner
   const lapsed = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: inspect, server: server.phone() });
 
-  expect(await lapsed.deletionSummary()).toMatchObject({ athletes: ['Casey'], unsynced: 0 });
+  expect(await lapsed.deletionSummary()).toMatchObject({ athletes: [{ name: 'Casey', fate: 'deleted', games: 0 }], unsynced: 0 });
 });
 
 test('the deletion summary counts the rows not yet uploaded, which the deletion discards', async () => {
@@ -2382,7 +2449,9 @@ test('the deletion summary counts the rows not yet uploaded, which the deletion 
   link.up = false;
   await core.addAthlete({ name: 'Casey' });
 
-  expect(await core.deletionSummary()).toMatchObject({ athletes: ['Casey'], unsynced: 1 });
+  // the summary asks the server who the Athlete's Members are, so the connection is back for it; the row stays unuploaded
+  link.up = true;
+  expect(await core.deletionSummary()).toMatchObject({ athletes: [{ name: 'Casey', fate: 'deleted', games: 0 }], unsynced: 1 });
 });
 
 test("a deletion that follows a Member's leave waits for the download the leave is still running, so the download cannot refill the phone", async () => {

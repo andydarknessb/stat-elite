@@ -17,6 +17,8 @@ import {
   type FeedGame,
   type Home,
   type LiveGame,
+  type AthleteFate,
+  type DeletionSummary,
   type Member,
   type Scores,
   type Season,
@@ -704,12 +706,35 @@ function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void })
   );
 }
 
-/** Names what deleting removes, then deletes it: the account on the server, and everything on this phone. */
+/** What deleting does to one Athlete, in the words the Recorder reads before it confirms (ADR 0004). */
+function fateLine(athlete: AthleteFate): string {
+  if (athlete.fate === 'passes') return `${athlete.name}: passes to ${athlete.to}, with its Games and Events.`;
+  if (athlete.fate === 'deleted') {
+    return `${athlete.name}: deleted with ${athlete.games} ${athlete.games === 1 ? 'Game' : 'Games'} and their Events.`;
+  }
+  return `${athlete.name}: you leave it; the Games you recorded stay with it.`;
+}
+
+/** Names what happens to each Athlete, then deletes: the account on the server, and everything on this phone. */
 function DeleteAccount({ core, onCancel }: { core: AppCore; onCancel: () => void }) {
-  const summary = useReadModel(() => core.deletionSummary(), [core]);
+  const [summary, setSummary] = useState<DeletionSummary>();
+  const [unreadable, setUnreadable] = useState(false);
   const sync = useReadModel(() => core.sync(), [core]);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string>();
+  // a passing Athlete's Member comes from the server, so the list waits for it and says so when it cannot load
+  useEffect(() => {
+    core.deletionSummary().then(setSummary, () => setUnreadable(true));
+  }, [core]);
+  if (unreadable) {
+    return (
+      <main>
+        <h1>Delete my account and all data</h1>
+        <p role="alert">Could not load what deleting removes. Check the connection and try again.</p>
+        <button onClick={onCancel}>Cancel</button>
+      </main>
+    );
+  }
   if (!summary || !sync) return null;
   const remove = async () => {
     setDeleting(true);
@@ -730,9 +755,10 @@ function DeleteAccount({ core, onCancel }: { core: AppCore; onCancel: () => void
         undone.
       </p>
       <ul>
-        <li>Athletes: {summary.athletes.length > 0 ? summary.athletes.join(', ') : 'none'}</li>
-        <li>Games: {summary.games}</li>
-        <li>Events: {summary.events}</li>
+        {summary.athletes.length === 0 && <li>Athletes: none</li>}
+        {summary.athletes.map((athlete, i) => (
+          <li key={i}>{fateLine(athlete)}</li>
+        ))}
         <li>Photos on this phone: {summary.photos}</li>
         <li>Not yet synced: {summary.unsynced}</li>
       </ul>
