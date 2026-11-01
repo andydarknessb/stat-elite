@@ -44,8 +44,13 @@ insert into events (id, owner_id, game_id, seq, client_ts, period, type, court_x
 insert into events (id, owner_id, game_id, seq, client_ts, period, type, outcome, rbi) values
   ('30000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a2', 1, now(), 1, 'plate_appearance', 'double', 1);
 
+-- 8 Periods is a basketball format: a basketball Game in eighths is accepted. It has an Athlete of its own, so the counts below hold.
+insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000f2', '00000000-0000-0000-0000-00000000000a', 'Quinn');
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000f2', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-0000000000f2', 'basketball', 'eighths', '2026-10-30', '00000000-0000-0000-0000-00000000000a');
+
 -- The database rejects malformed rows.
 select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date) values ('20000000-0000-0000-0000-0000000000a9', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'innings', '2026-10-30')$$, 'basketball Game in innings');
+select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date) values ('20000000-0000-0000-0000-0000000000a9', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'softball', 'eighths', '2026-10-30')$$, 'softball Game in eighths');
 select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date) values ('20000000-0000-0000-0000-0000000000a9', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000b', 'basketball', 'halves', '2026-10-30')$$, 'Game for another owner''s Athlete');
 select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type, court_y, shot_value, made) values ('30000000-0000-0000-0000-000000000099', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a1', 99, now(), 1, 'shot', 10, 2, true)$$, 'Shot without court_x');
 select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type, court_x, court_y, shot_value, made) values ('30000000-0000-0000-0000-000000000099', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a1', 99, now(), 1, 'shot', 10, 10, 1, true)$$, 'Shot worth 1');

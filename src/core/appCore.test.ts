@@ -84,6 +84,14 @@ test("Game setup is prefilled from the Athlete's newest Game, not another Athlet
   });
 });
 
+test('Game setup keeps 8 Periods from the newest Game', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'eighths' });
+
+  expect(await core.gameSetup(athleteId)).toMatchObject({ sport: 'basketball', basketballPeriods: 'eighths' });
+});
+
 test('a stat tile tap counts on the live Game', async () => {
   const { core } = setup();
   const gameId = await basketballGame(core);
@@ -667,9 +675,10 @@ test('Next period records a period_start Event, and every Event after it carries
   expect(await inspect.events.get(after.id)).toMatchObject({ type: 'assist', period: 2 });
 });
 
-test('Period labels follow the Game format: H1 and H2 for halves, Q1 to Q4 for quarters, then OT1, OT2 past regulation', async () => {
+test('Period labels follow the Game format: H1 and H2 for halves, Q1 to Q4 for quarters, P1 to P8 for 8 Periods, then OT1, OT2 past regulation', async () => {
   expect([1, 2, 3, 4, 5, 6].map((p) => periodLabel('quarters', p))).toEqual(['Q1', 'Q2', 'Q3', 'Q4', 'OT1', 'OT2']);
   expect([1, 2, 3, 4].map((p) => periodLabel('halves', p))).toEqual(['H1', 'H2', 'OT1', 'OT2']);
+  expect([1, 2, 8, 9, 10].map((p) => periodLabel('eighths', p))).toEqual(['P1', 'P2', 'P8', 'OT1', 'OT2']);
 
   // the live Game names its Period in its own format, and a reload keeps it
   const { core, reopen } = setup();
@@ -2631,6 +2640,7 @@ type Spot = { x: number; y: number };
 
 const QUARTERS: GameFormat = { sport: 'basketball', periodFormat: 'quarters' };
 const HALVES: GameFormat = { sport: 'basketball', periodFormat: 'halves' };
+const EIGHTHS: GameFormat = { sport: 'basketball', periodFormat: 'eighths' };
 // spots as 0–100 on each axis: the mid spots about 18 ft from the basket, the 3 spots about 35 ft, the rim spot 7 ft (left side)
 const MID_LEFT: Spot = { x: 20, y: 35 };
 const MID_RIGHT: Spot = { x: 80, y: 35 };
@@ -2705,6 +2715,12 @@ test('Period 2 is late in halves and early in quarters, and overtime is late', a
   expect(await cardsOf((core, gameId) => splitAt(core, gameId, 2), HALVES)).toEqual([FREE_THROWS]);
   expect(await cardsOf((core, gameId) => splitAt(core, gameId, 2), QUARTERS)).toEqual([]);
   expect(await cardsOf((core, gameId) => splitAt(core, gameId, 5), QUARTERS)).toEqual([FREE_THROWS]);
+});
+
+test('Period 4 is early and Period 5 is late in 8 Periods', async () => {
+  // Period 4 counts early, so all 20 Free Throws are early and there is no card (were it late, 7 of 10 against 5 of 10 would make one)
+  expect(await cardsOf((core, gameId) => splitAt(core, gameId, 4), EIGHTHS)).toEqual([]);
+  expect(await cardsOf((core, gameId) => splitAt(core, gameId, 5), EIGHTHS)).toEqual([FREE_THROWS]);
 });
 
 test('Weak side: 7 of 10 on the right against 5 of 10 on the left names the left spot', async () => {
