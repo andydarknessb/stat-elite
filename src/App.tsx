@@ -433,10 +433,10 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
     return <AthleteForm core={core} athlete={form === 'edit' ? athlete : undefined} onDone={() => setForm(undefined)} />;
   }
   if (summary) return <GameSummary core={core} gameId={summary} onBack={() => setSummary(undefined)} />;
-  if (tab === 'games') {
+  if (tab === 'games' || tab === 'insights') {
     return (
       <>
-        <GamesTab core={core} athleteId={athlete.id} onOpen={setSummary} />
+        {tab === 'games' ? <GamesTab core={core} athleteId={athlete.id} onOpen={setSummary} /> : <InsightsTab core={core} athleteId={athlete.id} />}
         <TabBar tab={tab} onTab={setTab} />
       </>
     );
@@ -562,9 +562,9 @@ const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
 
 const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 'Standard', bleacher: 'Bleacher' };
 
-type Tab = 'home' | 'games';
+type Tab = 'home' | 'games' | 'insights';
 
-/** The bottom tabs: Home and Games (plan: navigation). */
+/** The bottom tabs: Home, Games and Insights (plan: navigation). */
 function TabBar({ tab, onTab }: { tab: Tab; onTab: (tab: Tab) => void }) {
   return (
     <nav className="tabs" aria-label="Tabs">
@@ -573,6 +573,9 @@ function TabBar({ tab, onTab }: { tab: Tab; onTab: (tab: Tab) => void }) {
       </button>
       <button aria-pressed={tab === 'games'} onClick={() => onTab('games')}>
         Games
+      </button>
+      <button aria-pressed={tab === 'insights'} onClick={() => onTab('insights')}>
+        Insights
       </button>
     </nav>
   );
@@ -648,6 +651,24 @@ function GamesTab({ core, athleteId, onOpen }: { core: AppCore; athleteId: strin
     <main>
       <h1>Games</h1>
       <FeedRows games={feed.games} onOpen={onOpen} />
+    </main>
+  );
+}
+
+/** The Insights tab: Practice Focus cards from the Athlete's last 5 Games, each with its drill (GLOSSARY: Practice Focus). */
+function InsightsTab({ core, athleteId }: { core: AppCore; athleteId: string }) {
+  const cards = useReadModel(() => core.practiceFocus(athleteId), [core, athleteId]);
+  if (!cards) return null;
+  return (
+    <main>
+      <h1>Insights</h1>
+      {cards.length === 0 && <p>Nothing stands out in the last 5 Games.</p>}
+      {cards.map((card) => (
+        <section key={card.drill}>
+          <h2>{card.title}</h2>
+          <p>{card.drill}</p>
+        </section>
+      ))}
     </main>
   );
 }
