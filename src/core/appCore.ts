@@ -522,6 +522,14 @@ const later = (row: { updated_at: string }, held?: { updated_at: string }) =>
 /** A Member as the Owner's list shows it: named by its sign-in email, or by when it joined when none was recorded. */
 export type Member = MemberRow & { label: string };
 
+/** What deleting the account removes: the Athletes it owns on this phone by name, and their Games, Events and photos. */
+export interface DeletionSummary {
+  athletes: string[];
+  games: number;
+  events: number;
+  photos: number;
+}
+
 export function createAppCore({ clock, store, server }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
   // a Game's Events in seq order
@@ -699,9 +707,14 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       if (!(await sendEntry(entry))) return;
     }
   };
-  // one drain at a time, each starting after the one before it has finished
-  let draining: Promise<void> = Promise.resolve();
-  const after = (task: () => Promise<void>): Promise<void> => (draining = draining.then(task).catch(console.error));
+  // one task at a time, each starting after the one before it has finished: a drain, or the account's deletion
+  let draining: Promise<unknown> = Promise.resolve();
+  const exclusive = <T>(task: () => Promise<T>): Promise<T> => {
+    const run = draining.then(task);
+    draining = run.catch(console.error);
+    return run;
+  };
+  const after = (task: () => Promise<void>): Promise<void> => exclusive(task).catch(console.error);
   const flush = () => after(drain);
   // launch and reconnect: the download runs again, after any drain in flight, then the queue uploads (ADR 0004)
   const refresh = () =>
@@ -1176,6 +1189,29 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       await server.leave(athleteId);
       await store.transaction('rw', phoneRows, () => dropAthletes([athleteId]));
       void flush();
+    },
+
+    /** The Athletes the account owns on this phone, with what deleting the account removes of them. Athletes another account owns are left out: their Owner keeps them. */
+    async deletionSummary(): Promise<DeletionSummary> {
+      const me = await server.session();
+      const athletes = (await store.athletes.orderBy('created_at').toArray()).filter((a) => a.owner_id === undefined || a.owner_id === me);
+      const ids = athletes.map((a) => a.id);
+      const gone = new Set(await store.games.where('athlete_id').anyOf(ids).primaryKeys());
+      return {
+        athletes: athletes.map((a) => a.name),
+        games: gone.size,
+        events: await store.events.filter((e) => gone.has(e.game_id)).count(),
+        photos: await store.athletePhotos.where('athlete_id').anyOf(ids).count(),
+      };
+    },
+
+    /** Deletes the account and everything it owns on the server, then clears this phone back to first run. A refusal by the server leaves the phone as it was. */
+    deleteAccount(): Promise<void> {
+      return exclusive(async () => {
+        // a phone not signed in has no account on the server, so only its own rows go
+        if ((await server.session()) !== undefined) await server.deleteAccount();
+        await store.transaction('rw', store.tables, () => Promise.all(store.tables.map((table) => table.clear())));
+      });
     },
 
     /** The "N not synced" badge: whether the Recorder is signed in, and how many rows still live only on the phone. */

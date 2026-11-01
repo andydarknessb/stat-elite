@@ -678,6 +678,8 @@ function GameSummary({ core, gameId, onBack }: { core: AppCore; gameId: string; 
 /** Settings: Button Size, the phone setting the live screen reads (GLOSSARY: Button Size). */
 function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void }) {
   const size = useReadModel(() => core.buttonSize(), [core]);
+  const [deleting, setDeleting] = useState(false);
+  if (deleting) return <DeleteAccount core={core} onCancel={() => setDeleting(false)} />;
   if (!size) return null;
   return (
     <main>
@@ -694,9 +696,52 @@ function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void })
           </button>
         ))}
       </div>
+      <button onClick={() => setDeleting(true)}>Delete my account and all data</button>
       <button className="primary" onClick={onDone}>
         Done
       </button>
+    </main>
+  );
+}
+
+/** Names what deleting removes, then deletes it: the account on the server, and everything on this phone. */
+function DeleteAccount({ core, onCancel }: { core: AppCore; onCancel: () => void }) {
+  const summary = useReadModel(() => core.deletionSummary(), [core]);
+  const sync = useReadModel(() => core.sync(), [core]);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string>();
+  if (!summary || !sync) return null;
+  const remove = async () => {
+    setDeleting(true);
+    setError(undefined);
+    try {
+      // on success the phone has no Athlete, so App shows first run and this screen goes
+      await core.deleteAccount();
+    } catch {
+      setError('Could not delete. Check the connection and try again.');
+      setDeleting(false);
+    }
+  };
+  return (
+    <main>
+      <h1>Delete my account and all data</h1>
+      <p>
+        {sync.signedIn ? 'This deletes your account from the server and clears this phone.' : 'This clears this phone.'} It cannot be
+        undone.
+      </p>
+      <ul>
+        <li>Athletes: {summary.athletes.length > 0 ? summary.athletes.join(', ') : 'none'}</li>
+        <li>Games: {summary.games}</li>
+        <li>Events: {summary.events}</li>
+        <li>Photos on this phone: {summary.photos}</li>
+      </ul>
+      <button className="primary" disabled={deleting} onClick={() => void remove()}>
+        Delete everything
+      </button>
+      <button disabled={deleting} onClick={onCancel}>
+        Cancel
+      </button>
+      {error && <p role="alert">{error}</p>}
     </main>
   );
 }

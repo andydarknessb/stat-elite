@@ -324,6 +324,7 @@ select delete_my_account();
 reset role;
 do $$
 begin
+  if exists (select 1 from games where owner_id = '00000000-0000-0000-0000-00000000000a') then raise exception 'A''s Games survived account deletion'; end if;
   if exists (select 1 from events where owner_id = '00000000-0000-0000-0000-00000000000a') then raise exception 'A''s Events survived account deletion'; end if;
   if exists (select 1 from athletes where owner_id = '00000000-0000-0000-0000-00000000000a') then raise exception 'A''s Athletes survived account deletion'; end if;
   if (select count(*) from events) <> 1 then raise exception 'B''s Event should remain'; end if;

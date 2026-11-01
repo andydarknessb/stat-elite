@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
 import { expect, test, vi } from 'vitest';
 import { arcPreset, createAppCore, HALF_COURT, periodLabel, type Base, type GameFormat } from './appCore';
-import { createStandInServer, createSupabaseServer, InviteRefused, serverFor } from './server';
+import { createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
 import { openStore, type Outcome, type Pitch, type Store } from './store';
 
 let stores = 0;
@@ -2287,4 +2287,156 @@ test("a baserunning move's base and steal reach a second phone at sign-in", asyn
   await signInWithCode(second.core, 'casey@example.com');
 
   expect(await second.inspect.events.get(steal.id)).toEqual(steal);
+});
+
+test('deleting the account removes its rows from the server and clears the phone back to first run', async () => {
+  const { core, inspect, server } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  const athleteId = await core.addAthlete({ name: 'Casey', photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.recordTile(gameId, 'steal');
+  await core.setButtonSize('bleacher');
+  await core.flush();
+  expect(server.rows.events.size).toBe(1);
+
+  await core.deleteAccount();
+
+  expect(server.rows.athletes.size).toBe(0);
+  expect(server.rows.games.size).toBe(0);
+  expect(server.rows.events.size).toBe(0);
+  expect(await server.session()).toBeUndefined();
+  expect(await core.home()).toEqual({});
+  expect(await core.sync()).toEqual({ signedIn: false, notSynced: 0 });
+  expect(await inspect.athletes.count()).toBe(0);
+  expect(await inspect.athletePhotos.count()).toBe(0);
+  expect(await inspect.games.count()).toBe(0);
+  expect(await inspect.events.count()).toBe(0);
+  expect(await inspect.settings.count()).toBe(0);
+  expect(await inspect.outbox.count()).toBe(0);
+  expect(await core.buttonSize()).toBe('standard');
+});
+
+test('a server that refuses the deletion leaves the account signed in and the phone as it was', async () => {
+  const { core, server, link } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.flush();
+  link.up = false;
+
+  await expect(core.deleteAccount()).rejects.toThrow();
+
+  expect(server.rows.athletes.has(athleteId)).toBe(true);
+  expect(await core.home()).toMatchObject({ athlete: { id: athleteId } });
+  expect(await core.sync()).toEqual({ signedIn: true, notSynced: 0 });
+});
+
+test('a phone that is not signed in clears itself without calling the server', async () => {
+  const { core, server } = setup();
+  await core.addAthlete({ name: 'Casey' });
+  const deleteOnServer = vi.spyOn(server, 'deleteAccount');
+
+  await core.deleteAccount();
+
+  expect(deleteOnServer).not.toHaveBeenCalled();
+  expect(await core.home()).toEqual({});
+});
+
+test('the deletion summary names the Athletes the account owns, and counts their Games, Events and photos', async () => {
+  const { core, inspect, server } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  const casey = await core.addAthlete({ name: 'Casey', photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) });
+  const gameId = await core.startGame({ athleteId: casey, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.recordTile(gameId, 'steal');
+  await core.recordTile(gameId, 'block');
+  // a later Athlete, so the list reads in the order the phone shows them (created_at)
+  const later = createAppCore({ clock: () => new Date('2026-10-30T19:00:00Z'), store: inspect, server });
+  await later.addAthlete({ name: 'Riley' });
+  // an Athlete another account owns and shared with this phone is not the account's to delete
+  await inspect.athletes.put({
+    id: 'shared-here',
+    owner_id: 'another-account',
+    name: 'Jordan',
+    jersey_number: null,
+    created_at: '2026-10-30T10:00:00.000Z',
+    updated_at: '2026-10-30T10:00:00.000Z',
+  });
+
+  expect(await core.deletionSummary()).toEqual({ athletes: ['Casey', 'Riley'], games: 1, events: 2, photos: 1 });
+});
+
+test('a download still in flight when the account is deleted cannot refill the phone', async () => {
+  const { core, inspect, server } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  await core.addAthlete({ name: 'Casey' });
+  await core.flush();
+  // the download reads the server's rows, then waits: the deletion must queue behind it
+  let reached!: () => void;
+  const inDownload = new Promise<void>((resolve) => (reached = resolve));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const slow: Server = {
+    ...server,
+    download: async (table) => {
+      const rows = await server.download(table);
+      reached();
+      await gate;
+      return rows;
+    },
+  };
+  const slowCore = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: inspect, server: slow });
+
+  const refreshing = slowCore.refresh();
+  await inDownload;
+  const deleting = slowCore.deleteAccount();
+  // long enough for an unqueued deletion to clear the phone, before the download writes its rows back
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  release();
+  await Promise.all([refreshing, deleting]);
+
+  expect(await inspect.athletes.count()).toBe(0);
+  expect(await core.home()).toEqual({});
+});
+
+test('the Supabase server deletes the account through its function, then signs the phone out locally', async () => {
+  const calls: unknown[][] = [];
+  const client = {
+    rpc: async (name: string) => {
+      calls.push(['rpc', name]);
+      return { error: null };
+    },
+    auth: {
+      signOut: async (options: unknown) => {
+        calls.push(['signOut', options]);
+        return { error: null };
+      },
+    },
+  };
+
+  await createSupabaseServer(client as never).deleteAccount();
+
+  expect(calls).toEqual([
+    ['rpc', 'delete_my_account'],
+    ['signOut', { scope: 'local' }],
+  ]);
+});
+
+test('the Supabase server keeps the phone signed in when the database refuses the deletion', async () => {
+  const calls: unknown[][] = [];
+  const client = {
+    rpc: async (name: string) => {
+      calls.push(['rpc', name]);
+      return { error: { message: 'permission denied for function delete_my_account' } };
+    },
+    auth: {
+      signOut: async () => {
+        calls.push(['signOut']);
+        return { error: null };
+      },
+    },
+  };
+
+  await expect(createSupabaseServer(client as never).deleteAccount()).rejects.toMatchObject({
+    message: 'permission denied for function delete_my_account',
+  });
+  expect(calls).toEqual([['rpc', 'delete_my_account']]);
 });
