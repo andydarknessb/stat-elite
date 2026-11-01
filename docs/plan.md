@@ -5,10 +5,10 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 ## Product
 
 - A public product for families. v1 goes to a handful of families, with no payments.
-- Each Athlete is owned by one account. No shared Athletes and no live viewing in v1; anyone else sees a Game through its share card.
-- No account until the first Game ends: "Save this game" asks for an email magic link, then uploads everything recorded so far.
+- Each Athlete has one Owner and can be shared with Members through an Invite (M3, ADR 0004). No live viewing in v1: Members see a Game once it uploads, everyone else through its share card.
+- No account until the first Game ends: "Save this game" asks for an email magic link or the emailed code, then uploads everything recorded so far.
 - Photos stay on the phone. Only stats sync.
-- Settings has "Delete my account and all data" (`delete_my_account()`), which also clears the phone.
+- Settings has "Delete my account and all data" (`delete_my_account()`), which also clears the phone. From M3, shared Athletes pass to a Member instead of being deleted.
 
 ## Screens
 
@@ -19,9 +19,10 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Game setup | Sport, Opponent, date, period format, all prefilled from the last Game so starting is one tap | — |
 | Live game, basketball | Shift timer and Sub In/Out toggle on top, Team–Opponent strip, half court for Shots, Free Throw row, 2-column stat tiles with live counts | Stattie (shift bar), Buckets (tiles, Free Throw row) |
 | Live game, softball/baseball | Team–Opponent strip, optional Pitch buttons, Outcome grid, RBI chips, diamond for the Athlete only | spec's Plate Appearance flow |
-| Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus | Stattie Activity |
+| Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus on basketball rows | Stattie Activity |
 | Game Complete | Share card and ready-to-paste text | MyKidDid |
-| Insights | Practice Focus cards; layout designed at the start of M3 alongside the rules | — |
+| Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
+| Athlete sharing | Invite co-parent (link through the share sheet), Members list, Remove Member (Owner only), Leave (Members). Members also edit the Athlete's name and number, from Home's Edit | — |
 
 Navigation: bottom tabs Home · Games · Insights · Settings.
 
@@ -51,31 +52,40 @@ Interaction rules:
 - Button Size setting and theme tokens.
 - Supabase schema and row-level security (`docs/schema.sql`).
 - Outbox uploads after each tap when online, on launch, and on reconnect, plus an "N not synced" badge (ADR 0001).
-- "Save this game" magic link and Delete account.
+- Download at sign-in brings back the account's Athletes, Games and Events on a new phone.
+- Athlete and Game edits sync as latest edit wins; Events stay insert-only (ADR 0001).
+- "Save this game" magic link or emailed code, and Delete account.
 - First run (Add Athlete) and the Athlete switcher on Home.
 
 **M2: basketball**
 - Game setup, prefilled from the last Game.
 - Live screen, Shot entry, Free Throws, stat tiles.
-- Periods: halves or quarters, plus overtime, advanced by "Next period".
+- Periods: halves or quarters, plus overtime; softball and baseball count innings, labelled "Inn N". All advance by "Next period".
 - Sub In/Out, score strip, Plus/Minus, Playing Share. An open Shift survives an app restart: a Sub In with no Sub Out means the Athlete is on court.
 - Bleacher two-page layout, Home, Games feed.
 
-**M3: share card and Practice Focus**
-- Game Complete sheet: a 1200×1200 card drawn with OffscreenCanvas in a worker, shared with Web Share files, plus copy text.
-- Insights tab with Practice Focus cards. Rules run on the phone over the last 5 Games, staying silent on any zone with fewer than about 10 attempts. Exact zones and rules get designed at the start of M3 from M2 data. First candidates: Free Throw drop-off late in games, weak-side conversion.
+**M3: sharing an Athlete (ADR 0004)**
+- Invite, Members, Remove Member and Leave, as ADR 0004 describes. Accepting an Invite signs the invitee in and makes them a Member.
+- Download also runs on launch and reconnect, bringing in Games recorded on other phones.
+- Delete account: each shared Athlete passes to the Member who joined first, and the delete screen says so. A Member's own deletion leaves the Games they recorded with the Athlete.
 
-**M4: softball and baseball**
+**M4: share card and Practice Focus**
+- Game Complete sheet: a 1200×1200 card drawn with OffscreenCanvas in a worker, shared with Web Share files, plus copy text.
+- Insights tab with Practice Focus cards. Rules run on the phone over the last 5 Games, staying silent on any zone with fewer than about 10 attempts. Exact zones and rules get designed at the start of M4 from M2 data. First candidates: Free Throw drop-off late in games, weak-side conversion.
+
+**M5: softball and baseball**
 - Plate Appearance flow, optional Pitches, Outcome grid, RBI chips, Athlete-only diamond, score strip with a required Final Score.
 - AVG, OBP and SLG.
 - Baseball is a label on the same engine.
 
 ## Cut from v1
 
-Streak evaluator · video highlights and training log · shared Athletes and live viewing · background sync (iOS doesn't support it) · photo sync · cross-device conflict resolution · AI-generated insights.
+Streak evaluator · video highlights and training log · live viewing · background sync (iOS doesn't support it) · photo sync · cross-device conflict resolution · AI-generated insights.
 
 ## Stack
 
 React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7), Dexie 4, supabase-js. The outbox is our own code; PowerSync was rejected in ADR 0001.
+
+Hosting: Netlify serves https://stat-elite.netlify.app, rebuilt from `integration` on every push (`netlify.toml`). The Supabase env vars live in Netlify, not the repo.
 
 Minimum platform: iOS 16.4, the first version with OffscreenCanvas, and current Chrome on Android.

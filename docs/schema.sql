@@ -8,6 +8,7 @@ create table athletes (
   name          text not null,
   jersey_number text,
   created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),  -- set by the phone; latest edit wins (ADR 0001)
   unique (id, owner_id)
 );
 
@@ -21,6 +22,7 @@ create table games (
   location_label text,
   game_date      date not null,
   created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),  -- set by the phone; latest edit wins (ADR 0001)
   unique (id, owner_id),
   -- a Game can only belong to an Athlete with the same owner
   foreign key (athlete_id, owner_id) references athletes (id, owner_id) on delete cascade,
@@ -84,6 +86,8 @@ create index on events (owner_id);
 create index on events (retracts_id) where retracts_id is not null;
 
 -- Row-level security: every row belongs to its owner, no joins.
+-- This is the M1 access model. ADR 0004 replaces it in M3 (Owner-or-Member access,
+-- the recording account on Games, ownership transfer in delete_my_account).
 alter table athletes enable row level security;
 alter table games    enable row level security;
 alter table events   enable row level security;
@@ -107,3 +111,167 @@ as $$ delete from auth.users where id = (select auth.uid()); $$;
 
 revoke execute on function delete_my_account() from public, anon;
 grant execute on function delete_my_account() to authenticated;
+-- ADR 0004: an Athlete is shared with Members through Invites. A Member is made only by accept_invite(), below.
+create table members (
+  athlete_id uuid not null references athletes (id) on delete cascade,
+  member_id  uuid not null references auth.users (id) on delete cascade,
+  joined_at  timestamptz not null default now(),
+  primary key (athlete_id, member_id)
+);
+create index on members (member_id);
+
+create table invites (
+  token      uuid primary key default gen_random_uuid(),
+  athlete_id uuid not null references athletes (id) on delete cascade,
+  owner_id   uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default now() + interval '7 days',
+  -- the account that accepted the Invite: it works once
+  used_by    uuid references auth.users (id) on delete cascade
+);
+
+-- Owner-or-Member read access (ADR 0004). Not yet: writes by a Member, and the recording account on Games.
+alter table members enable row level security;
+alter table invites enable row level security;
+
+create policy member_reads_athletes on athletes for select to authenticated
+  using (exists (select 1 from members m where m.athlete_id = athletes.id and m.member_id = (select auth.uid())));
+create policy member_reads_games on games for select to authenticated
+  using (exists (select 1 from members m where m.athlete_id = games.athlete_id and m.member_id = (select auth.uid())));
+create policy member_reads_events on events for select to authenticated
+  using (exists (select 1 from games g join members m on m.athlete_id = g.athlete_id
+                 where g.id = events.game_id and m.member_id = (select auth.uid())));
+
+-- A Member sees its own memberships. The Owner's list of Members comes with the Members screen.
+create policy read_own_membership on members for select to authenticated
+  using (member_id = (select auth.uid()));
+
+-- Only the Owner of an Athlete makes an Invite, and reads back the Invites it made.
+create policy own_invites_read on invites for select to authenticated
+  using (owner_id = (select auth.uid()));
+create policy own_invites_add on invites for insert to authenticated
+  with check (owner_id = (select auth.uid())
+    and exists (select 1 from athletes a where a.id = invites.athlete_id and a.owner_id = (select auth.uid())));
+
+-- The Owner names the Athlete and itself; the token, expiry and use are the server's (ADR 0004).
+revoke all on invites from authenticated;
+grant select on invites to authenticated;
+grant insert (athlete_id, owner_id) on invites to authenticated;
+grant select on members to authenticated;
+
+-- Accepts an Invite for the signed-in account and returns its Athlete.
+-- Refuses with invite_unknown, invite_own, invite_used or invite_expired.
+create function accept_invite(invite_token uuid) returns uuid
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  me uuid := (select auth.uid());
+  invite public.invites%rowtype;
+begin
+  select * into invite from public.invites where token = invite_token for update;
+  if not found then raise exception 'invite_unknown'; end if;
+  -- the Owner opening its own link is refused, and the link stays unused for a co-parent
+  if invite.owner_id = me then raise exception 'invite_own'; end if;
+  -- the account that accepted it may accept again (a retry after a failed download); any other is refused
+  if invite.used_by = me then return invite.athlete_id; end if;
+  if invite.used_by is not null then raise exception 'invite_used'; end if;
+  if invite.expires_at <= now() then raise exception 'invite_expired'; end if;
+  insert into public.members (athlete_id, member_id) values (invite.athlete_id, me) on conflict do nothing;
+  update public.invites set used_by = me where token = invite_token;
+  return invite.athlete_id;
+end $$;
+
+revoke execute on function accept_invite(uuid) from public, anon;
+grant execute on function accept_invite(uuid) to authenticated;
+-- ADR 0004: a Member records Games too. A Game names the account that records it (its Recorder), and only that
+-- account adds Events to it (ADR 0001: one Recorder per Game, now enforced on the server).
+-- A Game recorded before this migration was recorded by its Owner.
+alter table games add column recorded_by uuid references auth.users (id) on delete set null;
+update games set recorded_by = owner_id;
+
+-- A Game is inserted by the account that records it: the Owner, or a Member of its Athlete. The Owner's insert
+-- still passes own_games; this restrictive policy makes every insert name its inserter as Recorder.
+create policy games_inserted_by_recorder on games as restrictive for insert to authenticated
+  with check (recorded_by = (select auth.uid()));
+create policy member_records_games on games for insert to authenticated
+  with check (exists (select 1 from members m where m.athlete_id = games.athlete_id and m.member_id = (select auth.uid())));
+
+-- Only a Game's Recorder adds Events to it. The Event's owner is the Game's, by the foreign key on (game_id, owner_id).
+drop policy add_own_events on events;
+create policy recorder_adds_events on events for insert to authenticated
+  with check (exists (select 1 from games g where g.id = events.game_id and g.recorded_by = (select auth.uid())));
+
+-- A Game keeps its Recorder: the Owner's own update policy would otherwise let it hand a Member's Game to itself.
+-- Clearing it is allowed: a Member's deleted account leaves its Games with the Athlete, unlinked (ADR 0004).
+create function keep_recorder() returns trigger language plpgsql set search_path = '' as $$
+begin
+  if new.recorded_by is not null and new.recorded_by is distinct from old.recorded_by then
+    raise exception 'a Game keeps its Recorder';
+  end if;
+  return new;
+end $$;
+
+create trigger games_keep_recorder before update on games for each row execute function keep_recorder();
+-- ADR 0004: the Owner removes a Member, and a Member leaves. Each deletes a membership row and nothing else, so the
+-- Games a Member recorded stay with the Athlete.
+
+-- Whether the account owns the Athlete. Security definer, so the policies on members do not recurse through athletes' policies.
+create function owns_athlete(athlete uuid) returns boolean
+language sql stable security definer set search_path = ''
+as $$ select exists (select 1 from public.athletes a where a.id = athlete and a.owner_id = (select auth.uid())) $$;
+
+revoke execute on function owns_athlete(uuid) from public, anon;
+grant execute on function owns_athlete(uuid) to authenticated;
+
+grant delete on members to authenticated;
+
+-- The Owner sees its Athlete's Members, for the Members list, and removes one; a Member deletes only its own membership.
+create policy owner_reads_members on members for select to authenticated
+  using (owns_athlete(members.athlete_id));
+create policy owner_removes_members on members for delete to authenticated
+  using (owns_athlete(members.athlete_id));
+create policy member_leaves on members for delete to authenticated
+  using (member_id = (select auth.uid()));
+-- ADR 0004: the Owner's Members list names each Member by the sign-in email it accepted an Invite with. A Member made
+-- before this migration is named by its account's email now.
+alter table members add column email text;
+update members set email = u.email from auth.users u where u.id = members.member_id;
+
+-- accept_invite records the accepting account's sign-in email with its membership; otherwise as before.
+create or replace function accept_invite(invite_token uuid) returns uuid
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  me uuid := (select auth.uid());
+  invite public.invites%rowtype;
+begin
+  select * into invite from public.invites where token = invite_token for update;
+  if not found then raise exception 'invite_unknown'; end if;
+  -- the Owner opening its own link is refused, and the link stays unused for a co-parent
+  if invite.owner_id = me then raise exception 'invite_own'; end if;
+  -- the account that accepted it may accept again (a retry after a failed download); any other is refused
+  if invite.used_by = me then return invite.athlete_id; end if;
+  if invite.used_by is not null then raise exception 'invite_used'; end if;
+  if invite.expires_at <= now() then raise exception 'invite_expired'; end if;
+  insert into public.members (athlete_id, member_id, email)
+    values (invite.athlete_id, me, (select u.email from auth.users u where u.id = me)) on conflict do nothing;
+  update public.invites set used_by = me where token = invite_token;
+  return invite.athlete_id;
+end $$;
+-- ADR 0004: a Member edits its Athlete's name and number. A Member updates an Athlete it is a Member of, and a restrictive
+-- policy keeps its owner_id as the stored one. The check runs through a security definer function, as owns_athlete does, so
+-- the policy on athletes does not recurse through athletes' own policies, and a caller learns only yes or no, not the owner.
+create function athlete_has_owner(athlete uuid, account uuid) returns boolean
+language sql stable security definer set search_path = ''
+as $$ select exists (select 1 from public.athletes a where a.id = athlete and a.owner_id = account) $$;
+
+revoke execute on function athlete_has_owner(uuid, uuid) from public, anon;
+grant execute on function athlete_has_owner(uuid, uuid) to authenticated;
+
+create policy member_updates_athletes on athletes for update to authenticated
+  using (exists (select 1 from members m where m.athlete_id = athletes.id and m.member_id = (select auth.uid())))
+  with check (exists (select 1 from members m where m.athlete_id = athletes.id and m.member_id = (select auth.uid())));
+
+-- Permissive policies are OR-ed, so the owner's check cannot pin a Member's owner_id; this restrictive one is ANDed with them.
+create policy owner_id_unchanged on athletes as restrictive for update to authenticated
+  using (true) with check (athlete_has_owner(athletes.id, athletes.owner_id));

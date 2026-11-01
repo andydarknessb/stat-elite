@@ -1,0 +1,498 @@
+/* StatElite's own palette. Color only carries meaning: make, miss, and neutral everything else. */
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #14171c;
+  --muted: #5d6673;
+  --border: #d9dde3;
+  --accent: #1f5fd1;
+  --make: #1a7f37;
+  --miss: #c9302c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216;
+    --surface: #1a1f26;
+    --text: #eef1f5;
+    --muted: #9aa4b2;
+    --border: #2c333d;
+    --accent: #6ea0ff;
+    --make: #3fb950;
+    --miss: #f0605a;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.4 system-ui, -apple-system, sans-serif;
+}
+
+main,
+form {
+  display: grid;
+  gap: 16px;
+}
+
+main {
+  padding: 16px;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+}
+
+input,
+button {
+  font: inherit;
+  color: inherit;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+input {
+  padding: 0 12px;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.tile {
+  display: grid;
+  min-height: 64px;
+  font-weight: 600;
+}
+
+.tile .count {
+  font-size: 32px;
+}
+
+/* A lone Athlete's photo is not a control, so it is not faded like a disabled button. */
+.photo {
+  width: 120px;
+  height: 120px;
+  justify-self: center;
+  padding: 0;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.photo:disabled {
+  opacity: 1;
+}
+
+.photo-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--border);
+  color: var(--muted);
+  font-size: 3rem;
+  font-weight: 600;
+}
+
+.photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+button:disabled {
+  opacity: 0.5;
+}
+
+/* The Add to Home Screen card, under the screen's own content. */
+.install {
+  display: grid;
+  gap: 12px;
+  margin: 0 16px 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.install p {
+  margin: 0;
+}
+
+/* Taps pass through the toast, except on its own Undo button. */
+.toast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 8px 8px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* The Team–Opponent strip: each side is a label over − count +. */
+.strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  text-align: center;
+}
+
+.strip .side {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.strip .side > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.strip button {
+  width: 56px;
+  font-size: 24px;
+}
+
+.strip .count {
+  min-width: 48px;
+  font-size: 32px;
+  font-weight: 600;
+}
+
+.final {
+  font-size: 32px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.toast button {
+  pointer-events: auto;
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--bg);
+  font-weight: 600;
+}
+
+/* The "N not synced" badge above every screen: quiet text, so it reads as status and not as a control. */
+.sync {
+  margin: 0;
+  padding: 16px 16px 0;
+  color: var(--muted);
+  text-align: right;
+}
+
+/* The basketball live screen, top to bottom: Shift bar, score strip, half court, Free Throw row, stat tiles, then Undo and End Game. */
+.live {
+  gap: 8px;
+}
+
+/* The Shift bar: the Sub In/Out toggle, then the running Shift timer over the Game's Playing Share. It is one button tall, so the live screen still fits a 390×844 phone. */
+.shift {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.shift p {
+  margin: 0;
+}
+
+.shift .timer {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* The Game line is a button that opens the closed Shifts; it resets the global button box so the closed line keeps its height. */
+.shift .game {
+  font-size: 13px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.game-line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+/* The open Shifts list scrolls sideways inside its line, so the Shift bar keeps its height and the page does not widen. */
+.shift-list {
+  display: flex;
+  gap: 12px;
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.period-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.period {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* The strip pulses on each Sub, so the Recorder checks it against the scoreboard; no motion for reduced-motion users. */
+@keyframes strip-pulse {
+  from {
+    box-shadow: 0 0 0 6px var(--border);
+  }
+  to {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.strip.pulse {
+  animation: strip-pulse 0.6s ease-out;
+  border-radius: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip.pulse {
+    animation: none;
+  }
+}
+
+/* The half court, drawn to scale: App.tsx sets its aspect ratio from HALF_COURT, so its arc is a true circle; Button Size sets its height. */
+.shot-entry {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+/* 128px is what Standard leaves room for beside the stat tiles on a 390×844 phone. */
+.court {
+  height: 128px;
+  color: var(--muted);
+}
+
+.court * {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.4;
+}
+
+.court .spot {
+  fill: var(--accent);
+  stroke: none;
+}
+
+/* 3PT across the top, MAKE and MISS beneath it, the count under those. */
+.shot-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.shot-controls button[aria-pressed] {
+  grid-column: 1 / -1;
+}
+
+.shot-controls button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.shot-count {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  text-align: center;
+}
+
+.free-throws {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+  text-align: center;
+}
+
+/* Green make, red miss: color only carries meaning here. */
+.free-throws .make,
+.shot-controls .make {
+  color: var(--make);
+  border-color: var(--make);
+  font-weight: 600;
+}
+
+.free-throws .miss,
+.shot-controls .miss {
+  color: var(--miss);
+  border-color: var(--miss);
+  font-weight: 600;
+}
+
+.free-throws .count {
+  min-width: 64px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* softball and baseball: the Pitch row and Outcome grid, the count, the RBI chips under them, and the batting line */
+.pitches,
+.outcomes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.pitch-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.rbi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.batting {
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Bleacher: two swipe pages, Shots then Other stats, each the width of the phone. */
+.pages {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 100%;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+}
+
+.page {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  scroll-snap-align: start;
+}
+
+/* Button Size: Compact is smaller, Bleacher bigger for the far seats. */
+.compact button {
+  min-height: 44px;
+}
+
+.compact .court {
+  height: 120px;
+}
+
+.compact .tile {
+  min-height: 52px;
+}
+
+.compact .tile .count {
+  font-size: 24px;
+}
+
+.bleacher .court {
+  height: 220px;
+}
+
+.bleacher .tile {
+  min-height: 112px;
+}
+
+/* Bleacher: the Plate Appearance Pitch, Outcome and RBI buttons take the Standard tile height; the Base group stays at its size */
+.bleacher .plate-appearance .pitches button,
+.bleacher .plate-appearance .outcomes button,
+.bleacher .plate-appearance .rbi button {
+  min-height: 64px;
+}
+
+.bleacher .tile .count {
+  font-size: 40px;
+}
+
+.tabs {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg);
+}
+
+.tabs button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.season {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.feed-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 12px;
+  text-align: left;
+}
+
+.feed-row .opponent {
+  flex: 1;
+  font-weight: 600;
+}
+
+.feed-row .line {
+  order: 1;
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.sizes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}

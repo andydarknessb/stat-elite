@@ -8,6 +8,18 @@ A phone app a parent uses on the sideline to record one child's games, then shar
 The child whose games are recorded. Every Game belongs to exactly one Athlete.
 _Avoid_: player, kid, profile, child
 
+**Owner**:
+The account an Athlete belongs to, with sole say over its Members and its deletion.
+_Avoid_: admin, creator
+
+**Member**:
+An account invited to share an Athlete. A Member sees every Game of that Athlete, can record new ones, and edits the Athlete's name and number.
+_Avoid_: co-parent (outside UI copy), collaborator, guest, viewer
+
+**Invite**:
+A link that makes whoever accepts it a Member of one Athlete.
+_Avoid_: share link, invitation code
+
 **Recorder**:
 The person whose phone records a Game. Each Game has exactly one Recorder.
 _Avoid_: user, parent, scorekeeper, tracker
@@ -35,7 +47,7 @@ The Score Snapshot taken when the Game ends.
 _Avoid_: result
 
 **Period**:
-One segment of a Game: a quarter, a half, or an overtime.
+One segment of a Game: a quarter, a half, an overtime, or an inning.
 _Avoid_: game period, segment
 
 **Event**:
@@ -91,12 +103,28 @@ How a Plate Appearance ended: a hit, a reach (Walk, Hit by Pitch, Error, Fielder
 _Avoid_: result, play
 
 **Pitch**:
-One ball, strike, or foul thrown to the Athlete during a Plate Appearance. Recording Pitches is optional.
+One ball, strike, or foul thrown to the Athlete during a Plate Appearance. A foul is a strike only while the Count has fewer than two strikes; with two, it leaves the Count as it was. Recording Pitches is optional.
 _Avoid_: count entry
+
+**Count**:
+The balls and strikes of the Plate Appearance in progress. It shows once a Pitch is logged in that Plate Appearance, and resets at each Outcome and each new Period.
+_Avoid_: pitch count, B-S
+
+**Strikeout looking**:
+A strikeout whose last called or swinging strike was a called strike. It follows from the Pitches and is never recorded on its own; the Outcome stays Strikeout.
+_Avoid_: called strikeout, K looking
+
+**Strikeout swinging**:
+A strikeout whose last called or swinging strike was a swinging strike. It follows from the Pitches and is never recorded on its own; the Outcome stays Strikeout.
+_Avoid_: swinging K
 
 **RBI**:
 A run that scored because of the Athlete's Plate Appearance, as counted by the Recorder.
 _Avoid_: runs batted in
+
+**Baserunning**:
+One move of the Athlete once on base: to 2nd, 3rd, Scored or Out, marked Stole or not. Scored counts a run; a move marked Stole counts a stolen base.
+_Avoid_: runner, base event
 
 ## Insights
 

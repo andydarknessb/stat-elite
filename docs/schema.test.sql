@@ -6,7 +6,7 @@
 create role anon nologin;
 create role authenticated nologin;
 create schema auth;
-create table auth.users (id uuid primary key);
+create table auth.users (id uuid primary key, email text);
 create function auth.uid() returns uuid language sql stable
   as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 grant usage on schema auth to authenticated;
@@ -24,14 +24,14 @@ exception when others then
 end $$;
 
 -- Two owners: A (…a) and B (…b).
-insert into auth.users values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
+insert into auth.users values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b'), ('00000000-0000-0000-0000-00000000000c');
 insert into athletes (id, owner_id, name) values
   ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'Casey'),
   ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', 'Jordan');
-insert into games (id, owner_id, athlete_id, sport, period_format, game_date) values
-  ('20000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-30'),
-  ('20000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'softball', 'innings', '2026-10-30'),
-  ('20000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b', '10000000-0000-0000-0000-00000000000b', 'basketball', 'halves', '2026-10-30');
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values
+  ('20000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-30', '00000000-0000-0000-0000-00000000000a'),
+  ('20000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'softball', 'innings', '2026-10-30', '00000000-0000-0000-0000-00000000000a'),
+  ('20000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b', '10000000-0000-0000-0000-00000000000b', 'basketball', 'halves', '2026-10-30', '00000000-0000-0000-0000-00000000000b');
 
 -- Happy path: a basketball Game with a Shift, a retracted Shot, and a Final Score.
 insert into events (id, owner_id, game_id, seq, client_ts, period, type, court_x, court_y, shot_value, made, team_score, opponent_score, retracts_id) values
@@ -84,6 +84,239 @@ begin
   if n <> 0 then raise exception 'Events must not be deletable, % deleted', n; end if;
 end $$;
 select pg_temp.expect_fail($$insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000b9', '00000000-0000-0000-0000-00000000000a', 'Spoof')$$, 'B creating an Athlete owned by A');
+
+-- Sharing (ADR 0004). A's Invites: one to accept, one already expired. B is a stranger to Casey throughout.
+-- The server makes tokens and expiry, so these two are seeded the way it makes them: as superuser, past the grants.
+reset role;
+insert into invites (token, athlete_id, owner_id) values
+  ('40000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a');
+insert into invites (token, athlete_id, owner_id, expires_at) values
+  ('40000000-0000-0000-0000-0000000000e0', '10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', now() - interval '1 second');
+set role authenticated;
+
+-- The Owner makes an Invite through the API, and cannot choose its expiry.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into invites (athlete_id, owner_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a');
+select pg_temp.expect_fail($$insert into invites (athlete_id, owner_id, expires_at) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'infinity')$$, 'the Owner choosing an Invite''s expiry');
+do $$
+begin
+  if (select expires_at - created_at from invites where token = '40000000-0000-0000-0000-00000000000a') <> interval '7 days' then
+    raise exception 'an Invite should expire 7 days after it is made';
+  end if;
+end $$;
+-- the Owner opening its own link is refused, and the link stays unused
+select pg_temp.expect_fail($$select accept_invite('40000000-0000-0000-0000-00000000000a')$$, 'the Owner accepting its own Invite');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+select pg_temp.expect_fail($$insert into invites (athlete_id, owner_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b')$$, 'B inviting to an Athlete it does not own');
+
+-- C accepts: a Member reads Casey, its Games and its Events, and can make no Invite or Event.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+select accept_invite('40000000-0000-0000-0000-00000000000a');
+select accept_invite('40000000-0000-0000-0000-00000000000a');
+select pg_temp.expect_fail($$select accept_invite('40000000-0000-0000-0000-0000000000e0')$$, 'an expired Invite accepted');
+do $$
+declare n int;
+begin
+  select count(*) into n from athletes;
+  if n <> 1 then raise exception 'a Member should see the 1 Athlete it is a Member of, saw %', n; end if;
+  select count(*) into n from games;
+  if n <> 2 then raise exception 'a Member should see its Athlete''s 2 Games, saw %', n; end if;
+  select count(*) into n from events;
+  if n <> 7 then raise exception 'a Member should see its Athlete''s 7 Events, saw %', n; end if;
+end $$;
+select pg_temp.expect_fail($$insert into invites (athlete_id, owner_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000c')$$, 'a Member making an Invite');
+select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a1', 7, now(), 1, 'steal')$$, 'a Member adding an Event to a Game it did not record');
+
+-- A Member records its own Game on Casey: the Game carries Casey's Owner and names the Member as its Recorder (ADR 0004).
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values
+  ('20000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-31', '00000000-0000-0000-0000-00000000000c');
+insert into events (id, owner_id, game_id, seq, client_ts, period, type) values
+  ('30000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000c1', 1, now(), 1, 'steal');
+-- and it can record nothing under another account's name: not as the Owner, not on an Athlete it is not a Member of, not as its own Owner
+select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-31', '00000000-0000-0000-0000-00000000000a')$$, 'a Game recorded by the Owner, inserted by a Member');
+select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000c4', '00000000-0000-0000-0000-00000000000c', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-31', '00000000-0000-0000-0000-00000000000c')$$, 'a Member''s Game under its own account as Owner');
+select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000c5', '00000000-0000-0000-0000-00000000000b', '10000000-0000-0000-0000-00000000000b', 'basketball', 'halves', '2026-10-31', '00000000-0000-0000-0000-00000000000c')$$, 'a Member recording on an Athlete it is not a Member of');
+
+-- The Owner does not add Events to the Game its Member recorded; it reads them.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000c1', 2, now(), 1, 'steal')$$, 'the Owner adding an Event to a Game its Member recorded');
+do $$
+declare n int;
+begin
+  select count(*) into n from events where game_id = '20000000-0000-0000-0000-0000000000c1';
+  if n <> 1 then raise exception 'the Owner should see the Member''s Event, saw %', n; end if;
+end $$;
+-- The Owner cannot hand the Member's Game to itself: a Game keeps its Recorder. Its own edits to its Game still go through.
+select pg_temp.expect_fail($$update games set recorded_by = '00000000-0000-0000-0000-00000000000a' where id = '20000000-0000-0000-0000-0000000000c1'$$, 'the Owner reassigning a Game to itself');
+do $$
+declare n int;
+begin
+  update games set opponent_name = 'Hawks' where id = '20000000-0000-0000-0000-0000000000a1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'the Owner should update its own Game, updated %', n; end if;
+end $$;
+
+-- B, the stranger, still sees only its own rows, and cannot take the Invite C used.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+select pg_temp.expect_fail($$select accept_invite('40000000-0000-0000-0000-00000000000a')$$, 'a second account accepting a used Invite');
+do $$
+declare n int;
+begin
+  select count(*) into n from athletes;
+  if n <> 1 then raise exception 'a stranger should see only its own Athlete, saw %', n; end if;
+  select count(*) into n from games;
+  if n <> 1 then raise exception 'a stranger should see only its own Game, saw %', n; end if;
+  select count(*) into n from events;
+  if n <> 1 then raise exception 'a stranger should see only its own Event, saw %', n; end if;
+end $$;
+
+-- A Member edits its Athlete's name and number, and cannot hand the Athlete to itself (ADR 0004). C is Casey's Member here.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+do $$
+declare n int;
+begin
+  update athletes set name = 'Casey Member' where id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should rename its Athlete, updated % rows', n; end if;
+  if (select name from athletes where id = '10000000-0000-0000-0000-00000000000a') <> 'Casey Member' then
+    raise exception 'a Member''s rename should read back';
+  end if;
+end $$;
+-- Casey has Games, and a Game's foreign key refuses an owner_id change under any policy, so the owner check runs on an
+-- Athlete of A's with none, that C is a Member of.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-00000000000a', 'Riley');
+reset role;
+insert into members (athlete_id, member_id) values ('10000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-00000000000c');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+select pg_temp.expect_fail($$update athletes set owner_id = '00000000-0000-0000-0000-00000000000c' where id = '10000000-0000-0000-0000-0000000000e1'$$, 'a Member taking over its Athlete''s owner_id');
+do $$
+begin
+  if (select owner_id from athletes where id = '10000000-0000-0000-0000-0000000000e1') <> '00000000-0000-0000-0000-00000000000a' then
+    raise exception 'a Member''s refused owner_id change should leave the Owner in place';
+  end if;
+end $$;
+-- A stranger renames nothing: B is not a Member of Casey.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+do $$
+declare n int;
+begin
+  update athletes set name = 'Casey Stranger' where id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a stranger renamed % Athletes', n; end if;
+end $$;
+-- The Owner renames its own Athlete, and removes the Athlete it made for the check (its Member goes with it).
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$
+declare n int;
+begin
+  update athletes set name = 'Casey Owner' where id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'the Owner should rename its Athlete, updated % rows', n; end if;
+  delete from athletes where id = '10000000-0000-0000-0000-0000000000e1';
+end $$;
+
+-- Removing a Member and leaving (ADR 0004). D joins Casey the way an Invite makes a Member, so Casey has two: C and D.
+reset role;
+insert into auth.users values ('00000000-0000-0000-0000-00000000000d');
+insert into members (athlete_id, member_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000d');
+set role authenticated;
+
+-- Only the Owner removes a Member: a stranger and a Member remove nothing, and the Owner sees both Members.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+do $$
+declare n int;
+begin
+  delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a stranger removed % Members', n; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000d', false);
+do $$
+declare n int;
+begin
+  delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000c';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a Member removed another Member: % rows', n; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  if n <> 2 then raise exception 'the Owner should see its 2 Members, saw %', n; end if;
+  delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000d';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'the Owner should remove its Member, removed % rows', n; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000d', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from athletes;
+  if n <> 0 then raise exception 'a removed Member should see no Athlete, saw %', n; end if;
+end $$;
+
+-- C leaves Casey: a Member deletes its own membership and nothing of its Athlete's.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+do $$
+declare n int;
+begin
+  delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should leave, removed % rows', n; end if;
+  select count(*) into n from athletes;
+  if n <> 0 then raise exception 'a departed Member should see no Athlete, saw %', n; end if;
+  select count(*) into n from games;
+  if n <> 0 then raise exception 'a departed Member should see no Game, saw %', n; end if;
+  select count(*) into n from events;
+  if n <> 0 then raise exception 'a departed Member should see no Event, saw %', n; end if;
+end $$;
+-- A departed Member records nothing more, not even on a Game it recorded before it left.
+select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000c4', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000c1', 3, now(), 1, 'steal')$$, 'a departed Member adding an Event to the Game it recorded');
+
+-- The Games a Member recorded stay with the Athlete; the Owner keeps them and their Recorder link (ADR 0004).
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  if n <> 0 then raise exception 'the Owner should see no Members left, saw %', n; end if;
+  select count(*) into n from games where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  if n <> 3 then raise exception 'the Owner should keep its 3 Games, saw %', n; end if;
+  if (select recorded_by from games where id = '20000000-0000-0000-0000-0000000000c1') <> '00000000-0000-0000-0000-00000000000c' then
+    raise exception 'a departed Member''s Game should keep its Recorder';
+  end if;
+end $$;
+set role authenticated;
+
+-- A Member deleting its account clears the Recorder link on the Games it recorded; the Games stay with the Athlete (ADR 0004).
+reset role;
+delete from auth.users where id = '00000000-0000-0000-0000-00000000000c';
+do $$
+begin
+  if (select recorded_by from games where id = '20000000-0000-0000-0000-0000000000c1') is not null then
+    raise exception 'a deleted Member''s Game should lose its Recorder';
+  end if;
+end $$;
+set role authenticated;
+
+-- A Member's sign-in email (ADR 0004): B, which has its own Athlete, accepts an Invite to Casey, and the Owner reads
+-- the email B signed in with on B's membership row.
+reset role;
+update auth.users set email = 'b@example.com' where id = '00000000-0000-0000-0000-00000000000b';
+insert into invites (token, athlete_id, owner_id) values ('40000000-0000-0000-0000-0000000000b0', '10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+select accept_invite('40000000-0000-0000-0000-0000000000b0');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$
+begin
+  if (select email from members where member_id = '00000000-0000-0000-0000-00000000000b') is distinct from 'b@example.com' then
+    raise exception 'the Owner should read the sign-in email a Member accepted with';
+  end if;
+end $$;
 
 -- Delete my account, signed in as A: everything of A's goes, B is untouched.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
