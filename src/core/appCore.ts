@@ -1140,13 +1140,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const next = athletes[(index + 1) % athletes.length];
       // the newest Game that End Game has not closed is the one in progress, and only its Recorder's phone records on it
       const games = await store.games.where('athlete_id').equals(athlete.id).sortBy('created_at');
+      // every Dexie read comes before the session read: a liveQuery loses the reads made after it, so End Game would not re-run Home (#137)
+      // shortcut: reads every Game's last Event on each Home read, fine for one Athlete's season; upgrade with a stored last-Event type when Home reads slow
+      const lastTypes = new Map<string, string | undefined>();
+      for (const game of games) lastTypes.set(game.id, (await gameEvents(game.id).last())?.type);
       const session = await server.session();
       let liveGameId: string | undefined;
       for (const game of [...games].reverse()) {
         // a Game stored before Recorders were is the Owner's; one waiting on sign-in has no Recorder yet, and this phone recorded it
         const recorder = game.recorded_by === undefined ? athlete.owner_id : game.recorded_by;
         if (recorder !== session) continue;
-        if ((await gameEvents(game.id).last())?.type !== 'game_end') {
+        if (lastTypes.get(game.id) !== 'game_end') {
           liveGameId = game.id;
           break;
         }
