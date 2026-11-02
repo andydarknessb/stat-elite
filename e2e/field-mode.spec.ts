@@ -11,6 +11,41 @@ async function startGame(page: Page) {
   await page.getByRole('button', { name: 'Start', exact: true }).click();
 }
 
+/** What the head holds once parsed, before any module script runs (#121). */
+type Head = { field: boolean; colorScheme: string | null; themeColors: string[]; cleared: boolean };
+
+/** On every load, records the head at readyState 'interactive', and whether data-field is ever removed after that. */
+async function recordHead(page: Page) {
+  await page.addInitScript(() => {
+    document.addEventListener('readystatechange', () => {
+      if (document.readyState !== 'interactive') return;
+      const root = document.documentElement;
+      const head = {
+        field: root.hasAttribute('data-field'),
+        colorScheme: document.querySelector('meta[name="color-scheme"]')?.getAttribute('content') ?? null,
+        themeColors: [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')]
+          .filter((meta) => !meta.media || matchMedia(meta.media).matches)
+          .map((meta) => meta.content.toLowerCase()),
+        cleared: false,
+      };
+      Object.assign(window, { __head: head });
+      new MutationObserver(() => {
+        if (!root.hasAttribute('data-field')) head.cleared = true;
+      }).observe(root, { attributes: true, attributeFilter: ['data-field'] });
+    });
+  });
+}
+
+const readHead = (page: Page) => page.evaluate(() => (window as unknown as { __head: Head }).__head);
+
+/** The theme-color the browser chrome would use now: metas with no media, or whose media matches. */
+const themeColors = (page: Page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')]
+      .filter((meta) => !meta.media || matchMedia(meta.media).matches)
+      .map((meta) => meta.content.toLowerCase()),
+  );
+
 test('Field mode in Settings paints the light theme over a dark phone, and stays on across a reload', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await addAthlete(page);
@@ -43,4 +78,66 @@ test('the live screen sun button turns Field mode on at Standard without scrolli
   await expect(sun).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+});
+
+test('a cold load with Field mode on marks the root before the app reads its setting', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await recordHead(page);
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Field mode', exact: true }).click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  expect(await readHead(page)).toEqual({ field: true, colorScheme: 'light', themeColors: ['#ffffff'], cleared: false });
+});
+
+test('the theme-color follows Field mode live, without a reload', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const field = page.getByRole('button', { name: 'Field mode', exact: true });
+
+  await field.click();
+  await expect.poll(() => themeColors(page)).toEqual(['#ffffff']);
+  await field.click();
+  await expect.poll(() => themeColors(page)).toEqual(['#0b1020']);
+});
+
+test('Field mode turned off stays off across a cold load', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await recordHead(page);
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const field = page.getByRole('button', { name: 'Field mode', exact: true });
+  await field.click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await field.click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
+  expect(await readHead(page)).toEqual({ field: false, colorScheme: 'light dark', themeColors: ['#0b1020'], cleared: false });
+});
+
+test('deleting the account clears Field mode on the next cold load', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await recordHead(page);
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Field mode', exact: true }).click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+
+  await page.getByRole('button', { name: 'Delete my account and all data' }).click();
+  await page.getByRole('button', { name: 'Delete everything' }).click();
+  await expect(page.getByLabel('Athlete name')).toBeVisible();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
+
+  await page.reload();
+  await expect(page.getByLabel('Athlete name')).toBeVisible();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
+  expect(await readHead(page)).toEqual({ field: false, colorScheme: 'light dark', themeColors: ['#0b1020'], cleared: false });
 });

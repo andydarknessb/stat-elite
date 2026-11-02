@@ -52,8 +52,19 @@ export function App({ core }: { core: AppCore }) {
   // Field mode marks the root, and theme.css gives it the light tokens whatever the phone's scheme is
   const fieldMode = useReadModel(() => core.fieldMode(), [core]);
   useEffect(() => {
+    // before the first read, index.html has already marked the root from the copy below: leave it alone
+    if (fieldMode === undefined) return;
     if (fieldMode) document.documentElement.dataset.field = '';
     else delete document.documentElement.dataset.field;
+    document
+      .querySelector('meta[name="theme-color"][media="(prefers-color-scheme: dark)"]')
+      ?.setAttribute('content', fieldMode ? '#FFFFFF' : '#0B1020');
+    // the copy index.html reads on the next cold load; a refused localStorage leaves the Dexie read to decide
+    try {
+      localStorage.setItem('field-mode', fieldMode ? 'on' : 'off');
+    } catch {
+      // the settings table still decides
+    }
   }, [fieldMode]);
   if (invite) {
     const done = () => {
