@@ -3,9 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0B1020" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0B1020" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>StatElite</title>
     <script>
@@ -14,7 +13,7 @@
         if (localStorage.getItem('field-mode') === 'on') {
           document.documentElement.dataset.field = '';
           document.querySelector('meta[name="color-scheme"]').content = 'light';
-          document.querySelector('meta[name="theme-color"][media="(prefers-color-scheme: dark)"]').content = '#FFFFFF';
+          document.querySelector('meta[name="theme-color"]').content = '#FFFFFF';
         }
       } catch {
         // a refused localStorage leaves the first paint to the Dexie read

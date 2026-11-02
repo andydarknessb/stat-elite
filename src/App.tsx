@@ -49,7 +49,7 @@ export function App({ core }: { core: AppCore }) {
   const [ended, setEnded] = useState<string>();
   // an Invite link opens its own screen until the invitee is done with it
   const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get('invite') ?? undefined);
-  // Field mode marks the root, and theme.css gives it the light tokens whatever the phone's scheme is
+  // Field mode marks the root, and theme.css gives it the light tokens over the dark default
   const fieldMode = useReadModel(() => core.fieldMode(), [core]);
   useEffect(() => {
     // before the first read, index.html has already marked the root from the copy below: leave it alone
@@ -57,8 +57,9 @@ export function App({ core }: { core: AppCore }) {
     if (fieldMode) document.documentElement.dataset.field = '';
     else delete document.documentElement.dataset.field;
     document
-      .querySelector('meta[name="theme-color"][media="(prefers-color-scheme: dark)"]')
+      .querySelector('meta[name="theme-color"]')
       ?.setAttribute('content', fieldMode ? '#FFFFFF' : '#0B1020');
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', fieldMode ? 'light' : 'dark');
     // the copy index.html reads on the next cold load; a refused localStorage leaves the Dexie read to decide
     try {
       localStorage.setItem('field-mode', fieldMode ? 'on' : 'off');
