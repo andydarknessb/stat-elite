@@ -6,6 +6,14 @@ import { serverFor } from './core/server';
 import { openStore } from './core/store';
 import { syncOnLaunchAndOnline } from './core/syncTriggers';
 import { requestPersistence } from './pwa';
+import '@fontsource/barlow/400.css';
+import '@fontsource/barlow/500.css';
+import '@fontsource/barlow/600.css';
+import '@fontsource/barlow/700.css';
+import '@fontsource/barlow-condensed/600.css';
+import '@fontsource/barlow-condensed/700.css';
+import '@fontsource/barlow-condensed/800.css';
+import '@fontsource/barlow-condensed/800-italic.css';
 import './theme.css';
 
 const core = createAppCore({
