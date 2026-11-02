@@ -50,6 +50,12 @@ export function App({ core }: { core: AppCore }) {
   const [ended, setEnded] = useState<string>();
   // an Invite link opens its own screen until the invitee is done with it
   const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get('invite') ?? undefined);
+  // Field mode marks the root, and theme.css gives it the light tokens whatever the phone's scheme is
+  const fieldMode = useReadModel(() => core.fieldMode(), [core]);
+  useEffect(() => {
+    if (fieldMode) document.documentElement.dataset.field = '';
+    else delete document.documentElement.dataset.field;
+  }, [fieldMode]);
   if (invite) {
     const done = () => {
       history.replaceState(null, '', location.pathname);
@@ -735,10 +741,11 @@ function GameSummary({ core, gameId, onBack }: { core: AppCore; gameId: string; 
 function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void }) {
   const size = useReadModel(() => core.buttonSize(), [core]);
   const [deleting, setDeleting] = useState(false);
-  // a Button Size the store refused: the alert shows until a size lands
+  const field = useReadModel(() => core.fieldMode(), [core]);
+  // a setting the store refused: the alert shows until a setting lands
   const [failed, setFailed] = useState(false);
   if (deleting) return <DeleteAccount core={core} onCancel={() => setDeleting(false)} />;
-  if (!size) return null;
+  if (!size || field === undefined) return null;
   return (
     <main>
       <h1>Settings</h1>
@@ -754,6 +761,13 @@ function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void })
           </button>
         ))}
       </div>
+      <button
+        aria-pressed={field}
+        className={field ? 'primary' : undefined}
+        onClick={() => void core.setFieldMode(!field).then(() => setFailed(false), () => setFailed(true))}
+      >
+        Field mode
+      </button>
       {failed && <p role="alert">{NOT_SAVED}</p>}
       <button onClick={() => setDeleting(true)}>Delete my account and all data</button>
       <button className="primary" onClick={onDone}>
@@ -1088,6 +1102,7 @@ function LiveGame({
   }, []);
   const game = useReadModel(() => core.liveGame(gameId), [core, gameId, second]);
   const size = useReadModel(() => core.buttonSize(), [core]) ?? 'standard';
+  const field = useReadModel(() => core.fieldMode(), [core]) ?? false;
   // the toast for the last tap, shown 3 seconds; each call sets a new object, so a repeated label still restarts the timer
   const [toast, setToast] = useState<{ label: string }>();
   // a write the store refused: the alert shows until the next write lands
@@ -1334,6 +1349,17 @@ function LiveGame({
           </>
         )}
         {!ending && <button onClick={() => setEnding(true)}>End Game</button>}
+        <button
+          aria-label="Field mode"
+          aria-pressed={field}
+          className={field ? 'primary' : undefined}
+          onClick={() => void attempt(core.setFieldMode(!field), () => undefined)}
+        >
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+        </button>
       </div>
       {ending && (
         <EndGameForm

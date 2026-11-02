@@ -280,6 +280,27 @@ test('Button Size is Standard until a Recorder picks one, and the pick survives 
   expect(await reopen().buttonSize()).toBe('bleacher');
 });
 
+test('Field mode is off until a Recorder turns it on, and the pick survives a reload', async () => {
+  const { core, reopen } = setup();
+  expect(await core.fieldMode()).toBe(false);
+
+  await core.setFieldMode(true);
+
+  expect(await reopen().fieldMode()).toBe(true);
+});
+
+test('Field mode turns off again, and turning it on still works with the server down: it stays on this phone', async () => {
+  const { core, reopen } = setup();
+  await core.setFieldMode(true);
+  await core.setFieldMode(false);
+  expect(await reopen().fieldMode()).toBe(false);
+
+  const down = new Proxy({} as Server, { get: () => () => Promise.reject(new Error('server down')) });
+  const phone = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(`test-${++stores}`), server: down });
+  await expect(phone.setFieldMode(true)).resolves.toBeUndefined();
+  expect(await phone.fieldMode()).toBe(true);
+});
+
 test('each tap is an Event with its own ID, the next sequence number in its Game and the clock time', async () => {
   const { core, now } = setup();
   const gameA = await basketballGame(core);

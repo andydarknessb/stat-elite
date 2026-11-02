@@ -1,5 +1,7 @@
 /* StatElite's own palette. Color only carries meaning: make, miss, and neutral everything else. */
-:root {
+/* Field mode (GLOSSARY: Field mode) marks the root and keeps the light tokens whatever the phone's scheme says. */
+:root,
+:root[data-field] {
   color-scheme: light dark;
   --bg: #ffffff;
   --surface: #f2f4f8;
@@ -17,8 +19,12 @@
   --miss: #c9302c;
 }
 
+:root[data-field] {
+  color-scheme: light;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-field]) {
     --bg: #0b1020;
     --surface: #131a2c;
     --surface-2: #1a2338;

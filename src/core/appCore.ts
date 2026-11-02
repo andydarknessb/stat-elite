@@ -50,6 +50,7 @@ export type ButtonSize = (typeof BUTTON_SIZES)[number];
 
 const SELECTED_ATHLETE = 'selectedAthleteId';
 const BUTTON_SIZE = 'buttonSize';
+const FIELD_MODE = 'fieldMode';
 /** The account whose rows this phone last downloaded: a sign-in clears it, so the next one downloads again. */
 const DOWNLOADED_FOR = 'downloadedFor';
 /** Settings key prefix, one per Athlete another account owns and shared with this phone (ADR 0004). */
@@ -1117,6 +1118,15 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
     async setButtonSize(size: ButtonSize): Promise<void> {
       await store.settings.put({ key: BUTTON_SIZE, value: size });
+    },
+
+    /** Field mode is a phone setting: off until a Recorder turns it on (GLOSSARY: Field mode). */
+    async fieldMode(): Promise<boolean> {
+      return (await store.settings.get(FIELD_MODE))?.value === 'on';
+    },
+
+    async setFieldMode(on: boolean): Promise<void> {
+      await store.settings.put({ key: FIELD_MODE, value: on ? 'on' : 'off' });
     },
 
     async home(): Promise<Home> {
