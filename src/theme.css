@@ -654,7 +654,8 @@ button:disabled {
   display: none;
 }
 
-.card h2 {
+.card h2,
+form h2 {
   margin: 0;
   font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-size: 22px;

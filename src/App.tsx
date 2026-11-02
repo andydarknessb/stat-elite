@@ -1354,7 +1354,7 @@ function LiveGame({
       <main>
         <GameComplete core={core} gameId={gameId} />
         <SaveGame core={core} />
-        <button className="primary" onClick={onDone}>
+        <button onClick={onDone}>
           Done
         </button>
       </main>

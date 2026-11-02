@@ -42,6 +42,10 @@ test('End Game opens the Finish game form inline, and Keep playing closes it wit
 
   await page.getByRole('button', { name: 'End Game' }).click();
   await expect(page.getByText('Finish game?')).toBeVisible();
+  const title = page.getByRole('heading', { name: 'Finish game?' });
+  await expect(title).toHaveCSS('font-size', '22px');
+  await expect(title).toHaveCSS('font-family', /Barlow Condensed/);
+  await expect(title).toHaveCSS('margin-top', '0px');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Keep playing' }).click();
