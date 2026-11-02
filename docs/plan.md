@@ -35,7 +35,8 @@ Interaction rules:
 - **Pitches (optional):** Ball · Called strike · Swinging strike · Foul. The count shows only when they're used.
 - **Softball/baseball Outcomes:** 1B, 2B, 3B, HR · Walk, Hit by pitch, Error, Fielder's choice · Strikeout, Ground out, Fly out, Line out · Sac fly, Sac bunt. Then the RBI chips 0–4. Once the Athlete is on base, tap 2nd, 3rd, Scored, Out, or Stole.
 - **Button Size:** Compact, Standard, Bleacher. Bleacher splits the basketball live screen into two swipe pages (Shots | Other stats).
-- **Theme:** follows the phone's light/dark setting. Color only carries meaning: green for make, red for miss, neutral for counting tiles. StatElite uses its own palette.
+- **Field mode:** forces the light theme over the phone's setting, for bright sun. A sun button in the live screen's period row and a Field mode button in Settings under Button Size switch it. It stays on until turned off and is never uploaded.
+- **Theme:** follows the phone's light/dark setting until Field mode is on. Color only carries meaning: green for make, red for miss, neutral for counting tiles. StatElite uses its own palette.
 
 ## Stats
 
