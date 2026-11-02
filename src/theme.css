@@ -625,6 +625,11 @@ button:disabled {
   padding: 0;
 }
 
+/* The live screen's Field mode sun: a 22px icon, kept at least 44px wide as a tap target. */
+.sun {
+  min-width: 44px;
+}
+
 .glyph {
   width: 24px;
   height: 24px;
