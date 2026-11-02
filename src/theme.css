@@ -98,12 +98,13 @@ button.primary {
   font-size: 32px;
 }
 
-/* A lone Athlete's photo is not a control, so it is not faded like a disabled button. */
+/* A lone Athlete's photo is not a control, so it is not faded like a disabled button. The gold ring is its only accent. */
 .photo {
   width: 120px;
   height: 120px;
   justify-self: center;
   padding: 0;
+  border: 3px solid var(--accent);
   border-radius: 50%;
   overflow: hidden;
 }
@@ -479,16 +480,201 @@ button:disabled {
   background: var(--bg);
 }
 
+/* Each tab is an icon over its label; the pressed tab's icon sits in a gold-tinted pill and its label is gold text. */
+.tabs button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  font-size: 14px;
+}
+
+.tab-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 32px;
+  border-radius: 999px;
+}
+
 .tabs button[aria-pressed='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
-.season {
+.tabs button[aria-pressed='true'] .tab-icon {
+  background: var(--accent-soft);
+}
+
+/* Home: the header, the Athlete card, and the cards below it. */
+.home-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.wordmark {
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.wordmark span:last-child {
+  color: var(--accent-text);
+}
+
+.athlete {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.athlete h1 {
+  margin: 0;
+}
+
+.athlete .number {
+  margin: 0;
+  color: var(--muted);
+}
+
+.athlete-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Edit, Add Athlete and Settings: 48px square icon buttons, never gold. */
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  padding: 0;
+}
+
+.glyph {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+/* The sharing card has nothing to show until Invite co-parent or Members does: it then takes no space. */
+.sharing:empty {
+  display: none;
+}
+
+.card h2 {
+  margin: 0;
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 22px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
   font-weight: 600;
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent-text);
+  color: var(--accent-text);
+}
+
+.games {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* The headline numbers read like a scoreboard: condensed, large, gold. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+  text-align: center;
+}
+
+.stats dt {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.stats dd {
+  margin: 0;
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  text-align: left;
+}
+
+.badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.result-text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.result-text .opponent {
+  font-weight: 600;
+}
+
+.result-text .line {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.final {
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .feed-row {
