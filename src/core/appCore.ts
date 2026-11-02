@@ -8,6 +8,7 @@ import {
   type BaseMove,
   type EventRow,
   type GameRow,
+  type GameTotals,
   type OutboxRow,
   type Outcome,
   type Pitch,
@@ -29,6 +30,15 @@ export interface GameSetup {
   basketballPeriods: 'halves' | 'quarters' | 'eighths';
   opponentName: string;
   gameDate: string;
+}
+
+/** A Backlogged Game as the Recorder enters it: its Athlete, sport, Opponent, date played and Totals (ADR 0005). */
+export interface BacklogEntry {
+  athleteId: string;
+  sport: GameRow['sport'];
+  opponentName: string;
+  gameDate: string;
+  totals: GameTotals;
 }
 
 /** A Score Snapshot's Team and Opponent scores. */
@@ -172,6 +182,8 @@ export interface FeedGame {
   batting: Batting;
   tiles: Record<TileEventType, number>;
   playingShare: number;
+  /** A Backlogged Game, entered from its Totals after it was played (ADR 0005). */
+  backlogged: boolean;
 }
 
 /** One sport's season: the basketball Games' totals, or the softball or baseball Games' batting (plan: Home). */
@@ -469,6 +481,7 @@ const gameOf = ({
   created_at,
   updated_at,
   recorded_by,
+  totals,
 }: GameRow): GameRow => ({
   id,
   athlete_id,
@@ -479,6 +492,7 @@ const gameOf = ({
   created_at,
   updated_at,
   recorded_by,
+  totals,
 });
 const eventOf = ({
   id,
@@ -606,6 +620,90 @@ const practiceFocusOf = (games: { periodFormat: GameRow['period_format']; events
   };
   return [...freeThrowCards, ...weakSide('mid', 'mid-range'), ...weakSide('three', '3-point')];
 };
+
+// whether a value is a count or score a Totals takes: a whole number from 0 to 999
+const isCount = (n: unknown): boolean => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 999;
+// every value inside a Totals, at any depth: the scores and counts the form entered
+const valuesIn = (value: unknown): unknown[] => (typeof value === 'object' && value !== null ? Object.values(value).flatMap(valuesIn) : [value]);
+
+/**
+ * The sentence to show for a Backlogged Game entry that must not be saved, or undefined when it may be (ADR 0005).
+ * shortcut: a Totals missing a count its sport needs passes here, as the form always sends every count, upgrade when another caller builds Totals
+ */
+export const backlogProblem = (entry: Omit<BacklogEntry, 'athleteId'>, today: string): string | undefined => {
+  const { sport, opponentName, gameDate, totals } = entry;
+  if (opponentName.trim() === '') return 'A Game needs an Opponent.';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) return 'A Game needs a date, as YYYY-MM-DD.';
+  if (gameDate > today) return "A Game can't be dated after today.";
+  if (!valuesIn(totals).every(isCount)) return 'Counts and scores are whole numbers from 0 to 999.';
+  // basketball's Totals carry shots; softball's and baseball's carry outcomes
+  if ((sport === 'basketball') !== ('shots' in totals)) return "Totals don't match this sport.";
+  if ('shots' in totals) {
+    const attempts = [totals.freeThrows, totals.shots[2], totals.shots[3]];
+    return attempts.some(({ made, attempted }) => made > attempted) ? "Made can't be more than attempted." : undefined;
+  }
+  // a Plate Appearance is any Outcome counted
+  const plateAppearances = Object.values(totals.outcomes).reduce((sum, n) => sum + n, 0);
+  if (totals.rbi > 0 && plateAppearances === 0) return 'RBI needs at least one Plate Appearance.';
+  if (totals.runs < totals.outcomes.home_run) return "Runs can't be fewer than home runs.";
+  return undefined;
+};
+
+// the fields an Event leaves empty: each Event sets only the ones its type carries
+const NO_FIELDS = {
+  retracts_id: null,
+  court_x: null,
+  court_y: null,
+  shot_value: null,
+  made: null,
+  team_score: null,
+  opponent_score: null,
+  outcome: null,
+  rbi: null,
+  pitch: null,
+  base: null,
+  stolen: null,
+};
+
+/**
+ * A Backlogged Game's Totals as the Events they stand for, built in memory and never stored (ADR 0005): each counted thing is one
+ * Event in Period 1, and the last is the game_end carrying the Final Score. The Events share the Game's created_at, so it has no
+ * time on court, and its Playing Share reads 0.
+ */
+const eventsFromTotals = (game: GameRow): EventRow[] => {
+  const totals = game.totals!;
+  const events: EventRow[] = [];
+  const add = (fields: Pick<EventRow, 'type'> & Partial<EventRow>) => {
+    const seq = events.length + 1;
+    events.push({ ...NO_FIELDS, id: `${game.id}:${seq}`, game_id: game.id, seq, client_ts: game.created_at, period: 1, ...fields });
+  };
+  // shortcut: a row from another phone is not validated, so each count is capped at 999 here to keep the Events built bounded
+  const times = (count: number, make: () => void) => {
+    for (let i = 0; i < Math.min(count, 999); i++) make();
+  };
+  if ('shots' in totals) {
+    for (const value of [2, 3] as const) {
+      const { made, attempted } = totals.shots[value];
+      times(made, () => add({ type: 'shot', shot_value: value, made: true }));
+      times(attempted - made, () => add({ type: 'shot', shot_value: value, made: false }));
+    }
+    times(totals.freeThrows.made, () => add({ type: 'free_throw', made: true }));
+    times(totals.freeThrows.attempted - totals.freeThrows.made, () => add({ type: 'free_throw', made: false }));
+    for (const type of TILE_EVENT_TYPES) times(totals.tiles[type], () => add({ type }));
+  } else {
+    // one Plate Appearance per Outcome counted, all the RBI on the first
+    const outcomes = OUTCOMES.flatMap((outcome) => Array.from({ length: Math.min(totals.outcomes[outcome], 999) }, () => outcome));
+    outcomes.forEach((outcome, i) => add({ type: 'plate_appearance', outcome, rbi: i === 0 ? Math.min(totals.rbi, 999) : 0 }));
+    // baserunningOf already counts each home run as a run, so only the other runs are moves home
+    times(totals.runs - totals.outcomes.home_run, () => add({ type: 'baserunning', base: 'home', stolen: false }));
+    times(totals.steals, () => add({ type: 'baserunning', base: 'second', stolen: true }));
+  }
+  add({ type: 'game_end', team_score: totals.team, opponent_score: totals.opponent });
+  return events;
+};
+
+// the account that recorded a Game: a Game stored before Recorders were is the Owner's, and one waiting on sign-in has none yet, so this phone recorded it
+const recorderOf = (game: GameRow, owner: string | undefined) => (game.recorded_by === undefined ? owner : game.recorded_by);
 
 export function createAppCore({ clock, store, server }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
@@ -808,6 +906,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       await drain();
     });
 
+  // whether this phone's account recorded the Game (its Recorder), or the phone is signed out with none
+  const isRecorder = async (game: GameRow) =>
+    recorderOf(game, (await store.athletes.get(game.athlete_id))?.owner_id) === (await server.session());
   // whether the phone's account owns the Athlete, or the phone is signed out: Invite is the Owner's (ADR 0004)
   const isOwner = async (athleteId: string) => {
     const owner = (await store.athletes.get(athleteId))?.owner_id;
@@ -817,7 +918,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const liveGame = async (gameId: string): Promise<LiveGame | undefined> => {
     const game = await store.games.get(gameId);
     if (!game) return undefined;
-    const events = await gameEvents(gameId).toArray();
+    // a Backlogged Game's Events are its Totals, built here and never stored (ADR 0005)
+    const events = game.totals ? eventsFromTotals(game) : await gameEvents(gameId).toArray();
     const live = liveOf(events);
     const shifts: Shift[] = [];
     let onCourtSince: EventRow | undefined;
@@ -890,7 +992,19 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         batting: live.batting,
         tiles: live.tiles,
         playingShare: live.playingShare,
+        backlogged: Boolean(game.totals),
       },
+    };
+  };
+
+  /** Game setup's prefilled fields: the newest Game's sport, period format and Opponent, and today's date. */
+  const gameSetup = async (athleteId: string): Promise<GameSetup> => {
+    const last = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).at(-1);
+    return {
+      sport: last?.sport ?? 'basketball',
+      basketballPeriods: last?.sport === 'basketball' && last.period_format !== 'innings' ? last.period_format : 'quarters',
+      opponentName: last?.opponent_name ?? 'Opponent',
+      gameDate: localDate(clock()),
     };
   };
 
@@ -944,6 +1058,65 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         await queue('games', id);
       });
       return id;
+    },
+
+    /** A Backlogged Game: a Game entered after it was played, from its Totals, with no Events (ADR 0005). Refused, with no row written, for an entry backlogProblem names. */
+    async backlogGame(entry: BacklogEntry): Promise<string> {
+      const problem = backlogProblem(entry, localDate(clock()));
+      if (problem) throw new Error(problem);
+      const id = crypto.randomUUID();
+      const ts = now();
+      // basketball takes the Athlete's last Game's period format; softball and baseball are always innings
+      const periodFormat = entry.sport === 'basketball' ? (await gameSetup(entry.athleteId)).basketballPeriods : 'innings';
+      // the signed-in account records the Game, as startGame does; a signed-out phone's Game takes its Recorder at sign-in
+      const recorder = await server.session();
+      await write([store.games], async () => {
+        await store.games.add({
+          id,
+          athlete_id: entry.athleteId,
+          sport: entry.sport,
+          period_format: periodFormat,
+          opponent_name: entry.opponentName.trim(),
+          game_date: entry.gameDate,
+          created_at: ts,
+          updated_at: ts,
+          recorded_by: recorder,
+          totals: entry.totals,
+        });
+        await queue('games', id);
+      });
+      return id;
+    },
+
+    /** Edits a Backlogged Game's Opponent, date and Totals. Only its Recorder edits it, and its sport stays as saved (ADR 0005). */
+    async editBacklog(gameId: string, entry: Pick<BacklogEntry, 'opponentName' | 'gameDate' | 'totals'>): Promise<void> {
+      const game = await store.games.get(gameId);
+      if (!game?.totals) throw new Error('Only a Backlogged Game can be edited');
+      if (!(await isRecorder(game))) throw new Error('Only the Recorder can edit this Game');
+      const problem = backlogProblem({ ...entry, sport: game.sport }, localDate(clock()));
+      if (problem) throw new Error(problem);
+      await write([store.games], async () => {
+        await store.games.update(gameId, {
+          opponent_name: entry.opponentName.trim(),
+          game_date: entry.gameDate,
+          totals: entry.totals,
+          updated_at: now(),
+        });
+        await queue('games', gameId);
+      });
+    },
+
+    /** The form's prefill for a Backlogged Game: undefined unless the Game has Totals and this account is its Recorder (ADR 0005). */
+    async backlogEntry(gameId: string): Promise<BacklogEntry | undefined> {
+      const game = await store.games.get(gameId);
+      if (!game?.totals || !(await isRecorder(game))) return undefined;
+      return {
+        athleteId: game.athlete_id,
+        sport: game.sport,
+        opponentName: game.opponent_name,
+        gameDate: game.game_date,
+        totals: game.totals,
+      };
     },
 
     /** Writes the Event to the store before resolving (ADR 0001). */
@@ -1095,16 +1268,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
-    /** Game setup's prefilled fields: the newest Game's sport, period format and Opponent, and today's date. */
-    async gameSetup(athleteId: string): Promise<GameSetup> {
-      const last = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).at(-1);
-      return {
-        sport: last?.sport ?? 'basketball',
-        basketballPeriods: last?.sport === 'basketball' && last.period_format !== 'innings' ? last.period_format : 'quarters',
-        opponentName: last?.opponent_name ?? 'Opponent',
-        gameDate: localDate(clock()),
-      };
-    },
+    gameSetup,
 
     async switchAthlete(athleteId: string): Promise<void> {
       await store.settings.put({ key: SELECTED_ATHLETE, value: athleteId });
@@ -1143,9 +1307,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const session = await server.session();
       let liveGameId: string | undefined;
       for (const game of [...games].reverse()) {
-        // a Game stored before Recorders were is the Owner's; one waiting on sign-in has no Recorder yet, and this phone recorded it
-        const recorder = game.recorded_by === undefined ? athlete.owner_id : game.recorded_by;
-        if (recorder !== session) continue;
+        // a Backlogged Game has no Events, so it is never the one in progress (ADR 0005)
+        if (game.totals || recorderOf(game, athlete.owner_id) !== session) continue;
         if ((await gameEvents(game.id).last())?.type !== 'game_end') {
           liveGameId = game.id;
           break;

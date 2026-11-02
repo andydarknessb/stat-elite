@@ -405,4 +405,33 @@ begin
 end $$;
 reset role;
 
+-- ADR 0005: a Backlogged Game keeps its Totals on the Game, and its Recorder edits them. Appended after the counts above, so they hold.
+-- B, a Member of Casey, records a Backlogged Game (d1) on Casey, which E owns now; E, Casey's Owner, records another (d2).
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by, totals) values
+  ('20000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-28', '00000000-0000-0000-0000-00000000000e', '{"team": 40, "opponent": 30}');
+-- a second Athlete of E's, the one a Recorder must not move its Game to
+insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-00000000000e', 'Riley');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by, totals) values
+  ('20000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-27', '00000000-0000-0000-0000-00000000000b', '{"team": 40, "opponent": 30}');
+
+-- the Recorder updates its Game's Totals, and a Member who did not record d2 updates none of it
+do $$
+declare n int;
+begin
+  update games set totals = '{"team": 41, "opponent": 30}' where id = '20000000-0000-0000-0000-0000000000d1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should update the Totals of the Game it recorded, updated %', n; end if;
+  update games set totals = '{"team": 41, "opponent": 30}' where id = '20000000-0000-0000-0000-0000000000d2';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a Member should update the Totals of no Game it did not record, updated %', n; end if;
+end $$;
+-- Totals are an object with a team and an opponent score: anything else is refused
+select pg_temp.expect_fail($$update games set totals = '[1, 2]' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'a non-object Totals');
+-- and the Recorder keeps its Game with its Athlete: E's other Athlete has the same Owner, so only the trigger refuses the move
+select pg_temp.expect_fail($$update games set athlete_id = '10000000-0000-0000-0000-0000000000e1' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'a Recorder moving its Game to another Athlete');
+reset role;
+
 \echo 'schema.test.sql: all checks passed'
