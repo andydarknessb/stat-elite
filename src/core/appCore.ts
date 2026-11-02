@@ -625,6 +625,14 @@ const practiceFocusOf = (games: { periodFormat: GameRow['period_format']; events
 const isCount = (n: unknown): boolean => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 999;
 // every value inside a Totals, at any depth: the scores and counts the form entered
 const valuesIn = (value: unknown): unknown[] => (typeof value === 'object' && value !== null ? Object.values(value).flatMap(valuesIn) : [value]);
+// a count as a row from another phone may hold it: missing, null, not a number or negative reads as 0, and a count is capped at 999
+const readCount = (n: unknown): number => (typeof n === 'number' && n > 0 ? Math.min(Math.floor(n), 999) : 0);
+
+// a real calendar day from 1900 on: the date must survive a round trip, so 2026-02-31 and 0000-00-00 fail (Postgres refuses both)
+const isRealDay = (day: string): boolean => {
+  const [year, month, date] = day.split('-').map(Number);
+  return day >= '1900-01-01' && new Date(Date.UTC(year, month - 1, date)).toISOString().startsWith(day);
+};
 
 /**
  * The sentence to show for a Backlogged Game entry that must not be saved, or undefined when it may be (ADR 0005).
@@ -633,7 +641,7 @@ const valuesIn = (value: unknown): unknown[] => (typeof value === 'object' && va
 export const backlogProblem = (entry: Omit<BacklogEntry, 'athleteId'>, today: string): string | undefined => {
   const { sport, opponentName, gameDate, totals } = entry;
   if (opponentName.trim() === '') return 'A Game needs an Opponent.';
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) return 'A Game needs a date, as YYYY-MM-DD.';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(gameDate) || !isRealDay(gameDate)) return 'A Game needs a date, as YYYY-MM-DD.';
   if (gameDate > today) return "A Game can't be dated after today.";
   if (!valuesIn(totals).every(isCount)) return 'Counts and scores are whole numbers from 0 to 999.';
   // basketball's Totals carry shots; softball's and baseball's carry outcomes
@@ -677,28 +685,32 @@ const eventsFromTotals = (game: GameRow): EventRow[] => {
     const seq = events.length + 1;
     events.push({ ...NO_FIELDS, id: `${game.id}:${seq}`, game_id: game.id, seq, client_ts: game.created_at, period: 1, ...fields });
   };
-  // shortcut: a row from another phone is not validated, so each count is capped at 999 here to keep the Events built bounded
+  // shortcut: a row from another phone is not validated, so readCount reads a count it holds badly as 0 and caps each at 999 to keep the Events bounded, upgrade when a download validates Totals
   const times = (count: number, make: () => void) => {
-    for (let i = 0; i < Math.min(count, 999); i++) make();
+    for (let i = 0; i < count; i++) make();
   };
-  if ('shots' in totals) {
+  // the Game's sport picks the shape, not the keys the row holds
+  if (game.sport === 'basketball') {
+    const { shots, freeThrows, tiles } = totals as Extract<GameTotals, { shots: unknown }>;
     for (const value of [2, 3] as const) {
-      const { made, attempted } = totals.shots[value];
+      const made = readCount(shots?.[value]?.made);
       times(made, () => add({ type: 'shot', shot_value: value, made: true }));
-      times(attempted - made, () => add({ type: 'shot', shot_value: value, made: false }));
+      times(readCount(shots?.[value]?.attempted) - made, () => add({ type: 'shot', shot_value: value, made: false }));
     }
-    times(totals.freeThrows.made, () => add({ type: 'free_throw', made: true }));
-    times(totals.freeThrows.attempted - totals.freeThrows.made, () => add({ type: 'free_throw', made: false }));
-    for (const type of TILE_EVENT_TYPES) times(totals.tiles[type], () => add({ type }));
+    const freeThrowsMade = readCount(freeThrows?.made);
+    times(freeThrowsMade, () => add({ type: 'free_throw', made: true }));
+    times(readCount(freeThrows?.attempted) - freeThrowsMade, () => add({ type: 'free_throw', made: false }));
+    for (const type of TILE_EVENT_TYPES) times(readCount(tiles?.[type]), () => add({ type }));
   } else {
+    const { outcomes, rbi, runs, steals } = totals as Extract<GameTotals, { outcomes: unknown }>;
     // one Plate Appearance per Outcome counted, all the RBI on the first
-    const outcomes = OUTCOMES.flatMap((outcome) => Array.from({ length: Math.min(totals.outcomes[outcome], 999) }, () => outcome));
-    outcomes.forEach((outcome, i) => add({ type: 'plate_appearance', outcome, rbi: i === 0 ? Math.min(totals.rbi, 999) : 0 }));
+    const counted = OUTCOMES.flatMap((outcome) => Array.from({ length: readCount(outcomes?.[outcome]) }, () => outcome));
+    counted.forEach((outcome, i) => add({ type: 'plate_appearance', outcome, rbi: i === 0 ? readCount(rbi) : 0 }));
     // baserunningOf already counts each home run as a run, so only the other runs are moves home
-    times(totals.runs - totals.outcomes.home_run, () => add({ type: 'baserunning', base: 'home', stolen: false }));
-    times(totals.steals, () => add({ type: 'baserunning', base: 'second', stolen: true }));
+    times(readCount(runs) - readCount(outcomes?.home_run), () => add({ type: 'baserunning', base: 'home', stolen: false }));
+    times(readCount(steals), () => add({ type: 'baserunning', base: 'second', stolen: true }));
   }
-  add({ type: 'game_end', team_score: totals.team, opponent_score: totals.opponent });
+  add({ type: 'game_end', team_score: readCount(totals.team), opponent_score: readCount(totals.opponent) });
   return events;
 };
 
@@ -727,12 +739,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     }
     return { team: base.team + added, opponent: base.opponent };
   };
+  // a Backlogged Game takes no Events: its Totals are its record (ADR 0005)
+  const noBacklog = async (gameId: string) => {
+    if ((await store.games.get(gameId))?.totals) throw new Error('A Backlogged Game has no Events');
+  };
   // the next Event in a Game, appended to its log
   const nextEvent = async (
     gameId: string,
     fields: Pick<EventRow, 'type' | 'retracts_id'> &
       Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value' | 'outcome' | 'rbi' | 'pitch' | 'base' | 'stolen'>>,
   ): Promise<EventRow> => {
+    await noBacklog(gameId);
     const events = await gameEvents(gameId).toArray();
     const last = events.at(-1);
     // End Game is always the last Event of a Game, so nothing is appended after it
@@ -758,9 +775,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     };
   };
 
-  // Every write queues its row for upload in the same transaction (ADR 0001), then tries to upload.
+  // Every write queues its row for upload in the same transaction (ADR 0001), then tries to upload. The Game table is always in scope, since nextEvent reads the Game (ADR 0005).
   const write = async <T>(tables: Table[], scope: () => Promise<T>): Promise<T> => {
-    const result = await store.transaction('rw', [...tables, store.outbox], scope);
+    const result = await store.transaction('rw', [...new Set([...tables, store.games, store.outbox])], scope);
     void flush();
     return result;
   };
@@ -1259,6 +1276,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. */
     undo(gameId: string): Promise<EventRow | undefined> {
       return write([store.events], async () => {
+        // checked first: a Backlogged Game has no Event to undo, so nextEvent would not be reached
+        await noBacklog(gameId);
         const target = liveOf(await gameEvents(gameId).toArray()).at(-1);
         if (!target) return undefined;
         const retraction = await nextEvent(gameId, { type: 'retraction', retracts_id: target.id });

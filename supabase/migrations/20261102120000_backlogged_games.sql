@@ -2,9 +2,10 @@
 alter table games add column totals jsonb
   check (totals is null or (jsonb_typeof(totals) = 'object' and totals ? 'team' and totals ? 'opponent'));
 
--- Only the Owner could update a Game. A Member's update of a Game it recorded matched no row and reported no error.
+-- A Recorder updates its Game only while it is still a Member of the Athlete. A removed Member's update matches no row and reports no error.
 create policy recorder_updates_games on games for update to authenticated
-  using (recorded_by = (select auth.uid())) with check (recorded_by = (select auth.uid()));
+  using (recorded_by = (select auth.uid()) and exists (select 1 from members m where m.athlete_id = games.athlete_id and m.member_id = (select auth.uid())))
+  with check (recorded_by = (select auth.uid()) and exists (select 1 from members m where m.athlete_id = games.athlete_id and m.member_id = (select auth.uid())));
 
 -- A Recorder can now update its Game, so the Game stays with its Athlete. The foreign key keeps owner_id matched to that Athlete.
 create function keep_athlete() returns trigger language plpgsql set search_path = '' as $$

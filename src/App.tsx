@@ -1121,7 +1121,7 @@ function BacklogFields({
             </label>
           ))}
         </div>
-        {/* above the buttons, as AthleteForm places it: a tap on Save scrolls it into view */}
+        {/* above the buttons, as AthleteForm places it: the alert sits directly above Save, where a Recorder reaching Save reads it */}
         {problem && <p role="alert">{problem}</p>}
         {failed && <p role="alert">{NOT_SAVED}</p>}
         <button className="primary" disabled={!draft || problem !== undefined || saving}>

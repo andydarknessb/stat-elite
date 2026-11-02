@@ -3052,3 +3052,72 @@ test('a Game with no Totals uploads with no totals key, as it did before Backlog
 
   expect('totals' in server.rows.games.get(gameId)!).toBe(false);
 });
+
+// every number a read model holds, at any depth: a NaN anywhere is not finite
+const numbersOf = (value: unknown): number[] =>
+  typeof value === 'number' ? [value] : typeof value === 'object' && value !== null ? Object.values(value).flatMap(numbersOf) : [];
+
+// Totals a row from another phone may carry, each with the sport of the Game it sits on and the final it reads as
+const MALFORMED: [sport: 'basketball' | 'softball', totals: unknown, final: { team: number; opponent: number }][] = [
+  ['basketball', { team: 1, opponent: 1 }, { team: 1, opponent: 1 }],
+  ['basketball', { team: 1, opponent: 1, shots: null }, { team: 1, opponent: 1 }],
+  ['basketball', { team: 1, opponent: 1, shots: {} }, { team: 1, opponent: 1 }],
+  ['softball', { team: 'a', opponent: null, outcomes: null }, { team: 0, opponent: 0 }],
+];
+
+test('a Backlogged Game with malformed Totals still reads, downloaded or stored directly: the feed resolves, lists the healthy Game, and holds no NaN', async () => {
+  for (const [sport, totals, final] of MALFORMED) {
+    for (const arrival of ['downloaded', 'stored'] as const) {
+      const t = setup(new Date(2026, 9, 30, 12));
+      const athleteId = await t.core.addAthlete({ name: 'Casey' });
+      const healthy = await t.core.backlogGame(backlogEntry(athleteId, { gameDate: '2026-10-28' }));
+      const bad = await t.core.backlogGame(backlogEntry(athleteId, { sport, totals: sport === 'basketball' ? BASKETBALL_TOTALS : SOFTBALL_TOTALS, gameDate: '2026-10-27' }));
+
+      let reader = t.core;
+      if (arrival === 'stored') {
+        await t.inspect.games.update(bad, { totals: totals as never });
+      } else {
+        // another phone uploads the Game with malformed Totals; this phone signs in and downloads it
+        await signInWithCode(t.core, 'casey@example.com');
+        Object.assign(t.server.rows.games.get(bad)!, { totals });
+        reader = phoneOn(t.server).core;
+        await signInWithCode(reader, 'casey@example.com');
+      }
+
+      const feed = await reader.gameFeed(athleteId);
+      expect(feed.games.map((g) => g.id)).toEqual([healthy, bad]);
+      expect(feed.games.find((g) => g.id === healthy)).toMatchObject({ final: { team: 48, opponent: 40 }, line: { points: 19 } });
+      expect(feed.games.find((g) => g.id === bad)).toMatchObject({ final });
+      expect(numbersOf([feed, await reader.liveGame(bad), await reader.gameSummary(bad)]).every(Number.isFinite)).toBe(true);
+    }
+  }
+});
+
+test('a Backlogged Game takes no Events: a tile, End Game and Undo each refuse it, and write no Event or outbox row', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  const gameId = await t.core.backlogGame(backlogEntry(athleteId));
+  const queued = await t.inspect.outbox.count();
+
+  await expect(t.core.recordTile(gameId, 'steal')).rejects.toThrow('A Backlogged Game has no Events');
+  await expect(t.core.endGame(gameId, { teamScore: 1, opponentScore: 0 })).rejects.toThrow('A Backlogged Game has no Events');
+  await expect(t.core.undo(gameId)).rejects.toThrow('A Backlogged Game has no Events');
+
+  expect(await t.inspect.events.count()).toBe(0);
+  expect(await t.inspect.outbox.count()).toBe(queued);
+});
+
+test('a Backlogged Game is dated on a real day from 1900 on: 2026-02-31, 0000-00-00 and 1899-12-31 are refused, and 2024-02-29 is accepted', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+
+  // Postgres refuses these dates, and a refused row stalls the outbox
+  for (const gameDate of ['2026-02-31', '0000-00-00', '1899-12-31']) {
+    expect(backlogProblem(backlogEntry(athleteId, { gameDate }), '2026-10-30')).toBe('A Game needs a date, as YYYY-MM-DD.');
+    await expect(t.core.backlogGame(backlogEntry(athleteId, { gameDate }))).rejects.toThrow('A Game needs a date, as YYYY-MM-DD.');
+  }
+  expect(await t.inspect.games.count()).toBe(0);
+
+  const leapDay = await t.core.backlogGame(backlogEntry(athleteId, { gameDate: '2024-02-29' }));
+  expect(await t.inspect.games.get(leapDay)).toMatchObject({ game_date: '2024-02-29' });
+});
