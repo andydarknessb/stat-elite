@@ -45,6 +45,8 @@ export interface GameRow {
   updated_at: string;
   /** A Backlogged Game's Totals; a Game with Events has none (ADR 0005). */
   totals?: GameTotals | null;
+  /** Set when the Recorder removes a Backlogged Game: every phone hides it, and its row stays (ADR 0006). */
+  removed?: boolean;
 }
 
 export const TILE_EVENT_TYPES = ['reb_off', 'reb_def', 'assist', 'steal', 'block', 'turnover', 'foul'] as const;

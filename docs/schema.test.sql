@@ -478,4 +478,22 @@ select pg_temp.expect_fail($$update games set totals = '{"opponent": 30}' where 
 select pg_temp.expect_fail($$update games set totals = '{"team": 40}' where id = '20000000-0000-0000-0000-0000000000d2'$$, 'Totals without an opponent score');
 reset role;
 
+-- ADR 0006: a Recorder removes its Backlogged Game, and the row stays. A Member removes no Game it did not record, and a live Game cannot be removed.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+set role authenticated;
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values
+  ('20000000-0000-0000-0000-0000000000d4', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-25', '00000000-0000-0000-0000-00000000000b');
+do $$
+declare n int;
+begin
+  update games set removed = true where id = '20000000-0000-0000-0000-0000000000d2';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a Member should remove no Game it did not record, removed %', n; end if;
+  update games set removed = true where id = '20000000-0000-0000-0000-0000000000d1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should remove the Backlogged Game it recorded, removed %', n; end if;
+end $$;
+select pg_temp.expect_fail($$update games set removed = true where id = '20000000-0000-0000-0000-0000000000d4'$$, 'a live Game removed');
+reset role;
+
 \echo 'schema.test.sql: all checks passed'

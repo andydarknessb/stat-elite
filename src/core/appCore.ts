@@ -482,6 +482,7 @@ const gameOf = ({
   updated_at,
   recorded_by,
   totals,
+  removed,
 }: GameRow): GameRow => ({
   id,
   athlete_id,
@@ -493,6 +494,7 @@ const gameOf = ({
   updated_at,
   recorded_by,
   totals,
+  removed,
 });
 const eventOf = ({
   id,
@@ -722,8 +724,12 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   // a Game's Events in seq order
   const gameEvents = (gameId: string) => store.events.where('[game_id+seq]').between([gameId, 0], [gameId, Infinity]);
   // the Athlete's Games in the Games tab's order: game_date newest first, created_at newest first within a date (the sort is stable)
+  // a removed Game is hidden on every phone (ADR 0006)
   const gamesNewestFirst = async (athleteId: string) =>
-    (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).reverse().sort((a, b) => b.game_date.localeCompare(a.game_date));
+    (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at'))
+      .filter((g) => !g.removed)
+      .reverse()
+      .sort((a, b) => b.game_date.localeCompare(a.game_date));
   // the strip: the latest Score Snapshot not retracted, plus the points of the made Shots and Free Throws after it (ADR 0002); 0–0 before the first one
   const latestScores = (events: EventRow[]): Scores => {
     const retracted = retractedIds(events);
@@ -1016,7 +1022,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
   /** Game setup's prefilled fields: the newest Game's sport, period format and Opponent, and today's date. */
   const gameSetup = async (athleteId: string): Promise<GameSetup> => {
-    const last = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).at(-1);
+    const last = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).filter((g) => !g.removed).at(-1);
     return {
       sport: last?.sport ?? 'basketball',
       basketballPeriods: last?.sport === 'basketball' && last.period_format !== 'innings' ? last.period_format : 'quarters',
@@ -1119,6 +1125,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
           totals: entry.totals,
           updated_at: now(),
         });
+        await queue('games', gameId);
+      });
+    },
+
+    /** Removes a Backlogged Game from every phone: a Game edit that hides it, its row kept on the server (ADR 0006). Only its Recorder removes it, and only a Backlogged Game. */
+    async removeBacklog(gameId: string): Promise<void> {
+      const game = await store.games.get(gameId);
+      if (!game?.totals) throw new Error('Only a Backlogged Game can be removed');
+      if (!(await isRecorder(game))) throw new Error('Only the Recorder can remove this Game');
+      await write([store.games], async () => {
+        await store.games.update(gameId, { removed: true, updated_at: now() });
         await queue('games', gameId);
       });
     },
@@ -1359,10 +1376,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       return { seasons: seasons.length > 0 ? seasons : [{ sport: 'basketball', line: lineOf([]) }], games };
     },
 
-    /** A finished Game's summary; undefined while the Game is still in progress. */
+    /** A finished Game's summary; undefined while the Game is still in progress, or once it is removed. */
     async gameSummary(gameId: string): Promise<FeedGame | undefined> {
       const game = await store.games.get(gameId);
-      return game && (await finishedGame(game, localDate(clock())))?.row;
+      if (!game || game.removed) return undefined;
+      return (await finishedGame(game, localDate(clock())))?.row;
     },
 
     /** Game Complete's ready-to-paste text: the Final Score, the Athlete's line and Plus/Minus, and the sport's hashtag; undefined while the Game is in progress. Counts only un-retracted Events, as the summary does. */
@@ -1491,7 +1509,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
           const members = me === undefined ? [] : await server.members(a.id);
           const [first] = members.sort((x, y) => x.joined_at.localeCompare(y.joined_at));
           if (first) return { name: a.name, fate: 'passes', to: labelled(first).label };
-          return { name: a.name, fate: 'deleted', games: await store.games.where('athlete_id').equals(a.id).count() };
+          return { name: a.name, fate: 'deleted', games: await store.games.where('athlete_id').equals(a.id).and((g) => !g.removed).count() };
         }),
       );
       const pending = await store.outbox.toArray();
