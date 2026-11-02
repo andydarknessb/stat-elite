@@ -103,6 +103,7 @@ test('Home offers Save this game after a finished Game, and signing in there cle
   await page.goto('/');
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await expect(page.getByText('No finished Games yet.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save this game' })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -112,6 +113,7 @@ test('Home offers Save this game after a finished Game, and signing in there cle
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('button', { name: 'Save this game' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save this game' })).toBeInViewport();
 
   await page.getByRole('button', { name: 'Save this game' }).click();
   await page.getByLabel('Email').fill('casey@example.com');

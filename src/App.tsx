@@ -541,8 +541,8 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         <button className="primary" onClick={() => setForm('setup')}>
           Start Game
         </button>
-        <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
         <SaveFromHome core={core} athleteId={athlete.id} />
+        <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
         <section className="card sharing" aria-label="Sharing">
           <InviteCoParent core={core} athleteId={athlete.id} />
           <Members core={core} athleteId={athlete.id} />
