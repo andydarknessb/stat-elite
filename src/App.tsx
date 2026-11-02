@@ -51,7 +51,7 @@ export function App({ core }: { core: AppCore }) {
   const [ended, setEnded] = useState<string>();
   // an Invite link opens its own screen until the invitee is done with it
   const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get('invite') ?? undefined);
-  // Field mode marks the root, and theme.css gives it the light tokens whatever the phone's scheme is
+  // Field mode marks the root, and theme.css gives it the light tokens over the dark default
   const fieldMode = useReadModel(() => core.fieldMode(), [core]);
   useEffect(() => {
     // before the first read, index.html has already marked the root from the copy below: leave it alone
@@ -59,8 +59,9 @@ export function App({ core }: { core: AppCore }) {
     if (fieldMode) document.documentElement.dataset.field = '';
     else delete document.documentElement.dataset.field;
     document
-      .querySelector('meta[name="theme-color"][media="(prefers-color-scheme: dark)"]')
+      .querySelector('meta[name="theme-color"]')
       ?.setAttribute('content', fieldMode ? '#FFFFFF' : '#0B1020');
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', fieldMode ? 'light' : 'dark');
     // the copy index.html reads on the next cold load; a refused localStorage leaves the Dexie read to decide
     try {
       localStorage.setItem('field-mode', fieldMode ? 'on' : 'off');
@@ -243,6 +244,13 @@ function SaveGame({ core }: { core: AppCore }) {
   if (!sync || sync.signedIn) return null;
   if (!open) return <button onClick={() => setOpen(true)}>Save this game</button>;
   return <SignInForm core={core} />;
+}
+
+/** Save this game on Home once a Game has finished: Game Complete is gone after Done, so this is the only sign-in control (#138). */
+function SaveFromHome({ core, athleteId }: { core: AppCore; athleteId: string }) {
+  const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
+  if (!feed || feed.games.length === 0) return null;
+  return <SaveGame core={core} />;
 }
 
 /** The sign-in step of Save this game and the Invite screen: the email gets a link and a code, and typing the code signs the Recorder in here (the link does it in the browser that opens it). */
@@ -552,6 +560,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         <button className="primary" onClick={() => setForm('setup')}>
           Start Game
         </button>
+        <SaveFromHome core={core} athleteId={athlete.id} />
         <button onClick={() => setForm('backlog')}>Add past Game</button>
         <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
         <section className="card sharing" aria-label="Sharing">

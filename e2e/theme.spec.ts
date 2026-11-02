@@ -11,17 +11,16 @@ async function startGame(page: Page) {
   await page.getByRole('button', { name: 'Start', exact: true }).click();
 }
 
-test('the page follows the phone colour scheme: navy on dark, white on light', async ({ page }) => {
+test("the page is navy whatever the phone's setting is", async ({ page }) => {
   await addAthlete(page);
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
-  await expect(page.locator('body')).toHaveCSS('color', 'rgb(242, 244, 248)');
-  await page.emulateMedia({ colorScheme: 'light' });
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-  await expect(page.locator('body')).toHaveCSS('color', 'rgb(11, 16, 32)');
+  for (const colorScheme of ['dark', 'light'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
+    await expect(page.locator('body')).toHaveCSS('color', 'rgb(242, 244, 248)');
+  }
 });
 
-test('Start Game is the gold button with navy text in both schemes', async ({ page }) => {
+test('Start Game is the gold button with navy text on either phone setting', async ({ page }) => {
   await addAthlete(page);
   const start = page.getByRole('button', { name: 'Start Game' });
   for (const colorScheme of ['dark', 'light'] as const) {

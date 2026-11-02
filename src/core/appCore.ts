@@ -1321,18 +1321,18 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const athlete = athletes[index];
       const photo = await store.athletePhotos.get(athlete.id);
       const next = athletes[(index + 1) % athletes.length];
-      // the newest Game that End Game has not closed is the one in progress, and only its Recorder's phone records on it
       const games = await store.games.where('athlete_id').equals(athlete.id).sortBy('created_at');
-      const session = await server.session();
-      let liveGameId: string | undefined;
+      // every Dexie read comes before the session: a liveQuery stops observing at an await that is not Dexie's, and End Game would never re-run Home
+      const unclosed = [];
       for (const game of [...games].reverse()) {
         // a Backlogged Game has no Events, so it is never the one in progress (ADR 0005)
-        if (game.totals || recorderOf(game, athlete.owner_id) !== session) continue;
-        if ((await gameEvents(game.id).last())?.type !== 'game_end') {
-          liveGameId = game.id;
-          break;
-        }
+        if (game.totals) continue;
+        if ((await gameEvents(game.id).last())?.type !== 'game_end') unclosed.push(game);
       }
+      const session = await server.session();
+      // the newest Game that End Game has not closed is the one in progress, and only its Recorder's phone records on it
+      // a Game stored before Recorders were is the Owner's; one waiting on sign-in has no Recorder yet, and this phone recorded it
+      const liveGameId = unclosed.find((game) => recorderOf(game, athlete.owner_id) === session)?.id;
       return {
         athlete: { id: athlete.id, name: athlete.name, jerseyNumber: athlete.jersey_number, photo: photo?.photo },
         next: athletes.length > 1 ? { id: next.id, name: next.name } : undefined,

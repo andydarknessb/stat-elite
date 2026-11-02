@@ -41,9 +41,9 @@ test('a Free Throw records MAKE or MISS with no spot, and the row reads made/att
   const make = row.getByRole('button', { name: 'MAKE' });
   const miss = row.getByRole('button', { name: 'MISS' });
 
-  // green make, red miss: the colors carry meaning in light mode
-  await expect(make).toHaveCSS('color', 'rgb(26, 127, 55)');
-  await expect(miss).toHaveCSS('color', 'rgb(201, 48, 44)');
+  // green make, red miss: the colors carry meaning in the dark theme
+  await expect(make).toHaveCSS('color', 'rgb(63, 185, 80)');
+  await expect(miss).toHaveCSS('color', 'rgb(240, 96, 90)');
   await make.click();
   await expect(row).toHaveText(/MAKE\s*1\/1\s*MISS/);
   await miss.click();

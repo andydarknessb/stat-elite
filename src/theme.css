@@ -1,8 +1,25 @@
 /* StatElite's own palette. Color only carries meaning: make, miss, and neutral everything else. */
-/* Field mode (GLOSSARY: Field mode) marks the root and keeps the light tokens whatever the phone's scheme says. */
-:root,
+/* The app is dark on every phone. Field mode (GLOSSARY: Field mode) marks the root and gives it the light tokens. */
+:root {
+  color-scheme: dark;
+  --bg: #0b1020;
+  --surface: #131a2c;
+  --surface-2: #1a2338;
+  --border: #26314a;
+  --border-strong: #34415f;
+  --text: #f2f4f8;
+  --muted: #a9b2c6;
+  --subtle: #8b95ac;
+  --accent: #f5b841;
+  --accent-ink: #0b1020;
+  --accent-text: #f5b841;
+  --accent-soft: rgba(245, 184, 65, 0.14);
+  --make: #3fb950;
+  --miss: #f0605a;
+}
+
 :root[data-field] {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #ffffff;
   --surface: #f2f4f8;
   --surface-2: #e6eaf1;
@@ -11,33 +28,10 @@
   --text: #0b1020;
   --muted: #2b3650;
   --subtle: #3d4862;
-  --accent: #f5b841;
-  --accent-ink: #0b1020;
   --accent-text: #64491a;
   --accent-soft: rgba(245, 184, 65, 0.24);
   --make: #1a7f37;
   --miss: #c9302c;
-}
-
-:root[data-field] {
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-field]) {
-    --bg: #0b1020;
-    --surface: #131a2c;
-    --surface-2: #1a2338;
-    --border: #26314a;
-    --border-strong: #34415f;
-    --text: #f2f4f8;
-    --muted: #a9b2c6;
-    --subtle: #8b95ac;
-    --accent-text: #f5b841;
-    --accent-soft: rgba(245, 184, 65, 0.14);
-    --make: #3fb950;
-    --miss: #f0605a;
-  }
 }
 
 body {

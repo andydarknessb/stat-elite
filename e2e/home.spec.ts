@@ -92,7 +92,7 @@ test('switching Athlete opens the season card on its first sport, not the one ch
 });
 
 for (const colorScheme of ['dark', 'light'] as const) {
-  test.describe(colorScheme, () => {
+  test.describe(`on either phone setting, ${colorScheme}`, () => {
     test.use({ colorScheme });
 
     test('Start Game is the one gold button on Home', async ({ page }) => {
@@ -105,8 +105,7 @@ for (const colorScheme of ['dark', 'light'] as const) {
 
     test('the pressed tab label is gold text', async ({ page }) => {
       await addAthlete(page);
-      const label = colorScheme === 'dark' ? 'rgb(245, 184, 65)' : 'rgb(100, 73, 26)';
-      await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveCSS('color', label);
+      await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveCSS('color', 'rgb(245, 184, 65)');
     });
   });
 }

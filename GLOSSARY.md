@@ -151,5 +151,5 @@ How large the live-game buttons are: Compact, Standard, or Bleacher.
 _Avoid_: Bleacher Mode, Oversized, target resizing
 
 **Field mode**:
-The light, high-contrast theme for bright sun, switched from Settings or the live screen, which overrides the phone's light or dark setting.
+The light, high-contrast theme for bright sun, switched from Settings or the live screen. The app is dark otherwise, whatever the phone's setting.
 _Avoid_: sun mode, outdoor mode, light mode
