@@ -83,7 +83,7 @@ function auditScreen(screen: string): string[] {
   return failures;
 }
 
-// the Home-to-Games-to-Settings walk, shared by all three themes: basketball then softball finish, so Home lists both
+// the Home-to-Games-to-Settings walk, shared by all three audits: basketball then softball finish, so Home lists both
 async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   const failures: string[] = [];
   const check = async (screen: string) => {
@@ -155,10 +155,10 @@ test.describe('dark', () => {
   });
 });
 
-test.describe('light', () => {
+test.describe('light phone', () => {
   test.use({ colorScheme: 'light' });
 
-  test('every screen meets contrast and 44px target size under the light theme', async ({ page }) => {
+  test('every screen meets contrast and 44px target size on a light phone, which stays navy', async ({ page }) => {
     await addAthlete(page);
     const failures = await visitEveryScreen(page, 'light');
     expect(failures, failures.join('\n')).toEqual([]);

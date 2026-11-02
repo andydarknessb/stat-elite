@@ -105,8 +105,7 @@ for (const colorScheme of ['dark', 'light'] as const) {
 
     test('the pressed tab label is gold text', async ({ page }) => {
       await addAthlete(page);
-      const label = colorScheme === 'dark' ? 'rgb(245, 184, 65)' : 'rgb(100, 73, 26)';
-      await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveCSS('color', label);
+      await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveCSS('color', 'rgb(245, 184, 65)');
     });
   });
 }

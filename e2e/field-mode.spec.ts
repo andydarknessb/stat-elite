@@ -120,7 +120,36 @@ test('Field mode turned off stays off across a cold load', async ({ page }) => {
   await page.reload();
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
-  expect(await readHead(page)).toEqual({ field: false, colorScheme: 'light dark', themeColors: ['#0b1020'], cleared: false });
+  expect(await readHead(page)).toEqual({ field: false, colorScheme: 'dark', themeColors: ['#0b1020'], cleared: false });
+});
+
+test('turning Field mode off after a cold load with it on leaves the meta navy', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Field mode', exact: true }).click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await page.reload();
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const field = page.getByRole('button', { name: 'Field mode', exact: true });
+  await expect(field).toHaveAttribute('aria-pressed', 'true');
+  await field.click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
+  await expect(page.locator('meta[name="color-scheme"]')).toHaveAttribute('content', 'dark');
+  await expect.poll(() => themeColors(page)).toEqual(['#0b1020']);
+});
+
+test('on a light phone the page is navy with Field mode off, white with it on, and navy again off', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await addAthlete(page);
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const field = page.getByRole('button', { name: 'Field mode', exact: true });
+  await field.click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await field.click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
 });
 
 test('deleting the account clears Field mode on the next cold load', async ({ page }) => {
@@ -139,5 +168,5 @@ test('deleting the account clears Field mode on the next cold load', async ({ pa
   await page.reload();
   await expect(page.getByLabel('Athlete name')).toBeVisible();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
-  expect(await readHead(page)).toEqual({ field: false, colorScheme: 'light dark', themeColors: ['#0b1020'], cleared: false });
+  expect(await readHead(page)).toEqual({ field: false, colorScheme: 'dark', themeColors: ['#0b1020'], cleared: false });
 });

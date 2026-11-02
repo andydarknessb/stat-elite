@@ -16,13 +16,13 @@ test('a Recorder adds an Athlete, taps STL, and still sees the count after a rel
   await expect(steal).toHaveText('STL 1');
 });
 
-test("the theme follows the phone's light or dark setting", async ({ page }) => {
+test("the page is navy whatever the phone's setting is", async ({ page }) => {
   await page.goto('/');
   const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 
   await page.emulateMedia({ colorScheme: 'light' });
-  const light = await background();
+  expect(await background()).toBe('rgb(11, 16, 32)');
   await page.emulateMedia({ colorScheme: 'dark' });
 
-  expect(await background()).not.toBe(light);
+  expect(await background()).toBe('rgb(11, 16, 32)');
 });
