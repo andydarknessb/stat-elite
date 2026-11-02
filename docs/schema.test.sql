@@ -440,6 +440,7 @@ begin
 end $$;
 -- Totals are an object with a team and an opponent score: anything else is refused
 select pg_temp.expect_fail($$update games set totals = '[1, 2]' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'a non-object Totals');
+select pg_temp.expect_fail($$update games set totals = '["team", "opponent"]' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'an array holding the key names as Totals');
 -- and a Recorder keeps its Game with its Athlete: the trigger refuses this move first, and the policy would too, since B is no Member of Riley
 select pg_temp.expect_fail($$update games set athlete_id = '10000000-0000-0000-0000-0000000000e1' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'a Recorder moving its Game to another Athlete');
 reset role;
