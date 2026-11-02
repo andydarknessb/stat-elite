@@ -490,7 +490,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
   if (tab === 'games' || tab === 'insights') {
     return (
       <>
-        {tab === 'games' ? <GamesTab core={core} athleteId={athlete.id} onOpen={setSummary} /> : <InsightsTab core={core} athleteId={athlete.id} />}
+        {tab === 'games' ? <GamesTab key={athlete.id} core={core} athleteId={athlete.id} onOpen={setSummary} /> : <InsightsTab core={core} athleteId={athlete.id} />}
         <TabBar tab={tab} onTab={setTab} />
       </>
     );
@@ -704,14 +704,7 @@ function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: strin
           <section key={group} aria-label={GROUP_LABELS[group]}>
             <h2>{GROUP_LABELS[group]}</h2>
             {rows.map((game) => (
-              <button key={game.id} className="feed-row" onClick={() => onOpen(game.id)}>
-                <span className="opponent">{game.opponent}</span>
-                <span>
-                  {game.final.team}–{game.final.opponent}
-                </span>
-                <span className="line">{gameLineText(game)}</span>
-                {game.sport === 'basketball' && <span>{signed(game.line.plusMinus)}</span>}
-              </button>
+              <ResultRow key={game.id} game={game} onOpen={onOpen} />
             ))}
           </section>
         );
@@ -766,10 +759,14 @@ function SeasonCard({ feed }: { feed: GameFeed }) {
   );
 }
 
+/** A Game's result: the letter its badge shows and the word it reads (W Won, L Lost, T Tied). */
+const resultOf = ({ team, opponent }: { team: number; opponent: number }) =>
+  team > opponent ? { letter: 'W', name: 'Won' } : team < opponent ? { letter: 'L', name: 'Lost' } : { letter: 'T', name: 'Tied' };
+
 /** A finished Game as a result row: its W, L or T, Opponent, date and line, Plus/Minus on basketball, and the Final Score. Opens the Game's summary (plan: Result rows). */
 function ResultRow({ game, onOpen }: { game: FeedGame; onOpen: (gameId: string) => void }) {
   const { team, opponent } = game.final;
-  const [letter, name] = team > opponent ? ['W', 'Won'] : team < opponent ? ['L', 'Lost'] : ['T', 'Tied'];
+  const { letter, name } = resultOf(game.final);
   return (
     <button className="result-row" onClick={() => onOpen(game.id)}>
       <span className="badge" role="img" aria-label={name}>
@@ -808,14 +805,63 @@ function SeasonAndRecent({ core, athleteId, onOpen }: { core: AppCore; athleteId
   );
 }
 
-/** The Games tab: every finished Game of the Athlete, grouped by date. */
+/** A sport's season tiles on the Games tab: basketball's six totals, or softball and baseball's six batting numbers and Games count. */
+function SeasonTiles({ season, games }: { season: Season; games: number }) {
+  const stats: [string, string][] =
+    season.sport === 'basketball'
+      ? [
+          ['Points', String(season.line.points)],
+          ['FG', `${season.line.fg.made}/${season.line.fg.attempted}`],
+          ['FT', `${season.line.ft.made}/${season.line.ft.attempted}`],
+          ['Rebounds', String(season.line.rebounds)],
+          ['Assists', String(season.line.assists)],
+          ['Plus/Minus', signed(season.line.plusMinus)],
+        ]
+      : [
+          ['AVG', rateText(season.batting.avg)],
+          ['OBP', rateText(season.batting.obp)],
+          ['SLG', rateText(season.batting.slg)],
+          ['H/AB', `${season.batting.hits}/${season.batting.atBats}`],
+          ['RBI', String(season.batting.rbi)],
+          ['Games', String(games)],
+        ];
+  return (
+    <section className="card" aria-label="Season">
+      <dl className="stats">
+        {stats.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/** The Games tab: All, then a chip for each sport with finished Games. A sport's chip shows its season tiles above its Games and filters the feed to it. */
 function GamesTab({ core, athleteId, onOpen }: { core: AppCore; athleteId: string; onOpen: (gameId: string) => void }) {
   const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
+  const [chosen, setChosen] = useState<Season['sport']>();
   if (!feed) return null;
+  const seasons = SPORT_ORDER.flatMap((sport) => feed.seasons.filter((season) => season.sport === sport));
+  const season = seasons.find((s) => s.sport === chosen);
+  const games = season ? feed.games.filter((game) => game.sport === season.sport) : feed.games;
   return (
     <main>
       <h1>Games</h1>
-      <FeedRows games={feed.games} onOpen={onOpen} />
+      <div className="chips">
+        <button className="chip" aria-pressed={!season} onClick={() => setChosen(undefined)}>
+          All
+        </button>
+        {seasons.map((s) => (
+          <button key={s.sport} className="chip" aria-pressed={s.sport === season?.sport} onClick={() => setChosen(s.sport)}>
+            {SPORT_LABELS[s.sport]}
+          </button>
+        ))}
+      </div>
+      {season && <SeasonTiles season={season} games={games.length} />}
+      <FeedRows games={games} onOpen={onOpen} />
     </main>
   );
 }
@@ -838,27 +884,35 @@ function InsightsTab({ core, athleteId }: { core: AppCore; athleteId: string }) 
   );
 }
 
-/** A finished Game's summary: its Final Score and the Athlete's line; basketball adds Plus/Minus, Playing Share and the tiles. */
+/** A finished Game's summary, a result card: its badge and Final Score, the Opponent, date and the Athlete's line; basketball adds Plus/Minus, Playing Share and the tiles. */
 function GameSummary({ core, gameId, onBack }: { core: AppCore; gameId: string; onBack: () => void }) {
   const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
   if (!game) return null;
+  const { letter, name } = resultOf(game.final);
   return (
     <main>
       <button onClick={onBack}>Back</button>
-      <h1>{game.opponent}</h1>
-      <p>{game.gameDate}</p>
-      <p className="final">
-        Team {game.final.team} – Opponent {game.final.opponent}
-      </p>
-      <p>{gameLineText(game)}</p>
-      {game.sport === 'basketball' && (
-        <>
-          <p>
-            Plus/Minus {signed(game.line.plusMinus)} · Playing Share {Math.round(game.playingShare * 100)}%
+      <section className="card">
+        <div className="result-head">
+          <span className="badge" role="img" aria-label={name}>
+            {letter}
+          </span>
+          <p className="final">
+            Team {game.final.team} – Opponent {game.final.opponent}
           </p>
-          <p>{(['steal', 'block', 'turnover', 'foul'] as const).map((type) => `${TILE_LABELS[type]} ${game.tiles[type]}`).join(' · ')}</p>
-        </>
-      )}
+        </div>
+        <h1>{game.opponent}</h1>
+        <p>{game.gameDate}</p>
+        <p>{gameLineText(game)}</p>
+        {game.sport === 'basketball' && (
+          <>
+            <p>
+              Plus/Minus {signed(game.line.plusMinus)} · Playing Share {Math.round(game.playingShare * 100)}%
+            </p>
+            <p>{(['steal', 'block', 'turnover', 'foul'] as const).map((type) => `${TILE_LABELS[type]} ${game.tiles[type]}`).join(' · ')}</p>
+          </>
+        )}
+      </section>
     </main>
   );
 }

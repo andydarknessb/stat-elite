@@ -677,25 +677,10 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-.feed-row {
+.result-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
-  padding: 12px;
-  text-align: left;
-}
-
-.feed-row .opponent {
-  flex: 1;
-  font-weight: 600;
-}
-
-.feed-row .line {
-  order: 1;
-  flex-basis: 100%;
-  color: var(--muted);
-  font-size: 15px;
+  align-items: center;
+  gap: 12px;
 }
 
 .sizes {
