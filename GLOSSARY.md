@@ -54,6 +54,10 @@ _Avoid_: past game (outside UI copy), historical game, imported game, manual gam
 The counts of what the Athlete did in a Backlogged Game, entered all at once.
 _Avoid_: box score, stat line, aggregates
 
+**Removed Game**:
+A Backlogged Game its Recorder removed: every phone hides it, and its row stays on the server (ADR 0006).
+_Avoid_: deleted game, erased game, trashed game
+
 **Period**:
 One segment of a Game: a quarter, a half, one of eight periods, an overtime, or an inning.
 _Avoid_: game period, segment
