@@ -14,10 +14,13 @@ async function startSoftballGame(page: Page, size?: 'Compact' | 'Bleacher') {
   await page.getByRole('button', { name: 'Start', exact: true }).click();
 }
 
+// the batting line is three stat cards, AVG, OBP and SLG: each is a group named for its stat, its value in it
+const battingCard = (page: Page, stat: 'AVG' | 'OBP' | 'SLG') => page.getByRole('group', { name: stat, exact: true });
+
 test('an Outcome, then its RBI chip, records a Plate Appearance; Undo takes it back; Next period moves to the next inning', async ({ page }) => {
   await startSoftballGame(page);
   await expect(page.getByText('Inn 1', { exact: true })).toBeVisible();
-  await expect(page.getByText('AVG —')).toBeVisible();
+  await expect(battingCard(page, 'AVG')).toContainText('—');
 
   await page.getByRole('button', { name: '2B', exact: true }).click();
   // the RBI row is the tallest state of the screen: it must still fit the phone without scrolling
@@ -25,10 +28,12 @@ test('an Outcome, then its RBI chip, records a Plate Appearance; Undo takes it b
   expect(overflow).toBeLessThanOrEqual(0);
   await page.getByRole('button', { name: '2 RBI' }).click();
 
-  await expect(page.getByText('AVG 1.000 · OBP 1.000 · SLG 2.000')).toBeVisible();
+  await expect(battingCard(page, 'AVG')).toContainText('1.000');
+  await expect(battingCard(page, 'OBP')).toContainText('1.000');
+  await expect(battingCard(page, 'SLG')).toContainText('2.000');
 
   await page.getByRole('button', { name: 'Undo (last Event): 2B' }).click();
-  await expect(page.getByText('AVG —')).toBeVisible();
+  await expect(battingCard(page, 'AVG')).toContainText('—');
 
   await page.getByRole('button', { name: 'Next period' }).click();
   await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
@@ -86,7 +91,7 @@ test('Undo disarms an Outcome: its RBI chips go down, and the Plate Appearance i
 
   await page.getByRole('button', { name: 'Undo (last Event): 2B' }).click();
   await expect(page.getByRole('group', { name: 'RBI' })).toHaveCount(0);
-  await expect(page.getByText('AVG —')).toBeVisible();
+  await expect(battingCard(page, 'AVG')).toContainText('—');
 });
 
 test('the armed Outcome is aria-pressed true; the other Outcomes are aria-pressed false', async ({ page }) => {
@@ -127,3 +132,19 @@ test('Next period disarms an Outcome: its RBI chips go down, and the next inning
   await expect(page.getByRole('group', { name: 'RBI' })).toHaveCount(0);
   await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
 });
+
+// the armed Outcome is gold with ink text in both schemes: the tokens hold under dark as well as light
+for (const colorScheme of ['dark', 'light'] as const) {
+  test(`an armed Outcome is gold with ink text under ${colorScheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme });
+    await startSoftballGame(page);
+    const armed = page.getByRole('group', { name: 'Outcome' }).getByRole('button', { name: '2B', exact: true });
+    await armed.click();
+    await expect(armed).toHaveAttribute('aria-pressed', 'true');
+    const style = await armed.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color };
+    });
+    expect(style).toEqual({ background: 'rgb(245, 184, 65)', color: 'rgb(11, 16, 32)' });
+  });
+}
