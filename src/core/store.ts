@@ -20,6 +20,18 @@ export interface AthletePhotoRow {
   photo: Blob;
 }
 
+/** Made of attempted for one kind of attempt: a Shot by value, or a Free Throw (GLOSSARY: Shot, Free Throw). */
+export interface MadeAttempted {
+  made: number;
+  attempted: number;
+}
+
+/** A Backlogged Game's Totals (ADR 0005): the Final Score, and the counts of a basketball Game or a batting Game. */
+export type GameTotals = { team: number; opponent: number } & (
+  | { shots: Record<2 | 3, MadeAttempted>; freeThrows: MadeAttempted; tiles: Record<TileEventType, number> }
+  | { outcomes: Record<Outcome, number>; rbi: number; runs: number; steals: number }
+);
+
 export interface GameRow {
   id: string;
   athlete_id: string;
@@ -31,6 +43,8 @@ export interface GameRow {
   game_date: string;
   created_at: string;
   updated_at: string;
+  /** A Backlogged Game's Totals; a Game with Events has none (ADR 0005). */
+  totals?: GameTotals | null;
 }
 
 export const TILE_EVENT_TYPES = ['reb_off', 'reb_def', 'assist', 'steal', 'block', 'turnover', 'foul'] as const;

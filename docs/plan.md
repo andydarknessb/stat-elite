@@ -15,12 +15,13 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Screen | Design | Pattern from |
 |---|---|---|
 | First run | "Add Athlete" form: name, number, optional photo | — |
-| Home | Athlete photo, Start Game, season line, recent Games. Tapping the photo switches Athlete when the account has more than one | MyKidDid dashboard |
+| Home | Athlete photo, Start Game, Add past Game, season line, recent Games. Tapping the photo switches Athlete when the account has more than one | MyKidDid dashboard |
 | Game setup | Sport, Opponent, date, period format, all prefilled from the last Game so starting is one tap | — |
 | Live game, basketball | Shift timer and Sub In/Out toggle on top, Team–Opponent strip, half court for Shots, Free Throw row, 2-column stat tiles with live counts | Stattie (shift bar), Buckets (tiles, Free Throw row) |
 | Live game, softball/baseball | Team–Opponent strip, optional Pitch buttons, Outcome grid, RBI chips, diamond for the Athlete only | spec's Plate Appearance flow |
-| Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus on basketball rows | Stattie Activity |
+| Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus on basketball rows, "—" on a Backlogged Game | Stattie Activity |
 | Game Complete | Share card and ready-to-paste text | MyKidDid |
+| Add past Game | Sport, Opponent, date, Final Score and Totals. Save opens the Backlogged Game's summary, where its Recorder can edit it (ADR 0005) | — |
 | Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
 | Athlete sharing | Invite co-parent (link through the share sheet), Members list, Remove Member (Owner only), Leave (Members). Members also edit the Athlete's name and number, from Home's Edit | — |
 

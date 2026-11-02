@@ -1,9 +1,9 @@
 import 'fake-indexeddb/auto';
 import Dexie, { liveQuery } from 'dexie';
 import { expect, test, vi } from 'vitest';
-import { arcPreset, createAppCore, HALF_COURT, periodLabel, type Base, type GameFormat } from './appCore';
+import { arcPreset, backlogProblem, createAppCore, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
 import { createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
-import { openStore, type Outcome, type Pitch, type Store } from './store';
+import { openStore, OUTCOMES, type Outcome, type Pitch, type Store } from './store';
 
 let stores = 0;
 
@@ -19,7 +19,7 @@ function setup(now = new Date('2026-10-30T18:00:00Z')) {
 }
 
 // a second phone with its own empty store, signing in to the same server
-function phoneOn(server: ReturnType<typeof createStandInServer>) {
+function phoneOn(server: Server) {
   const name = `test-${++stores}`;
   const core = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server });
   return { core, inspect: openStore(name) };
@@ -2837,4 +2837,299 @@ test('the cards come in order when every rule fires: Free Throws, then the mid p
       await weakLeft(core, gameId, THREE_LEFT, THREE_RIGHT, 3);
     }),
   ).toEqual([FREE_THROWS, WEAK_MID, WEAK_THREE]);
+});
+
+// Backlogged Games (ADR 0005): a Game entered after it was played, from its Totals, with no Events
+
+// the Totals the form gives for a basketball Game, and for a softball Game
+const BASKETBALL_TOTALS = {
+  team: 48,
+  opponent: 40,
+  shots: { 2: { made: 4, attempted: 9 }, 3: { made: 2, attempted: 6 } },
+  freeThrows: { made: 5, attempted: 7 },
+  tiles: { reb_off: 3, reb_def: 6, assist: 4, steal: 2, block: 1, turnover: 3, foul: 4 },
+};
+const SOFTBALL_TOTALS = {
+  team: 3,
+  opponent: 1,
+  outcomes: { single: 1, double: 1, triple: 0, home_run: 1, walk: 1, hit_by_pitch: 1, reached_on_error: 0, fielders_choice: 0, strikeout: 1, ground_out: 0, fly_out: 1, line_out: 0, sac_fly: 1, sac_bunt: 0 },
+  rbi: 4,
+  runs: 2,
+  steals: 1,
+};
+const NO_OUTCOMES = Object.fromEntries(OUTCOMES.map((outcome) => [outcome, 0])) as Record<Outcome, number>;
+const WHOLE_NUMBERS = 'Counts and scores are whole numbers from 0 to 999.';
+
+// a Backlogged Game for the Athlete: basketball, played on the 29th against the Hawks, unless the test changes it
+const backlogEntry = (athleteId: string, change: Partial<BacklogEntry> = {}): BacklogEntry => ({
+  athleteId,
+  sport: 'basketball',
+  opponentName: 'Hawks',
+  gameDate: '2026-10-29',
+  totals: BASKETBALL_TOTALS,
+  ...change,
+});
+
+// a core on the test's store whose clock reads `at`, so the Games it makes order by that moment
+const coreAt = (t: ReturnType<typeof setup>, at: string) => createAppCore({ clock: () => new Date(at), store: t.inspect, server: t.server });
+
+test('a basketball Backlogged Game is one Game row with no Events, and its summary reads the Final Score, points and tiles', async () => {
+  const { core, inspect } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+
+  const gameId = await core.backlogGame(backlogEntry(athleteId));
+
+  expect(await inspect.games.count()).toBe(1);
+  expect(await inspect.events.count()).toBe(0);
+  expect(await core.gameSummary(gameId)).toMatchObject({
+    opponent: 'Hawks',
+    gameDate: '2026-10-29',
+    final: { team: 48, opponent: 40 },
+    // 4 made 2s, 2 made 3s and 5 made Free Throws: 8 + 6 + 5 points
+    line: { points: 19, fg: { made: 6, attempted: 15 }, ft: { made: 5, attempted: 7 }, rebounds: 9, assists: 4, plusMinus: 0 },
+    tiles: { reb_off: 3, reb_def: 6, assist: 4, steal: 2, block: 1, turnover: 3, foul: 4 },
+    backlogged: true,
+  });
+  // no Shifts and no time on court: Playing Share reads 0 with no division by zero
+  expect(await core.liveGame(gameId)).toMatchObject({ final: { team: 48, opponent: 40 }, plusMinus: 0, playingShare: 0, shifts: [] });
+});
+
+test('a softball Backlogged Game reads the batting line, runs and steals of the same Outcomes recorded live', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const entered = await core.backlogGame(backlogEntry(athleteId, { sport: 'softball', totals: SOFTBALL_TOTALS }));
+
+  // the same Outcomes, recorded live in an order a runner can make: a steal, a home run, a double, then a run home, and the rest
+  const recorded = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(recorded, { outcome: 'single', rbi: 1 });
+  await core.recordBaserunning(recorded, { base: 'second', stolen: true });
+  await core.recordPlateAppearance(recorded, { outcome: 'home_run', rbi: 2 });
+  await core.recordPlateAppearance(recorded, { outcome: 'double', rbi: 0 });
+  await core.recordBaserunning(recorded, { base: 'home', stolen: false });
+  await core.recordPlateAppearance(recorded, { outcome: 'walk', rbi: 0 });
+  await core.recordPlateAppearance(recorded, { outcome: 'hit_by_pitch', rbi: 0 });
+  await core.recordPlateAppearance(recorded, { outcome: 'strikeout', rbi: 0 });
+  await core.recordPlateAppearance(recorded, { outcome: 'sac_fly', rbi: 1 });
+  await core.recordPlateAppearance(recorded, { outcome: 'fly_out', rbi: 0 });
+
+  // AB 5 (the walk, the hit by pitch and the sac fly are not), H 3, RBI 4, total bases 7; OBP (3 + 1 + 1) / (5 + 1 + 1 + 1)
+  const live = await core.liveGame(recorded);
+  expect(live?.batting).toMatchObject({ atBats: 5, hits: 3, rbi: 4, avg: 3 / 5, obp: 5 / 8, slg: 7 / 5 });
+  expect(live?.baserunning).toEqual({ runs: 2, stolenBases: 1 });
+  expect((await core.liveGame(entered))?.batting).toEqual(live?.batting);
+  expect((await core.liveGame(entered))?.baserunning).toEqual(live?.baserunning);
+});
+
+test('a Backlogged Game leaves home().liveGameId as it was: none with no open Game, and the open Game with one', async () => {
+  const t = setup();
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  await coreAt(t, '2026-10-30T10:00:00Z').backlogGame(backlogEntry(athleteId, { gameDate: '2026-10-28' }));
+  expect((await t.core.home()).liveGameId).toBeUndefined();
+
+  // an open Game started before a second Backlogged Game: the newer Backlogged Game must not read as the one in progress
+  const open = await coreAt(t, '2026-10-30T11:00:00Z').startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await coreAt(t, '2026-10-30T12:00:00Z').backlogGame(backlogEntry(athleteId, { gameDate: '2026-10-27' }));
+  expect((await t.core.home()).liveGameId).toBe(open);
+});
+
+test('a Backlogged Game does not use one of the last 5 Games Practice Focus reads, even as the newest', async () => {
+  const t = setup();
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  // the card's Game is the oldest of the five: 7 of 10 on the right against 5 of 10 on the left
+  await finished(t, athleteId, '2026-10-21T18:00:00Z', (core, gameId) => weakLeft(core, gameId, MID_LEFT, MID_RIGHT, 2));
+  for (const day of ['22', '23', '24', '25']) await finished(t, athleteId, `2026-10-${day}T18:00:00Z`, async () => {});
+  // newer than all five: were it one of the five, the card's Game would fall out
+  await t.core.backlogGame(backlogEntry(athleteId, { gameDate: '2026-10-26' }));
+
+  expect(await t.core.practiceFocus(athleteId)).toEqual([WEAK_MID]);
+});
+
+test('the Games feed files a Backlogged Game under its played date and marks it, and its Totals count in the season line', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  const live = await t.core.startGame({ athleteId, ...GAME_SETUP, gameDate: '2026-10-30', sport: 'basketball', periodFormat: 'quarters' });
+  await t.core.recordShot(live, { x: 50, y: 20, value: 2, made: true });
+  await t.core.endGame(live, { teamScore: 2, opponentScore: 0 });
+  // entered after the live Game but played before it, so the feed orders it by date
+  const backlog = await t.core.backlogGame(backlogEntry(athleteId, { gameDate: '2026-10-27' }));
+
+  const feed = await t.core.gameFeed(athleteId);
+  expect(feed.games.map((g) => [g.id, g.gameDate, g.group, g.backlogged])).toEqual([
+    [live, '2026-10-30', 'today', false],
+    [backlog, '2026-10-27', 'this-week', true],
+  ]);
+  // the live Game's 1 made 2, and the Backlogged Game's 19 points on 6 of 15 from the field
+  expect(feed.seasons).toEqual([
+    { sport: 'basketball', line: { points: 21, fg: { made: 7, attempted: 16 }, ft: { made: 5, attempted: 7 }, rebounds: 9, assists: 4, plusMinus: 0 } },
+  ]);
+});
+
+test('a Backlogged Game is refused, with no row written, for each entry the form must not save', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  expect(backlogProblem(backlogEntry(athleteId), '2026-10-30')).toBeUndefined();
+
+  const { shots, tiles } = BASKETBALL_TOTALS;
+  const refusals: [BacklogEntry, string][] = [
+    [backlogEntry(athleteId, { gameDate: '2026-10-31' }), "A Game can't be dated after today."],
+    [backlogEntry(athleteId, { gameDate: '10/29/2026' }), 'A Game needs a date, as YYYY-MM-DD.'],
+    [backlogEntry(athleteId, { opponentName: '  ' }), 'A Game needs an Opponent.'],
+    [backlogEntry(athleteId, { totals: { ...BASKETBALL_TOTALS, team: undefined as never } }), WHOLE_NUMBERS],
+    [backlogEntry(athleteId, { totals: { ...BASKETBALL_TOTALS, tiles: { ...tiles, steal: -1 } } }), WHOLE_NUMBERS],
+    [backlogEntry(athleteId, { totals: { ...BASKETBALL_TOTALS, freeThrows: { made: 2.5, attempted: 7 } } }), WHOLE_NUMBERS],
+    [backlogEntry(athleteId, { totals: { ...BASKETBALL_TOTALS, tiles: { ...tiles, foul: 1000 } } }), WHOLE_NUMBERS],
+    [backlogEntry(athleteId, { totals: { ...BASKETBALL_TOTALS, shots: { 2: { made: 10, attempted: 9 }, 3: shots[3] } } }), "Made can't be more than attempted."],
+    [backlogEntry(athleteId, { sport: 'softball', totals: { ...SOFTBALL_TOTALS, runs: 0 } }), "Runs can't be fewer than home runs."],
+    [backlogEntry(athleteId, { sport: 'softball', totals: { ...SOFTBALL_TOTALS, outcomes: NO_OUTCOMES, rbi: 1, runs: 0 } }), 'RBI needs at least one Plate Appearance.'],
+    [backlogEntry(athleteId, { sport: 'softball', totals: BASKETBALL_TOTALS }), "Totals don't match this sport."],
+  ];
+  for (const [entry, message] of refusals) {
+    expect(backlogProblem(entry, '2026-10-30')).toBe(message);
+    await expect(t.core.backlogGame(entry)).rejects.toThrow(message);
+  }
+
+  expect(await t.inspect.games.count()).toBe(0);
+  expect(await t.inspect.events.count()).toBe(0);
+  // no row written: only the Athlete waits to upload
+  expect(await t.inspect.outbox.count()).toBe(1);
+});
+
+test("editBacklog changes the Opponent, date and Totals of the Recorder's Backlogged Game, moves updated_at and uploads it", async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  await signInWithCode(t.core, 'casey@example.com');
+  const gameId = await t.core.backlogGame(backlogEntry(athleteId));
+
+  const later = new Date(2026, 9, 31, 9);
+  const editor = createAppCore({ clock: () => later, store: t.inspect, server: t.server });
+  await editor.editBacklog(gameId, { opponentName: 'Rams', gameDate: '2026-10-28', totals: { ...BASKETBALL_TOTALS, team: 50 } });
+  await t.core.flush();
+
+  expect(await t.inspect.games.get(gameId)).toMatchObject({
+    sport: 'basketball',
+    opponent_name: 'Rams',
+    game_date: '2026-10-28',
+    totals: { team: 50, opponent: 40 },
+    created_at: new Date(2026, 9, 30, 12).toISOString(),
+    updated_at: later.toISOString(),
+  });
+  // the upload carries the edit, so the server holds the Game as the Recorder left it
+  expect(t.server.rows.games.get(gameId)).toMatchObject({ opponent_name: 'Rams', updated_at: later.toISOString(), totals: { team: 50 } });
+});
+
+test('editBacklog refuses a live Game and an account that is not the Recorder, and backlogEntry prefills for the Recorder only', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  await signInWithCode(t.core, 'casey@example.com');
+  const gameId = await t.core.backlogGame(backlogEntry(athleteId));
+  const live = await t.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  const edit = { opponentName: 'Rams', gameDate: '2026-10-28', totals: BASKETBALL_TOTALS };
+  await t.core.flush();
+
+  await expect(t.core.editBacklog(live, edit)).rejects.toThrow();
+  expect(await t.core.backlogEntry(live)).toBeUndefined();
+  expect(await t.core.backlogEntry(gameId)).toEqual(backlogEntry(athleteId));
+
+  // a Member of the Athlete sees the Backlogged Game, but did not record it
+  const token = await t.core.createInvite(athleteId);
+  // another account's phone on the same server: the stand-in's phone() makes a session of its own
+  const member = phoneOn(t.server.phone());
+  await signInWithCode(member.core, 'member@example.com');
+  await member.core.acceptInvite(token);
+  expect(await member.core.backlogEntry(gameId)).toBeUndefined();
+  await expect(member.core.editBacklog(gameId, edit)).rejects.toThrow();
+  expect(t.server.rows.games.get(gameId)).toMatchObject({ opponent_name: 'Hawks' });
+});
+
+test('a Backlogged Game and its Totals survive an upload, then a download onto an empty phone, where the Game is finished', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  const gameId = await t.core.backlogGame(backlogEntry(athleteId));
+  await signInWithCode(t.core, 'casey@example.com');
+
+  const second = phoneOn(t.server);
+  await signInWithCode(second.core, 'casey@example.com');
+
+  expect(await second.inspect.games.get(gameId)).toMatchObject({ totals: BASKETBALL_TOTALS });
+  expect(await second.inspect.events.count()).toBe(0);
+  expect(await second.core.gameSummary(gameId)).toMatchObject({ final: { team: 48, opponent: 40 }, line: { points: 19 }, backlogged: true });
+  expect((await second.core.home()).liveGameId).toBeUndefined();
+});
+
+test('a Game with no Totals uploads with no totals key, as it did before Backlogged Games', async () => {
+  const { core, server } = setup();
+  const gameId = await basketballGame(core);
+  await signInWithCode(core, 'casey@example.com');
+  await core.flush();
+
+  expect('totals' in server.rows.games.get(gameId)!).toBe(false);
+});
+
+// every number a read model holds, at any depth: a NaN anywhere is not finite
+const numbersOf = (value: unknown): number[] =>
+  typeof value === 'number' ? [value] : typeof value === 'object' && value !== null ? Object.values(value).flatMap(numbersOf) : [];
+
+// Totals a row from another phone may carry, each with the sport of the Game it sits on and the final it reads as
+const MALFORMED: [sport: 'basketball' | 'softball', totals: unknown, final: { team: number; opponent: number }][] = [
+  ['basketball', { team: 1, opponent: 1 }, { team: 1, opponent: 1 }],
+  ['basketball', { team: 1, opponent: 1, shots: null }, { team: 1, opponent: 1 }],
+  ['basketball', { team: 1, opponent: 1, shots: {} }, { team: 1, opponent: 1 }],
+  ['softball', { team: 'a', opponent: null, outcomes: null }, { team: 0, opponent: 0 }],
+];
+
+test('a Backlogged Game with malformed Totals still reads, downloaded or stored directly: the feed resolves, lists the healthy Game, and holds no NaN', async () => {
+  for (const [sport, totals, final] of MALFORMED) {
+    for (const arrival of ['downloaded', 'stored'] as const) {
+      const t = setup(new Date(2026, 9, 30, 12));
+      const athleteId = await t.core.addAthlete({ name: 'Casey' });
+      const healthy = await t.core.backlogGame(backlogEntry(athleteId, { gameDate: '2026-10-28' }));
+      const bad = await t.core.backlogGame(backlogEntry(athleteId, { sport, totals: sport === 'basketball' ? BASKETBALL_TOTALS : SOFTBALL_TOTALS, gameDate: '2026-10-27' }));
+
+      let reader = t.core;
+      if (arrival === 'stored') {
+        await t.inspect.games.update(bad, { totals: totals as never });
+      } else {
+        // another phone uploads the Game with malformed Totals; this phone signs in and downloads it
+        await signInWithCode(t.core, 'casey@example.com');
+        Object.assign(t.server.rows.games.get(bad)!, { totals });
+        reader = phoneOn(t.server).core;
+        await signInWithCode(reader, 'casey@example.com');
+      }
+
+      const feed = await reader.gameFeed(athleteId);
+      expect(feed.games.map((g) => g.id)).toEqual([healthy, bad]);
+      expect(feed.games.find((g) => g.id === healthy)).toMatchObject({ final: { team: 48, opponent: 40 }, line: { points: 19 } });
+      expect(feed.games.find((g) => g.id === bad)).toMatchObject({ final });
+      expect(numbersOf([feed, await reader.liveGame(bad), await reader.gameSummary(bad)]).every(Number.isFinite)).toBe(true);
+    }
+  }
+});
+
+test('a Backlogged Game takes no Events: a tile, End Game and Undo each refuse it, and write no Event or outbox row', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  const gameId = await t.core.backlogGame(backlogEntry(athleteId));
+  const queued = await t.inspect.outbox.count();
+
+  await expect(t.core.recordTile(gameId, 'steal')).rejects.toThrow('A Backlogged Game has no Events');
+  await expect(t.core.endGame(gameId, { teamScore: 1, opponentScore: 0 })).rejects.toThrow('A Backlogged Game has no Events');
+  await expect(t.core.undo(gameId)).rejects.toThrow('A Backlogged Game has no Events');
+
+  expect(await t.inspect.events.count()).toBe(0);
+  expect(await t.inspect.outbox.count()).toBe(queued);
+});
+
+test('a Backlogged Game is dated on a real day from 1900 on: 2026-02-31, 0000-00-00 and 1899-12-31 are refused, and 2024-02-29 is accepted', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+
+  // Postgres refuses these dates, and a refused row stalls the outbox
+  for (const gameDate of ['2026-02-31', '0000-00-00', '1899-12-31']) {
+    expect(backlogProblem(backlogEntry(athleteId, { gameDate }), '2026-10-30')).toBe('A Game needs a date, as YYYY-MM-DD.');
+    await expect(t.core.backlogGame(backlogEntry(athleteId, { gameDate }))).rejects.toThrow('A Game needs a date, as YYYY-MM-DD.');
+  }
+  expect(await t.inspect.games.count()).toBe(0);
+
+  const leapDay = await t.core.backlogGame(backlogEntry(athleteId, { gameDate: '2024-02-29' }));
+  expect(await t.inspect.games.get(leapDay)).toMatchObject({ game_date: '2024-02-29' });
 });

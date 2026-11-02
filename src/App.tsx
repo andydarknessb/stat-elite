@@ -4,10 +4,12 @@ import {
   BUTTON_SIZES,
   HALF_COURT,
   arcPreset,
+  backlogProblem,
   gameLineText,
   movesFrom,
   signed,
   type AppCore,
+  type BacklogEntry,
   type Base,
   type ButtonSize,
   type GameFormat,
@@ -27,7 +29,7 @@ import {
 } from './core/appCore';
 import { InviteRefused } from './core/server';
 import { renderShareCard } from './core/shareCard';
-import { OUTCOMES, PITCHES, type BaseMove, type Outcome, type Pitch } from './core/store';
+import { OUTCOMES, PITCHES, type BaseMove, type GameTotals, type Outcome, type Pitch } from './core/store';
 import { InstallPrompt } from './InstallPrompt';
 
 /** What the Recorder sees when the phone's store refuses a write; the screen keeps what it had (#42). */
@@ -494,7 +496,7 @@ function SwitchPhoto({ core, athlete, next }: { core: AppCore; athlete: AthleteF
 }
 
 function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
-  const [form, setForm] = useState<'add' | 'edit' | 'setup' | 'settings'>();
+  const [form, setForm] = useState<'add' | 'edit' | 'setup' | 'settings' | 'backlog'>();
   const [tab, setTab] = useState<Tab>('home');
   // the finished Game whose summary is open, from either tab
   const [summary, setSummary] = useState<string>();
@@ -502,10 +504,26 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
     return <GameSetupForm core={core} athleteId={athlete.id} onCancel={() => setForm(undefined)} />;
   }
   if (form === 'settings') return <SettingsScreen core={core} onDone={() => setForm(undefined)} />;
+  // ahead of the summary below: an Edit opens this form over the summary it came from, and Save or Cancel returns to that summary
+  if (form === 'backlog') {
+    return (
+      <BacklogForm
+        core={core}
+        athleteId={athlete.id}
+        gameId={summary}
+        onDone={(savedGameId) => {
+          setForm(undefined);
+          if (savedGameId) setSummary(savedGameId);
+        }}
+      />
+    );
+  }
   if (form) {
     return <AthleteForm core={core} athlete={form === 'edit' ? athlete : undefined} onDone={() => setForm(undefined)} />;
   }
-  if (summary) return <GameSummary core={core} gameId={summary} onBack={() => setSummary(undefined)} />;
+  if (summary) {
+    return <GameSummary core={core} gameId={summary} onBack={() => setSummary(undefined)} onEdit={() => setForm('backlog')} />;
+  }
   if (tab === 'games' || tab === 'insights') {
     return (
       <>
@@ -543,6 +561,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
           Start Game
         </button>
         <SaveFromHome core={core} athleteId={athlete.id} />
+        <button onClick={() => setForm('backlog')}>Add past Game</button>
         <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
         <section className="card sharing" aria-label="Sharing">
           <InviteCoParent core={core} athleteId={athlete.id} />
@@ -797,7 +816,7 @@ function ResultRow({ game, onOpen }: { game: FeedGame; onOpen: (gameId: string) 
         <span className="line">
           {game.gameDate} · {gameLineText(game)}
         </span>
-        {game.sport === 'basketball' && <span className="line">Plus/Minus {signed(game.line.plusMinus)}</span>}
+        {game.sport === 'basketball' && <span className="line">Plus/Minus {game.backlogged ? '—' : signed(game.line.plusMinus)}</span>}
       </span>
       <span className="final">
         {team}–{opponent}
@@ -905,8 +924,10 @@ function InsightsTab({ core, athleteId }: { core: AppCore; athleteId: string }) 
 }
 
 /** A finished Game's summary, a result card: its badge and Final Score, the Opponent, date and the Athlete's line; basketball adds Plus/Minus, Playing Share and the tiles. */
-function GameSummary({ core, gameId, onBack }: { core: AppCore; gameId: string; onBack: () => void }) {
+function GameSummary({ core, gameId, onBack, onEdit }: { core: AppCore; gameId: string; onBack: () => void; onEdit: () => void }) {
   const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
+  // only a Backlogged Game its Recorder entered has an entry to edit (ADR 0005)
+  const backlog = useReadModel(() => core.backlogEntry(gameId), [core, gameId]);
   if (!game) return null;
   const { letter, name } = resultOf(game.final);
   return (
@@ -927,12 +948,198 @@ function GameSummary({ core, gameId, onBack }: { core: AppCore; gameId: string; 
         {game.sport === 'basketball' && (
           <>
             <p>
-              Plus/Minus {signed(game.line.plusMinus)} · Playing Share {Math.round(game.playingShare * 100)}%
+              Plus/Minus {game.backlogged ? '—' : signed(game.line.plusMinus)} · Playing Share{' '}
+              {game.backlogged ? '—' : `${Math.round(game.playingShare * 100)}%`}
             </p>
             <p>{(['steal', 'block', 'turnover', 'foul'] as const).map((type) => `${TILE_LABELS[type]} ${game.tiles[type]}`).join(' · ')}</p>
           </>
         )}
       </section>
+      {backlog && <button onClick={onEdit}>Edit</button>}
+    </main>
+  );
+}
+
+/** A count field's key in the form's text and its visible label. The scores come first in every form. */
+type CountField = [key: string, label: string];
+const SCORE_FIELDS: CountField[] = [
+  ['teamScore', 'Team score'],
+  ['opponentScore', 'Opponent score'],
+];
+const BASKETBALL_FIELDS: CountField[] = [
+  ['shot2Made', '2PT made'],
+  ['shot2Attempted', '2PT attempted'],
+  ['shot3Made', '3PT made'],
+  ['shot3Attempted', '3PT attempted'],
+  ['freeThrowMade', 'FT made'],
+  ['freeThrowAttempted', 'FT attempted'],
+  ...(Object.keys(TILE_LABELS) as TileEventType[]).map((type): CountField => [`tile:${type}`, TILE_LABELS[type]]),
+];
+const BATTING_FIELDS: CountField[] = [
+  ...OUTCOMES.map((outcome): CountField => [`outcome:${outcome}`, OUTCOME_LABELS[outcome]]),
+  ['rbi', 'RBI'],
+  ['runs', 'Runs'],
+  ['steals', 'Stolen bases'],
+];
+
+/** Every Game count as the form's text, a 0 included, so an Edit prefills and saves the same numbers. */
+function textOf(totals: GameTotals): Record<string, string> {
+  const common = { teamScore: String(totals.team), opponentScore: String(totals.opponent) };
+  if ('shots' in totals) {
+    return {
+      ...common,
+      shot2Made: String(totals.shots[2].made),
+      shot2Attempted: String(totals.shots[2].attempted),
+      shot3Made: String(totals.shots[3].made),
+      shot3Attempted: String(totals.shots[3].attempted),
+      freeThrowMade: String(totals.freeThrows.made),
+      freeThrowAttempted: String(totals.freeThrows.attempted),
+      ...Object.fromEntries((Object.keys(totals.tiles) as TileEventType[]).map((type) => [`tile:${type}`, String(totals.tiles[type])])),
+    };
+  }
+  return {
+    ...common,
+    ...Object.fromEntries(OUTCOMES.map((outcome) => [`outcome:${outcome}`, String(totals.outcomes[outcome])])),
+    rbi: String(totals.rbi),
+    runs: String(totals.runs),
+    steals: String(totals.steals),
+  };
+}
+
+/** The Totals the form's text holds. Blank is 0 (Number('') is 0); only digits reach here, see BacklogFields. */
+function totalsOf(sport: BacklogEntry['sport'], text: Record<string, string>): GameTotals {
+  const n = (key: string) => Number((text[key] ?? '').trim());
+  const team = n('teamScore');
+  const opponent = n('opponentScore');
+  if (sport === 'basketball') {
+    const tiles = Object.fromEntries((Object.keys(TILE_LABELS) as TileEventType[]).map((type) => [type, n(`tile:${type}`)]));
+    return {
+      team,
+      opponent,
+      shots: { 2: { made: n('shot2Made'), attempted: n('shot2Attempted') }, 3: { made: n('shot3Made'), attempted: n('shot3Attempted') } },
+      freeThrows: { made: n('freeThrowMade'), attempted: n('freeThrowAttempted') },
+      tiles: tiles as Record<TileEventType, number>,
+    };
+  }
+  const outcomes = Object.fromEntries(OUTCOMES.map((outcome) => [outcome, n(`outcome:${outcome}`)]));
+  return {
+    team,
+    opponent,
+    outcomes: outcomes as Record<Outcome, number>,
+    rbi: n('rbi'),
+    runs: n('runs'),
+    steals: n('steals'),
+  };
+}
+
+/** Add past Game (no gameId) or Edit past Game: a Backlogged Game, entered from its Totals (ADR 0005). Loads its prefill before the fields, as GameSetupForm does. */
+function BacklogForm({
+  core,
+  athleteId,
+  gameId,
+  onDone,
+}: {
+  core: AppCore;
+  athleteId: string;
+  gameId?: string;
+  onDone: (savedGameId?: string) => void;
+}) {
+  const setup = useReadModel(() => core.gameSetup(athleteId), [core, athleteId]);
+  const entry = useReadModel(() => (gameId ? core.backlogEntry(gameId) : Promise.resolve(undefined)), [core, gameId]);
+  if (!setup || (gameId && !entry)) return null;
+  return <BacklogFields core={core} athleteId={athleteId} gameId={gameId} setup={setup} entry={entry} onDone={onDone} />;
+}
+
+/** The fields hold what the Recorder types from the first render on; the prefill only seeds them. */
+function BacklogFields({
+  core,
+  athleteId,
+  gameId,
+  setup,
+  entry,
+  onDone,
+}: {
+  core: AppCore;
+  athleteId: string;
+  gameId?: string;
+  setup: GameSetup;
+  entry?: BacklogEntry;
+  onDone: (savedGameId?: string) => void;
+}) {
+  const [sport, setSport] = useState<GameFormat['sport']>(entry?.sport ?? setup.sport);
+  const [opponent, setOpponent] = useState(entry?.opponentName ?? '');
+  const [gameDate, setGameDate] = useState(entry?.gameDate ?? '');
+  // by key, so a sport's typed counts stay put when the sport changes: the keys do not overlap
+  const [text, setText] = useState<Record<string, string>>(() => (entry ? textOf(entry.totals) : {}));
+  // a second tap before the save lands would write a second Game
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const typed = (key: string) => text[key] ?? '';
+  const fields = [...SCORE_FIELDS, ...(sport === 'basketball' ? BASKETBALL_FIELDS : BATTING_FIELDS)];
+  // a count is a whole number or the form says which one is not: no coercion, no rounding
+  const notWhole = fields.find(([key]) => !/^\s*\d*\s*$/.test(typed(key)));
+  const ready = opponent.trim() !== '' && gameDate !== '' && typed('teamScore').trim() !== '' && typed('opponentScore').trim() !== '';
+  const draft = ready && !notWhole ? { sport, opponentName: opponent.trim(), gameDate, totals: totalsOf(sport, text) } : undefined;
+  const problem = notWhole ? `${notWhole[1]} must be a whole number.` : draft && backlogProblem(draft, setup.gameDate);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!draft || problem || saving) return;
+    setSaving(true);
+    try {
+      if (gameId) {
+        await core.editBacklog(gameId, draft);
+        onDone();
+      } else {
+        onDone(await core.backlogGame({ athleteId, ...draft }));
+      }
+    } catch {
+      setFailed(true);
+      setSaving(false);
+    }
+  };
+  return (
+    <main>
+      <h1>{gameId ? 'Edit past Game' : 'Add past Game'}</h1>
+      <form onSubmit={submit}>
+        <label>
+          Sport
+          <select value={sport} disabled={gameId !== undefined} onChange={(e) => setSport(e.target.value as GameFormat['sport'])}>
+            <option value="basketball">Basketball</option>
+            <option value="softball">Softball</option>
+            <option value="baseball">Baseball</option>
+          </select>
+        </label>
+        <label>
+          Opponent
+          <input value={opponent} onChange={(e) => setOpponent(e.target.value)} required autoComplete="off" />
+        </label>
+        <label>
+          Date
+          <input type="date" value={gameDate} max={setup.gameDate} onChange={(e) => setGameDate(e.target.value)} required />
+        </label>
+        <div className="counts">
+          {fields.map(([key, label]) => (
+            <label key={key}>
+              {label}
+              <input
+                value={typed(key)}
+                onChange={(e) => setText((current) => ({ ...current, [key]: e.target.value }))}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </label>
+          ))}
+        </div>
+        {/* above the buttons, as AthleteForm places it: the alert sits directly above Save, where a Recorder reaching Save reads it */}
+        {problem && <p role="alert">{problem}</p>}
+        {failed && <p role="alert">{NOT_SAVED}</p>}
+        <button className="primary" disabled={!draft || problem !== undefined || saving}>
+          Save
+        </button>
+        <button type="button" onClick={() => onDone()}>
+          Cancel
+        </button>
+      </form>
     </main>
   );
 }

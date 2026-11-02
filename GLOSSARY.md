@@ -43,8 +43,16 @@ The Team and Opponent scores as read off the scoreboard at one moment.
 _Avoid_: score update, scoreboard entry
 
 **Final Score**:
-The Score Snapshot taken when the Game ends.
+The Score Snapshot taken when the Game ends, or entered with a Backlogged Game.
 _Avoid_: result
+
+**Backlogged Game**:
+A Game entered after it was played, from its Totals and Final Score, with no Events.
+_Avoid_: past game (outside UI copy), historical game, imported game, manual game
+
+**Totals**:
+The counts of what the Athlete did in a Backlogged Game, entered all at once.
+_Avoid_: box score, stat line, aggregates
 
 **Period**:
 One segment of a Game: a quarter, a half, one of eight periods, an overtime, or an inning.

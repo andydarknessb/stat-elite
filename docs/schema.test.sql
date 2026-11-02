@@ -23,6 +23,16 @@ exception when others then
   if sqlerrm like 'expected failure did not happen:%' then raise; end if;
 end $$;
 
+-- as expect_fail, and the error must also name the refusal the check raises
+create function pg_temp.expect_fail_with(stmt text, message text, why text) returns void language plpgsql as $$
+begin
+  execute stmt;
+  raise exception 'expected failure did not happen: %', why;
+exception when others then
+  if sqlerrm like 'expected failure did not happen:%' then raise; end if;
+  if strpos(sqlerrm, message) = 0 then raise exception 'expected "%" for %, got: %', message, why, sqlerrm; end if;
+end $$;
+
 -- Two owners: A (…a) and B (…b).
 insert into auth.users values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b'), ('00000000-0000-0000-0000-00000000000c');
 insert into athletes (id, owner_id, name) values
@@ -403,6 +413,69 @@ begin
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'Events must not be editable by their Owner, % updated', n; end if;
 end $$;
+reset role;
+
+-- ADR 0005: a Backlogged Game keeps its Totals on the Game, and its Recorder edits them. Appended after the counts above, so they hold.
+-- B, a Member of Casey, records a Backlogged Game (d1) on Casey, which E owns now; E, Casey's Owner, records another (d2).
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by, totals) values
+  ('20000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-28', '00000000-0000-0000-0000-00000000000e', '{"team": 40, "opponent": 30}');
+-- a second Athlete of E's, the one a Recorder must not move its Game to
+insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-00000000000e', 'Riley');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by, totals) values
+  ('20000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-27', '00000000-0000-0000-0000-00000000000b', '{"team": 40, "opponent": 30}');
+
+-- the Recorder updates its Game's Totals, and a Member who did not record d2 updates none of it
+do $$
+declare n int;
+begin
+  update games set totals = '{"team": 41, "opponent": 30}' where id = '20000000-0000-0000-0000-0000000000d1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should update the Totals of the Game it recorded, updated %', n; end if;
+  update games set totals = '{"team": 41, "opponent": 30}' where id = '20000000-0000-0000-0000-0000000000d2';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a Member should update the Totals of no Game it did not record, updated %', n; end if;
+end $$;
+-- Totals are an object with a team and an opponent score: anything else is refused
+select pg_temp.expect_fail($$update games set totals = '[1, 2]' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'a non-object Totals');
+select pg_temp.expect_fail($$update games set totals = '["team", "opponent"]' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'an array holding the key names as Totals');
+-- and a Recorder keeps its Game with its Athlete: the trigger refuses this move first, and the policy would too, since B is no Member of Riley
+select pg_temp.expect_fail($$update games set athlete_id = '10000000-0000-0000-0000-0000000000e1' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'a Recorder moving its Game to another Athlete');
+reset role;
+
+-- A removed Member updates no Game it recorded (ADR 0005). F joins Casey, records a Game on it, and is removed. F owns no Game,
+-- so an update with no WHERE clause can reach only the Game F recorded, and it must change nothing.
+insert into auth.users values ('00000000-0000-0000-0000-00000000000f');
+insert into members (athlete_id, member_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000f');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000f', false);
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by, totals) values
+  ('20000000-0000-0000-0000-0000000000f3', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-26', '00000000-0000-0000-0000-00000000000f', '{"team": 40, "opponent": 30}');
+reset role;
+delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000f';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000f', false);
+do $$
+declare n int;
+begin
+  update games set totals = '{"team": 42, "opponent": 30}';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a removed Member should update no Game with no WHERE clause, updated %', n; end if;
+  update games set totals = '{"team": 42, "opponent": 30}' where id = '20000000-0000-0000-0000-0000000000f3';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a removed Member should update no Game it recorded, updated %', n; end if;
+end $$;
+reset role;
+
+-- An Owner moves its Game to another of its Athletes: RLS allows the move, so only the keep_athlete trigger refuses it (ADR 0005).
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+set role authenticated;
+select pg_temp.expect_fail_with($$update games set athlete_id = '10000000-0000-0000-0000-0000000000e1' where id = '20000000-0000-0000-0000-0000000000d2'$$, 'a Game keeps its Athlete', 'an Owner moving a Game to another of its Athletes');
+-- Totals need both scores: one missing is refused
+select pg_temp.expect_fail($$update games set totals = '{"opponent": 30}' where id = '20000000-0000-0000-0000-0000000000d2'$$, 'Totals without a team score');
+select pg_temp.expect_fail($$update games set totals = '{"team": 40}' where id = '20000000-0000-0000-0000-0000000000d2'$$, 'Totals without an opponent score');
 reset role;
 
 \echo 'schema.test.sql: all checks passed'
