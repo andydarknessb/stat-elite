@@ -4,9 +4,7 @@ import {
   BUTTON_SIZES,
   HALF_COURT,
   arcPreset,
-  battingText,
   gameLineText,
-  lineText,
   movesFrom,
   signed,
   type AppCore,
@@ -15,6 +13,7 @@ import {
   type GameFormat,
   type GameSetup,
   type FeedGame,
+  type GameFeed,
   type Home,
   type LiveGame,
   type AthleteFate,
@@ -499,18 +498,36 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
   return (
     <>
       <main>
-        <SwitchPhoto core={core} athlete={athlete} next={next} />
-        <h1>{athlete.name}</h1>
-        {athlete.jerseyNumber && <p>#{athlete.jerseyNumber}</p>}
+        <header className="home-head">
+          <div className="wordmark" role="img" aria-label="StatElite">
+            <span>STAT</span>
+            <span>ELITE</span>
+          </div>
+          <button className="icon-button" aria-label="Settings" onClick={() => setForm('settings')}>
+            <Icon name="settings" />
+          </button>
+        </header>
+        <div className="athlete">
+          <SwitchPhoto core={core} athlete={athlete} next={next} />
+          <h1>{athlete.name}</h1>
+          {athlete.jerseyNumber && <p className="number">#{athlete.jerseyNumber}</p>}
+          <div className="athlete-actions">
+            <button className="icon-button" aria-label="Edit" onClick={() => setForm('edit')}>
+              <Icon name="edit" />
+            </button>
+            <button className="icon-button" aria-label="Add Athlete" onClick={() => setForm('add')}>
+              <Icon name="addAthlete" />
+            </button>
+          </div>
+        </div>
         <button className="primary" onClick={() => setForm('setup')}>
           Start Game
         </button>
-        <button onClick={() => setForm('edit')}>Edit</button>
-        <button onClick={() => setForm('add')}>Add Athlete</button>
-        <button onClick={() => setForm('settings')}>Settings</button>
-        <InviteCoParent core={core} athleteId={athlete.id} />
-        <Members core={core} athleteId={athlete.id} />
         <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
+        <section className="card sharing" aria-label="Sharing">
+          <InviteCoParent core={core} athleteId={athlete.id} />
+          <Members core={core} athleteId={athlete.id} />
+        </section>
       </main>
       <TabBar tab={tab} onTab={setTab} />
       <InstallPrompt />
@@ -603,17 +620,65 @@ const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 
 
 type Tab = 'home' | 'games' | 'insights';
 
-/** The bottom tabs: Home, Games and Insights (plan: navigation). */
+/** Stroke icons, drawn in the text's color; the paths are feather-style, MIT. */
+const ICONS = {
+  home: (
+    <>
+      <path d="M3 11l9-7 9 7" />
+      <path d="M5 10v10h14V10" />
+    </>
+  ),
+  games: (
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </>
+  ),
+  insights: <path d="M4 20h16M7 16v-5M12 16V6M17 16v-8" />,
+  edit: <path d="M17 3a2.83 2.83 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
+  addAthlete: (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6M22 11h-6" />
+    </>
+  ),
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </>
+  ),
+};
+
+function Icon({ name }: { name: keyof typeof ICONS }) {
+  return (
+    <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {ICONS[name]}
+    </svg>
+  );
+}
+
+/** The bottom tabs: Home, Games and Insights, each an icon over its label (plan: navigation). */
 function TabBar({ tab, onTab }: { tab: Tab; onTab: (tab: Tab) => void }) {
   return (
     <nav className="tabs" aria-label="Tabs">
       <button aria-pressed={tab === 'home'} onClick={() => onTab('home')}>
+        <span className="tab-icon">
+          <Icon name="home" />
+        </span>
         Home
       </button>
       <button aria-pressed={tab === 'games'} onClick={() => onTab('games')}>
+        <span className="tab-icon">
+          <Icon name="games" />
+        </span>
         Games
       </button>
       <button aria-pressed={tab === 'insights'} onClick={() => onTab('insights')}>
+        <span className="tab-icon">
+          <Icon name="insights" />
+        </span>
         Insights
       </button>
     </nav>
@@ -655,30 +720,90 @@ function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: strin
   );
 }
 
-/** One sport's season line: the basketball totals with Plus/Minus, or the batting line with its rates. */
-function SeasonLine({ season }: { season: Season }) {
-  const text =
+const SPORT_ORDER: Season['sport'][] = ['basketball', 'softball', 'baseball'];
+const SPORT_LABELS: Record<Season['sport'], string> = { basketball: 'Basketball', softball: 'Softball', baseball: 'Baseball' };
+
+/** Home's season card: a chip for each sport with finished Games, its headline numbers and its Games count. The chip choice is screen state. */
+function SeasonCard({ feed }: { feed: GameFeed }) {
+  const [chosen, setChosen] = useState<Season['sport']>();
+  const seasons = SPORT_ORDER.flatMap((sport) => feed.seasons.filter((season) => season.sport === sport));
+  const season = seasons.find((s) => s.sport === chosen) ?? seasons[0];
+  if (!season) return null;
+  const games = feed.games.filter((game) => game.sport === season.sport).length;
+  const stats: [string, string][] =
     season.sport === 'basketball'
-      ? `${lineText(season.line)} · Plus/Minus ${signed(season.line.plusMinus)}`
-      : `${battingText(season.batting)} · AVG ${rateText(season.batting.avg)} · OBP ${rateText(season.batting.obp)} · SLG ${rateText(season.batting.slg)}`;
+      ? [
+          ['Points', String(season.line.points)],
+          ['Rebounds', String(season.line.rebounds)],
+          ['Plus/Minus', signed(season.line.plusMinus)],
+        ]
+      : [
+          ['AVG', rateText(season.batting.avg)],
+          ['OBP', rateText(season.batting.obp)],
+          ['SLG', rateText(season.batting.slg)],
+        ];
   return (
-    <p className="season">
-      Season ({season.sport}): {text}
-    </p>
+    <section className="card" aria-label="Season">
+      <div className="chips">
+        {seasons.map((s) => (
+          <button key={s.sport} className="chip" aria-pressed={s.sport === season.sport} onClick={() => setChosen(s.sport)}>
+            {SPORT_LABELS[s.sport]}
+          </button>
+        ))}
+      </div>
+      <p className="games">
+        {games} {games === 1 ? 'Game' : 'Games'}
+      </p>
+      <dl className="stats">
+        {stats.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
-/** Home's season lines, one per sport played, and the Athlete's three most recent finished Games. */
+/** A finished Game as a result row: its W, L or T, Opponent, date and line, Plus/Minus on basketball, and the Final Score. Opens the Game's summary (plan: Result rows). */
+function ResultRow({ game, onOpen }: { game: FeedGame; onOpen: (gameId: string) => void }) {
+  const { team, opponent } = game.final;
+  const [letter, name] = team > opponent ? ['W', 'Won'] : team < opponent ? ['L', 'Lost'] : ['T', 'Tied'];
+  return (
+    <button className="result-row" onClick={() => onOpen(game.id)}>
+      <span className="badge" role="img" aria-label={name}>
+        {letter}
+      </span>
+      <span className="result-text">
+        <span className="opponent">{game.opponent}</span>
+        <span className="line">
+          {game.gameDate} · {gameLineText(game)}
+        </span>
+        {game.sport === 'basketball' && <span className="line">Plus/Minus {signed(game.line.plusMinus)}</span>}
+      </span>
+      <span className="final">
+        {team}–{opponent}
+      </span>
+    </button>
+  );
+}
+
+/** Home's season card, then the Athlete's three most recent finished Games as result rows. */
 function SeasonAndRecent({ core, athleteId, onOpen }: { core: AppCore; athleteId: string; onOpen: (gameId: string) => void }) {
   const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
   if (!feed) return null;
   return (
-    <section aria-label="Season">
-      {feed.seasons.map((season) => (
-        <SeasonLine key={season.sport} season={season} />
-      ))}
-      <FeedRows games={feed.games.slice(0, 3)} onOpen={onOpen} />
-    </section>
+    <>
+      <SeasonCard feed={feed} />
+      <section className="card" aria-label="Recent Games">
+        <h2>Recent Games</h2>
+        {feed.games.length === 0 && <p>No finished Games yet.</p>}
+        {feed.games.slice(0, 3).map((game) => (
+          <ResultRow key={game.id} game={game} onOpen={onOpen} />
+        ))}
+      </section>
+    </>
   );
 }
 

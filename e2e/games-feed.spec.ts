@@ -25,7 +25,11 @@ test('Home shows the season line, and the Games tab lists the finished Game, who
   await page.getByRole('button', { name: 'Done' }).click();
 
   // the Shift ran from 0–0 to 3–0 on the strip, so Plus/Minus is +3
-  await expect(page.getByText('Season (basketball): 3 PTS · FG 1/1 · FT 1/1 · 1 REB · 1 AST · Plus/Minus +3')).toBeVisible();
+  const season = page.getByRole('region', { name: 'Season' });
+  await expect(season).toContainText('1 Game');
+  await expect(season.locator('dl > div', { hasText: 'Points' })).toContainText('3');
+  await expect(season.locator('dl > div', { hasText: 'Rebounds' })).toContainText('1');
+  await expect(season.locator('dl > div', { hasText: 'Plus/Minus' })).toContainText('+3');
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
@@ -61,7 +65,10 @@ test('a softball Game shows its batting line in Game Complete, its Games feed ro
   await expect(page.getByRole('region', { name: 'Game Complete' })).not.toContainText('Plus/Minus');
   await page.getByRole('button', { name: 'Done' }).click();
 
-  await expect(page.getByText('Season (softball): H/AB 1/1 · 2 RBI · AVG 1.000 · OBP 1.000 · SLG 2.000')).toBeVisible();
+  const season = page.getByRole('region', { name: 'Season' });
+  await expect(season.locator('dl > div', { hasText: 'AVG' })).toContainText('1.000');
+  await expect(season.locator('dl > div', { hasText: 'OBP' })).toContainText('1.000');
+  await expect(season.locator('dl > div', { hasText: 'SLG' })).toContainText('2.000');
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await expect(page.getByRole('button', { name: /H\/AB 1\/1 · 2 RBI/ })).toHaveText(/H\/AB 1\/1 · 2 RBI$/);
 
