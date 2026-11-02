@@ -2,7 +2,7 @@
 
 A Recorder removes a Backlogged Game entered by mistake, such as a duplicate or one under the wrong Athlete. Removal is a Game edit: `removeBacklog` sets `games.removed` and moves `updated_at`, through the same outbox as `editBacklog`. Every phone hides a removed Game from the Games feed, the season line, the summary, Game setup's prefill and the Athlete deletion count. The row stays on the server. There is no restore; the Recorder who wants the Game back enters it again.
 
-A live Game can never be removed: a check on `games` refuses `removed` on a Game with no Totals (ADR 0005). Only the Game's Recorder removes it, under the same policy that lets it edit the Game.
+A live Game can never be removed: a check on `games` refuses `removed` on a Game with no Totals (ADR 0005). In the app, only the Game's Recorder is offered Remove, the same account that can edit it.
 
 ## Considered Options
 
@@ -14,4 +14,4 @@ A live Game can never be removed: a check on `games` refuses `removed` on a Game
 - The Game's row, its Opponent and its Totals stay readable on the server to the Athlete's Members through the API, until the Athlete or the account is deleted. The app promises only that the phones hide it.
 - A Recorder's second phone that still holds an older copy can bring the Game back with a later edit, since latest edit wins (ADR 0001).
 - A Backlogged Game whose Recorder deleted their account has `recorded_by` null, so nobody can remove it.
-- An Owner cannot remove a Game a Member recorded, because only the Recorder updates a Game.
+- The server does not enforce Recorder-only removal. `own_games` lets an Owner update any Game it owns, so an Owner's API call can set `removed` on a Member's Backlogged Game, as it can already change that Game's Totals. This ADR does not close that gap.
