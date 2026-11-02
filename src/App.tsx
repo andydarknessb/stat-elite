@@ -795,7 +795,8 @@ function SeasonAndRecent({ core, athleteId, onOpen }: { core: AppCore; athleteId
   if (!feed) return null;
   return (
     <>
-      <SeasonCard feed={feed} />
+      {/* keyed by Athlete: a switch opens its own season on its first sport, not the one chosen for the last */}
+      <SeasonCard key={athleteId} feed={feed} />
       <section className="card" aria-label="Recent Games">
         <h2>Recent Games</h2>
         {feed.games.length === 0 && <p>No finished Games yet.</p>}

@@ -71,6 +71,26 @@ test('Home\'s season chips switch the season card to softball, which shows its b
   await expect(statOf(season, 'SLG')).toContainText('2.000');
 });
 
+test('switching Athlete opens the season card on its first sport, not the one chosen for the last Athlete', async ({ page }) => {
+  await addAthlete(page);
+  await recordBasketballGame(page);
+  await recordSoftballGame(page);
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await page.getByLabel('Athlete name').fill('Sam');
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await recordBasketballGame(page);
+  await recordSoftballGame(page);
+
+  const season = page.getByRole('region', { name: 'Season' });
+  await season.getByRole('button', { name: 'Softball' }).click();
+  await expect(season.getByRole('button', { name: 'Softball' })).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Switch to Casey' }).click();
+  await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
+  await expect(season.getByRole('button', { name: 'Basketball' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(season.getByRole('button', { name: 'Softball' })).toHaveAttribute('aria-pressed', 'false');
+});
+
 for (const colorScheme of ['dark', 'light'] as const) {
   test.describe(colorScheme, () => {
     test.use({ colorScheme });
