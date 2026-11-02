@@ -9,7 +9,9 @@ async function addAthlete(page: Page) {
 // runs in the page: one line per failing text element (contrast) or tap target (size)
 function auditScreen(screen: string): string[] {
   const failures: string[] = [];
+  // only rgb()/rgba() is read; any other notation (oklch, color()) comes back NaN and is reported
   const rgba = (value: string): number[] => {
+    if (!/^rgba?\(/.test(value)) return [NaN, NaN, NaN, NaN];
     const parts = (value.match(/[\d.]+/g) ?? []).map(Number);
     return [parts[0], parts[1], parts[2], parts.length > 3 ? parts[3] : 1];
   };
@@ -30,12 +32,12 @@ function auditScreen(screen: string): string[] {
     const layers: number[][] = [];
     for (let n: Element | null = el; n; n = n.parentElement) {
       const c = rgba(getComputedStyle(n).backgroundColor);
-      if (c[3] > 0) layers.push(c);
+      if (c[3] > 0 || Number.isNaN(c[3])) layers.push(c);
       if (c[3] >= 1) break;
     }
     return layers.reduceRight((below, top) => over(top, below), [255, 255, 255]);
   };
-  // an element at opacity 0 is not visible; a disabled control's 0.5 is left out of the colours, as WCAG 1.4.3 leaves inactive components out
+  // opacity 0 counts as hidden; a disabled control at 0.5 is still audited at its full computed colour
   const opacityOf = (el: Element) => {
     let o = 1;
     for (let n: Element | null = el; n; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
@@ -62,7 +64,9 @@ function auditScreen(screen: string): string[] {
     const large = size >= 24 || (size >= 18.66 && weight >= 700);
     const need = large ? 3 : 4.5;
     const ratio = contrast(fg, bg);
-    if (ratio < need) {
+    if (Number.isNaN(ratio)) {
+      failures.push(`${screen}: "${clean(ownText)}" (${el.tagName.toLowerCase()}) has a colour the guard cannot read`);
+    } else if (ratio < need) {
       failures.push(`${screen}: "${clean(ownText)}" (${el.tagName.toLowerCase()}) is ${ratio.toFixed(2)}:1, needs ${need}:1`);
     }
   }
@@ -86,10 +90,16 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
     failures.push(...(await page.evaluate(auditScreen, `${theme}, ${screen}`)));
   };
 
+  // the walk is audited at Standard; assert it, so a changed default cannot quietly audit Compact or Bleacher
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Standard', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Done' }).click();
+
   // the basketball live screen at Standard, with the End Game form open
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(page.getByRole('button', { name: 'End Game' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^OREB \d+$/ })).toBeVisible();
   await check('basketball live screen, Standard');
   await page.getByRole('button', { name: 'End Game' }).click();
   await expect(page.getByRole('heading', { name: 'Finish game?' })).toBeVisible();
@@ -113,13 +123,15 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await check('Game Complete');
   await page.getByRole('button', { name: 'Done' }).click();
 
-  // Home with one finished basketball Game and one finished softball Game
-  await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
+  // Home with one finished basketball Game and one finished softball Game: wait for the Season card and Recent Games to load
+  await expect(page.getByRole('region', { name: 'Season' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Recent Games' })).toBeVisible();
   await check('Home');
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await page.getByRole('button', { name: 'Softball', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Softball', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: /H\/AB/ })).toBeVisible();
   await check('Games tab, Softball pressed');
 
   await page.getByRole('button', { name: 'Insights', exact: true }).click();
@@ -161,6 +173,7 @@ test.describe('Field mode', () => {
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.getByRole('button', { name: 'Field mode', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Field mode', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
     await page.getByRole('button', { name: 'Done' }).click();
 
     const failures = await visitEveryScreen(page, 'Field mode');
