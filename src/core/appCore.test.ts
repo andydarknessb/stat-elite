@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import Dexie from 'dexie';
+import Dexie, { liveQuery } from 'dexie';
 import { expect, test, vi } from 'vitest';
 import { arcPreset, createAppCore, HALF_COURT, periodLabel, type Base, type GameFormat } from './appCore';
 import { createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
@@ -570,6 +570,18 @@ test('a finished Game accepts no new Events, and Home stops showing it as the Ga
   const athleteId = (await core.home()).athlete!.id;
   const nextGame = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   expect((await core.home()).liveGameId).toBe(nextGame);
+});
+
+test('a live Home drops the Game once End Game closes it', async () => {
+  const { core } = setup();
+  const seen: (string | undefined)[] = [];
+  const subscription = liveQuery(() => core.home()).subscribe((home) => seen.push(home.liveGameId));
+  const gameId = await basketballGame(core);
+  await vi.waitFor(() => expect(seen).toContain(gameId));
+
+  await core.endGame(gameId, { teamScore: 5, opponentScore: 3 });
+  await vi.waitFor(() => expect(seen.at(-1)).toBeUndefined());
+  subscription.unsubscribe();
 });
 
 test('a softball Game takes the same strip and End Game as basketball', async () => {

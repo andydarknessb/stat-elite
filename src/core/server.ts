@@ -54,6 +54,7 @@ export interface Server {
 }
 
 const DAY = 24 * 60 * 60_000;
+const NativePromise = Promise;
 
 /**
  * The in-memory backend for App Core's tests and the local smoke. `rows` holds what landed, `uploads` the order.
@@ -83,6 +84,8 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
     };
     return {
       async session() {
+        // as Supabase's getSession does, this await leaves Dexie's zone: a liveQuery stops observing at a non-Dexie await
+        await new NativePromise((resolve) => setTimeout(resolve));
         return account;
       },
       async signIn(_email: string, _invite?: string) {
