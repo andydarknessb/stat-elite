@@ -37,4 +37,7 @@ test('ending a Game opens Game Complete with the Final Score, the line and Plus/
   expect(pasted).toBe(
     ['Casey vs Opponent: 3–0 final', 'Casey: 3 PTS · FG 1/1 · FT 1/1 · 1 REB · 1 AST · Plus/Minus +3', '#basketball'].join('\n'),
   );
+
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
 });

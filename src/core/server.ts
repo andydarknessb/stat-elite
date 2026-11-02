@@ -54,6 +54,8 @@ export interface Server {
 }
 
 const DAY = 24 * 60 * 60_000;
+// captured at load: while a Dexie zone runs, the global Promise is Dexie's, and a session read must not resolve inside it (#137)
+const nativePromise = Promise;
 
 /**
  * The in-memory backend for App Core's tests and the local smoke. `rows` holds what landed, `uploads` the order.
@@ -82,7 +84,9 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       return row.owner_id === account || (account !== undefined && athlete !== undefined && members.has(`${athlete} ${account}`));
     };
     return {
+      // settles on a later task, as a real session read does, so a liveQuery stops observing reads made after it (#137)
       async session() {
+        await new nativePromise((resolve) => setTimeout(resolve));
         return account;
       },
       async signIn(_email: string, _invite?: string) {
