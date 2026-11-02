@@ -27,6 +27,8 @@ test('ending a Game opens Game Complete with the Final Score, the line and Plus/
   await expect(page.getByText('Plus/Minus +3', { exact: true })).toBeVisible();
   await expect(page.getByRole('img', { name: 'Won' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Share card' })).toHaveCSS('background-color', 'rgb(245, 184, 65)');
+  await expect(page.getByRole('button', { name: 'Done' })).not.toHaveCSS('background-color', 'rgb(245, 184, 65)');
+  await expect(page.locator('button.primary')).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Copy text' }).click();
   await expect(page.getByRole('status')).toHaveText('Copied');
