@@ -1301,6 +1301,13 @@ function LiveGame({
     const timer = setTimeout(() => setToast(undefined), 3000);
     return () => clearTimeout(timer);
   }, [toast]);
+  // the tile tapped last, flashed for 700 ms; each tap sets a new object, so a repeated tap restarts the flash
+  const [flash, setFlash] = useState<{ type: TileEventType }>();
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(undefined), 700);
+    return () => clearTimeout(timer);
+  }, [flash]);
   if (!game) return null;
   if (game.final) {
     return (
@@ -1322,7 +1329,11 @@ function LiveGame({
       setNotSaved(true);
       onRefused?.();
     });
-  const tap = (type: TileEventType) => attempt(core.recordTile(gameId, type), () => setToast({ label: TILE_LABELS[type] }));
+  const tap = (type: TileEventType) =>
+    attempt(core.recordTile(gameId, type), () => {
+      setToast({ label: TILE_LABELS[type] });
+      setFlash({ type });
+    });
   const tapFreeThrow = (made: boolean) => attempt(core.recordFreeThrow(gameId, made), () => setToast({ label: freeThrowLabel(made) }));
   const tapPitch = (pitch: Pitch) => attempt(core.recordPitch(gameId, pitch), () => setToast({ label: PITCH_LABELS[pitch] }));
   // the armed Outcome clears at the tap and comes back if the store refuses it
@@ -1399,7 +1410,7 @@ function LiveGame({
   const otherStats = (
     <div className="tiles">
       {(Object.keys(TILE_LABELS) as TileEventType[]).map((type) => (
-        <button key={type} className="tile" onClick={() => void tap(type)}>
+        <button key={type} className={flash?.type === type ? 'tile flash' : 'tile'} onClick={() => void tap(type)}>
           {TILE_LABELS[type]} <span className="count">{game.tiles[type]}</span>
         </button>
       ))}
@@ -1469,9 +1480,6 @@ function LiveGame({
             {game.onCourt ? 'Sub Out' : 'Sub In'}
           </button>
           <div>
-            <p className="timer">
-              {current ? `On court ${clockOf(current.ms)} · ${signed(current.plusMinus)}` : 'On bench'}
-            </p>
             <div className="game-line">
               <button
                 className="game"
@@ -1479,9 +1487,12 @@ function LiveGame({
                 aria-controls={shiftsOpen ? 'shift-list' : undefined}
                 onClick={() => setShiftsOpen(!shiftsOpen)}
               >
-                {shiftsOpen
-                  ? 'Shifts'
-                  : `${Math.round(game.playingShare * 100)}% · ${game.shifts.length} ${game.shifts.length === 1 ? 'Shift' : 'Shifts'} · Plus/Minus ${signed(game.plusMinus)}`}
+                <span className="timer">{current ? `On court ${clockOf(current.ms)} · ${signed(current.plusMinus)}` : 'On bench'}</span>
+                <span>
+                  {shiftsOpen
+                    ? 'Shifts'
+                    : `${Math.round(game.playingShare * 100)}% · ${game.shifts.length} ${game.shifts.length === 1 ? 'Shift' : 'Shifts'} · Plus/Minus ${signed(game.plusMinus)}`}
+                </span>
               </button>
               {shiftsOpen && (
                 <ol id="shift-list" aria-label="Shifts" className="shift-list">
@@ -1556,7 +1567,9 @@ function LiveGame({
       )}
       {toast && (
         <div className="toast" role="status">
-          <span>{toast.label}</span>
+          <span>
+            <span aria-hidden="true">✓</span> {toast.label}
+          </span>
           <button onClick={undo}>Undo</button>
         </div>
       )}

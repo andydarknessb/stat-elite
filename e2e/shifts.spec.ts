@@ -91,6 +91,18 @@ test('a long Shifts list scrolls inside its line and does not widen the page', a
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test('the Game line is a button at least 44px tall, and tapping it flips aria-expanded', async ({ page }) => {
+  await startBasketballGame(page);
+
+  const gameLine = page.locator('.shift .game');
+  await expect(gameLine).toHaveAttribute('aria-expanded', 'false');
+  expect((await gameLine.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await gameLine.click();
+  await expect(gameLine).toHaveAttribute('aria-expanded', 'true');
+  await gameLine.click();
+  await expect(gameLine).toHaveAttribute('aria-expanded', 'false');
+});
+
 test('the Shift on court stays off the Shifts list', async ({ page }) => {
   await startBasketballGame(page);
 

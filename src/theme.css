@@ -50,6 +50,7 @@ body {
 h1,
 .count {
   font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 main,
@@ -96,6 +97,13 @@ button.primary {
 
 .tile .count {
   font-size: 32px;
+}
+
+/* A tapped tile flashes for 700 ms: a gold ring drawn inside its 1px edge, so the tile keeps its size, and a tint. Color only, no motion. */
+.tile.flash {
+  border-color: var(--accent-text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-text);
 }
 
 /* A lone Athlete's photo is not a control, so it is not faded like a disabled button. The gold ring is its only accent. */
@@ -166,12 +174,18 @@ button:disabled {
   pointer-events: none;
 }
 
-/* The Team–Opponent strip: each side is a label over − count +. */
+/* The Team–Opponent strip is one card: each side is a label over − count +, and Team's count is gold. */
 .strip {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  border-radius: 16px;
+  background: var(--surface);
   text-align: center;
+}
+
+.strip .side:first-child .count {
+  color: var(--accent-text);
 }
 
 .strip .side {
@@ -232,19 +246,17 @@ button:disabled {
   align-items: center;
 }
 
-.shift p {
-  margin: 0;
-}
-
 .shift .timer {
   font-size: 20px;
   font-weight: 600;
 }
 
-/* The Game line is a button that opens the closed Shifts; it resets the global button box so the closed line keeps its height. */
+/* The timer and the Game line are one button that opens the closed Shifts; it resets the global button box and is at least 44px tall. */
 .shift .game {
+  display: grid;
+  justify-items: start;
+  min-height: 44px;
   font-size: 13px;
-  min-height: 0;
   margin: 0;
   padding: 0;
   border: 0;
@@ -260,12 +272,13 @@ button:disabled {
   min-width: 0;
 }
 
-/* The open Shifts list scrolls sideways inside its line, so the Shift bar keeps its height and the page does not widen. */
+/* The open Shifts list scrolls sideways inside its line, so the Shift bar keeps its height and the page does not widen. contain stops its unscrolled width from counting toward the page. */
 .shift-list {
   display: flex;
   gap: 12px;
   flex: 1 1 0;
   min-width: 0;
+  contain: inline-size;
   margin: 0;
   padding: 0;
   overflow-x: auto;
@@ -281,7 +294,14 @@ button:disabled {
   align-items: center;
 }
 
+/* The Period label as a chip: neutral, so the gold stays on the action. */
 .period {
+  display: inline-grid;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
   font-size: 20px;
   font-weight: 600;
 }
@@ -298,7 +318,6 @@ button:disabled {
 
 .strip.pulse {
   animation: strip-pulse 0.6s ease-out;
-  border-radius: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

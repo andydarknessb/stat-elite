@@ -93,3 +93,26 @@ test('at Bleacher the half court keeps its feet ratio, and the Shot controls fit
   const shots = await page.getByRole('region', { name: 'Shots' }).boundingBox();
   expect(controls!.x + controls!.width).toBeLessThanOrEqual(shots!.x + shots!.width + 0.5);
 });
+
+test.describe('under dark', () => {
+  test.use({ colorScheme: 'dark' });
+
+  test('the Team count is gold and the Opponent count is near-white', async ({ page }) => {
+    await addAthlete(page);
+    await startGame(page);
+
+    await expect(page.getByRole('group', { name: 'Team', exact: true }).locator('.count')).toHaveCSS('color', 'rgb(245, 184, 65)');
+    await expect(page.getByRole('group', { name: 'Opponent', exact: true }).locator('.count')).toHaveCSS('color', 'rgb(242, 244, 248)');
+  });
+
+  test('a tapped stat tile flashes its gold border within 300 ms, and the flash ends', async ({ page }) => {
+    await addAthlete(page);
+    await startGame(page);
+    const tile = page.getByRole('button', { name: /^OREB \d+$/ });
+
+    await tile.click();
+    await expect(tile).toHaveCSS('border-top-color', 'rgb(245, 184, 65)', { timeout: 300 });
+    await page.waitForTimeout(1500);
+    await expect(tile).not.toHaveCSS('border-top-color', 'rgb(245, 184, 65)');
+  });
+});
