@@ -328,13 +328,14 @@ function AthleteForm({ core, athlete, onDone }: { core: AppCore; athlete?: Athle
           Photo (optional)
           <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files?.[0])} />
         </label>
+        {/* above the buttons: a tap on the button scrolls it into view, and an alert below it can land off the bottom edge */}
+        {failed && <p role="alert">{NOT_SAVED}</p>}
         <button className="primary">{athlete ? 'Save' : 'Add Athlete'}</button>
         {onDone && (
           <button type="button" onClick={onDone}>
             Cancel
           </button>
         )}
-        {failed && <p role="alert">{NOT_SAVED}</p>}
       </form>
     </main>
   );
