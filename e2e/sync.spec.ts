@@ -91,3 +91,34 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
   await expect(page.getByText('0 not synced')).toBeVisible();
   expect(supabaseRequests).toEqual([]);
 });
+
+// Home offers Save this game once the Recorder has a finished Game, so a signed-out Recorder who taps Done can still sign in (#138).
+test('Home offers Save this game after a finished Game, and signing in there clears the badge', async ({ page }) => {
+  const supabaseRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('supabase.co')) supabaseRequests.push(request.url());
+  });
+  await page.route(/\.supabase\.co\//, (route) => route.abort());
+
+  await page.goto('/');
+  await page.getByLabel('Athlete name').fill('Casey');
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await expect(page.getByRole('button', { name: 'Save this game' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await page.getByRole('button', { name: /^STL/ }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('button', { name: 'Save this game' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Save this game' }).click();
+  await page.getByLabel('Email').fill('casey@example.com');
+  await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByLabel('Code').fill('123456');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByText('0 not synced')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save this game' })).toHaveCount(0);
+  expect(supabaseRequests).toEqual([]);
+});
