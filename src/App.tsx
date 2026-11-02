@@ -1071,6 +1071,7 @@ function EndGameForm({
   };
   return (
     <form onSubmit={submit}>
+      <h2>Finish game?</h2>
       <label>
         Team final
         <input value={team} onChange={(e) => setTeam(e.target.value)} inputMode="numeric" autoComplete="off" />
@@ -1083,13 +1084,13 @@ function EndGameForm({
         End Game
       </button>
       <button type="button" onClick={onCancel}>
-        Cancel
+        Keep playing
       </button>
     </form>
   );
 }
 
-/** Game Complete, shown once End Game closes the Game: the Final Score, the Athlete's line and Plus/Minus, and Copy text. */
+/** Game Complete, shown once End Game closes the Game: a result card (trophy, Final, the W/L/T badge and Final Score, the Athlete's line, Plus/Minus), then Share card and Copy text below it. */
 function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
   const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
   // the text is read before the tap, so the click reaches the clipboard with no await in between (iOS drops the gesture across one)
@@ -1151,15 +1152,39 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
       () => setCopied({ label: 'Copy failed' }),
     );
   };
+  const { letter, name } = resultOf(game.final);
   return (
-    <section aria-label="Game Complete">
-      <h1>Final</h1>
-      <p className="final">
-        Team {game.final.team} – Opponent {game.final.opponent}
-      </p>
-      <p>{gameLineText(game)}</p>
-      {game.sport === 'basketball' && <p>Plus/Minus {signed(game.line.plusMinus)}</p>}
-      <button disabled={image === undefined} onClick={shareCard}>
+    <>
+      <section className="card" aria-label="Game Complete">
+        <div className="result-head">
+          <svg
+            className="trophy"
+            viewBox="0 0 24 24"
+            width="28"
+            height="28"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3" />
+          </svg>
+          <h1>Final</h1>
+        </div>
+        <div className="result-head">
+          <span className="badge result-badge" role="img" aria-label={name}>
+            {letter}
+          </span>
+          <p className="final">
+            Team {game.final.team} – Opponent {game.final.opponent}
+          </p>
+        </div>
+        <p>{gameLineText(game)}</p>
+        {game.sport === 'basketball' && <p>Plus/Minus {signed(game.line.plusMinus)}</p>}
+      </section>
+      <button className="primary" disabled={image === undefined} onClick={shareCard}>
         Share card
       </button>
       {drawFailed && <p role="status">Share card could not be drawn</p>}
@@ -1167,7 +1192,7 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
         Copy text
       </button>
       <p role="status">{copied?.label}</p>
-    </section>
+    </>
   );
 }
 

@@ -32,3 +32,22 @@ test('a Recorder adjusts the strip, reloads and still sees the score, then ends 
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
 });
+
+test('End Game opens the Finish game form inline, and Keep playing closes it with the Game still live', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Athlete name').fill('Casey');
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await expect(page.getByText('Finish game?')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Keep playing' }).click();
+  await expect(page.getByText('Finish game?')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'End Game' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Team +1' }).click();
+  await expect(page.getByRole('group', { name: 'Team' }).getByText('1', { exact: true })).toBeVisible();
+});
