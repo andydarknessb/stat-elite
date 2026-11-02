@@ -747,6 +747,12 @@ button:disabled {
   gap: 12px;
 }
 
+/* Game Complete's trophy and result letter are gold text; the result rows keep the plain badge. */
+.trophy,
+.result-badge {
+  color: var(--accent-text);
+}
+
 .sizes {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
