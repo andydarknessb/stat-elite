@@ -875,7 +875,7 @@ function InsightsTab({ core, athleteId }: { core: AppCore; athleteId: string }) 
       <h1>Insights</h1>
       {cards.length === 0 && <p>Nothing stands out in the last 5 Games.</p>}
       {cards.map((card) => (
-        <section key={card.drill}>
+        <section className="card" key={card.drill}>
           <h2>{card.title}</h2>
           <p>{card.drill}</p>
         </section>
@@ -928,27 +928,29 @@ function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void })
   if (!size || field === undefined) return null;
   return (
     <main>
-      <h1>Settings</h1>
-      <div className="sizes" role="group" aria-label="Button Size">
-        {BUTTON_SIZES.map((option) => (
-          <button
-            key={option}
-            aria-pressed={option === size}
-            className={option === size ? 'primary' : undefined}
-            onClick={() => void core.setButtonSize(option).then(() => setFailed(false), () => setFailed(true))}
-          >
-            {SIZE_LABELS[option]}
-          </button>
-        ))}
-      </div>
-      <button
-        aria-pressed={field}
-        className={field ? 'primary' : undefined}
-        onClick={() => void core.setFieldMode(!field).then(() => setFailed(false), () => setFailed(true))}
-      >
-        Field mode
-      </button>
-      {failed && <p role="alert">{NOT_SAVED}</p>}
+      <section className="card">
+        <h1>Settings</h1>
+        <div className="sizes" role="group" aria-label="Button Size">
+          {BUTTON_SIZES.map((option) => (
+            <button
+              key={option}
+              aria-pressed={option === size}
+              className={option === size ? 'primary' : undefined}
+              onClick={() => void core.setButtonSize(option).then(() => setFailed(false), () => setFailed(true))}
+            >
+              {SIZE_LABELS[option]}
+            </button>
+          ))}
+        </div>
+        <button
+          aria-pressed={field}
+          className={field ? 'primary' : undefined}
+          onClick={() => void core.setFieldMode(!field).then(() => setFailed(false), () => setFailed(true))}
+        >
+          Field mode
+        </button>
+        {failed && <p role="alert">{NOT_SAVED}</p>}
+      </section>
       <button onClick={() => setDeleting(true)}>Delete my account and all data</button>
       <button className="primary" onClick={onDone}>
         Done
@@ -1000,19 +1002,21 @@ function DeleteAccount({ core, onCancel }: { core: AppCore; onCancel: () => void
   };
   return (
     <main>
-      <h1>Delete my account and all data</h1>
-      <p>
-        {sync.signedIn ? 'This deletes your account from the server and clears this phone.' : 'This clears this phone.'} It cannot be
-        undone.
-      </p>
-      <ul>
-        {summary.athletes.length === 0 && <li>Athletes: none</li>}
-        {summary.athletes.map((athlete, i) => (
-          <li key={i}>{fateLine(athlete)}</li>
-        ))}
-        <li>Photos on this phone: {summary.photos}</li>
-        <li>Not yet synced: {summary.unsynced}</li>
-      </ul>
+      <section className="card">
+        <h1>Delete my account and all data</h1>
+        <p>
+          {sync.signedIn ? 'This deletes your account from the server and clears this phone.' : 'This clears this phone.'} It cannot be
+          undone.
+        </p>
+        <ul>
+          {summary.athletes.length === 0 && <li>Athletes: none</li>}
+          {summary.athletes.map((athlete, i) => (
+            <li key={i}>{fateLine(athlete)}</li>
+          ))}
+          <li>Photos on this phone: {summary.photos}</li>
+          <li>Not yet synced: {summary.unsynced}</li>
+        </ul>
+      </section>
       <button className="primary" disabled={deleting} onClick={() => void remove()}>
         Delete everything
       </button>

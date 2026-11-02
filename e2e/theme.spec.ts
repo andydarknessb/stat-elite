@@ -50,3 +50,28 @@ test('in dark, the free-throw MAKE and MISS keep their green and red', async ({ 
   await expect(row.getByRole('button', { name: 'MAKE' })).toHaveCSS('color', 'rgb(63, 185, 80)');
   await expect(row.getByRole('button', { name: 'MISS' })).toHaveCSS('color', 'rgb(240, 96, 90)');
 });
+
+test('under dark, form inputs are 52px on the surface, and Settings marks the chosen Button Size and Field mode gold', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+  const athleteName = page.getByLabel('Athlete name');
+  await expect(athleteName).toHaveCSS('background-color', 'rgb(19, 26, 44)');
+  expect((await athleteName.boundingBox())?.height).toBeGreaterThanOrEqual(52);
+  await athleteName.fill('Casey');
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  const opponent = page.getByLabel('Opponent');
+  await expect(opponent).toHaveCSS('background-color', 'rgb(19, 26, 44)');
+  expect((await opponent.boundingBox())?.height).toBeGreaterThanOrEqual(52);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('group', { name: 'Button Size' }).locator('[aria-pressed="true"]')).toHaveCSS(
+    'background-color',
+    'rgb(245, 184, 65)',
+  );
+  const field = page.getByRole('button', { name: 'Field mode' });
+  await field.click();
+  await expect(field).toHaveCSS('background-color', 'rgb(245, 184, 65)');
+});

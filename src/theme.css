@@ -69,6 +69,7 @@ label {
 }
 
 input,
+select,
 button {
   font: inherit;
   color: inherit;
@@ -78,8 +79,12 @@ button {
   background: var(--surface);
 }
 
-input {
+/* Inputs and selects are 52px tall on the surface, with the stronger edge. */
+input,
+select {
+  min-height: 52px;
   padding: 0 12px;
+  border-color: var(--border-strong);
 }
 
 button.primary {
@@ -149,7 +154,7 @@ button:disabled {
   margin: 0 16px 16px;
   padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   background: var(--surface);
 }
 
@@ -231,6 +236,8 @@ button:disabled {
   padding: 16px 16px 0;
   color: var(--muted);
   text-align: right;
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 /* The basketball live screen, top to bottom: Shift bar, score strip, half court, Free Throw row, stat tiles, then Undo and End Game. */
