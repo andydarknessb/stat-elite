@@ -1467,9 +1467,18 @@ function LiveGame({
           ))}
         </div>
       )}
-      <p className="batting">
-        AVG {rateText(game.batting.avg)} · OBP {rateText(game.batting.obp)} · SLG {rateText(game.batting.slg)}
-      </p>
+      <dl className="batting">
+        {[
+          ['AVG', rateText(game.batting.avg)],
+          ['OBP', rateText(game.batting.obp)],
+          ['SLG', rateText(game.batting.slg)],
+        ].map(([stat, value]) => (
+          <div key={stat} className="batting-card" role="group" aria-label={stat}>
+            <dt>{stat}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
   return (

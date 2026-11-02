@@ -431,10 +431,55 @@ button:disabled {
   gap: 8px;
 }
 
-.batting {
-  font-variant-numeric: tabular-nums;
-  font-size: 18px;
+/* the tile look: bold labels on the surface; sizes stay with Button Size */
+.plate-appearance .pitches button,
+.plate-appearance .outcomes button,
+.plate-appearance .rbi button {
   font-weight: 600;
+}
+
+/* the Base group is one card: the Diamond, Stole and the base moves */
+.base-moves {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+/* the batting line: three stat cards, each a label over its value in the scoreboard face */
+.batting {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+  text-align: center;
+}
+
+.batting-card {
+  display: grid;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.batting dt {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.batting dd {
+  margin: 0;
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Bleacher: two swipe pages, Shots then Other stats, each the width of the phone. */
