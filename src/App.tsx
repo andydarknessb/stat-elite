@@ -243,6 +243,13 @@ function SaveGame({ core }: { core: AppCore }) {
   return <SignInForm core={core} />;
 }
 
+/** Save this game on Home once a Game has finished: Game Complete is gone after Done, so this is the only sign-in control (#138). */
+function SaveFromHome({ core, athleteId }: { core: AppCore; athleteId: string }) {
+  const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
+  if (!feed || feed.games.length === 0) return null;
+  return <SaveGame core={core} />;
+}
+
 /** The sign-in step of Save this game and the Invite screen: the email gets a link and a code, and typing the code signs the Recorder in here (the link does it in the browser that opens it). */
 function SignInForm({ core, invite, onSignedIn }: { core: AppCore; invite?: string; onSignedIn?: () => void }) {
   const [email, setEmail] = useState('');
@@ -534,6 +541,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         <button className="primary" onClick={() => setForm('setup')}>
           Start Game
         </button>
+        <SaveFromHome core={core} athleteId={athlete.id} />
         <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
         <section className="card sharing" aria-label="Sharing">
           <InviteCoParent core={core} athleteId={athlete.id} />
