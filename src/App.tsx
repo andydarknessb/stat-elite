@@ -1581,7 +1581,7 @@ function LiveGame({
         <button
           aria-label="Field mode"
           aria-pressed={field}
-          className={field ? 'primary' : undefined}
+          className={field ? 'primary sun' : 'sun'}
           onClick={() => void attempt(core.setFieldMode(!field), () => undefined)}
         >
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
