@@ -92,7 +92,7 @@ test('switching Athlete opens the season card on its first sport, not the one ch
 });
 
 for (const colorScheme of ['dark', 'light'] as const) {
-  test.describe(colorScheme, () => {
+  test.describe(`on either phone setting, ${colorScheme}`, () => {
     test.use({ colorScheme });
 
     test('Start Game is the one gold button on Home', async ({ page }) => {

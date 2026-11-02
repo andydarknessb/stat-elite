@@ -160,6 +160,7 @@ test.describe('light phone', () => {
 
   test('every screen meets contrast and 44px target size on a light phone, which stays navy', async ({ page }) => {
     await addAthlete(page);
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
     const failures = await visitEveryScreen(page, 'light');
     expect(failures, failures.join('\n')).toEqual([]);
   });

@@ -123,6 +123,21 @@ test('Field mode turned off stays off across a cold load', async ({ page }) => {
   expect(await readHead(page)).toEqual({ field: false, colorScheme: 'dark', themeColors: ['#0b1020'], cleared: false });
 });
 
+test('with Field mode on, the Free Throw and the pressed Home label keep their light colours', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Field mode', exact: true }).click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveCSS('color', 'rgb(100, 73, 26)');
+
+  await startGame(page);
+  const row = page.getByRole('group', { name: 'Free Throw' });
+  await expect(row.getByRole('button', { name: 'MAKE' })).toHaveCSS('color', 'rgb(26, 127, 55)');
+  await expect(row.getByRole('button', { name: 'MISS' })).toHaveCSS('color', 'rgb(201, 48, 44)');
+});
+
 test('turning Field mode off after a cold load with it on leaves the meta navy', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await addAthlete(page);

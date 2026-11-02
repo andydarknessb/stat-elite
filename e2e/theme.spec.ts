@@ -20,7 +20,7 @@ test("the page is navy whatever the phone's setting is", async ({ page }) => {
   }
 });
 
-test('Start Game is the gold button with navy text in both schemes', async ({ page }) => {
+test('Start Game is the gold button with navy text on either phone setting', async ({ page }) => {
   await addAthlete(page);
   const start = page.getByRole('button', { name: 'Start Game' });
   for (const colorScheme of ['dark', 'light'] as const) {

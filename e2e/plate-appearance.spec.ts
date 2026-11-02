@@ -133,9 +133,9 @@ test('Next period disarms an Outcome: its RBI chips go down, and the next inning
   await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
 });
 
-// the armed Outcome is gold with ink text in both schemes: the tokens hold under dark as well as light
+// the armed Outcome is gold with ink text on either phone setting: the tokens hold under dark as well as light
 for (const colorScheme of ['dark', 'light'] as const) {
-  test(`an armed Outcome is gold with ink text under ${colorScheme}`, async ({ page }) => {
+  test(`an armed Outcome is gold with ink text on either phone setting, ${colorScheme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme });
     await startSoftballGame(page);
     const armed = page.getByRole('group', { name: 'Outcome' }).getByRole('button', { name: '2B', exact: true });
