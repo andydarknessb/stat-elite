@@ -832,6 +832,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     const value = (await store.settings.get(ACCOUNT))?.value;
     return value === undefined ? undefined : JSON.parse(value);
   };
+  // clears every table on this phone, as a sign-out or a deletion leaves it
+  const clearPhone = () => store.transaction('rw', store.tables, () => Promise.all(store.tables.map((table) => table.clear())));
   // remembers a live session's account, written only when it changes so a flush that finds it held writes nothing
   const remember = async (id: string) => {
     const email = await server.email();
@@ -1551,6 +1553,14 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
+    /** Signs this phone out: the Account and its rows stay on the server, and this phone is cleared. */
+    signOut(): Promise<void> {
+      return exclusive(async () => {
+        await server.signOut();
+        await clearPhone();
+      });
+    },
+
     /** Deletes the account and everything it owns on the server, then clears this phone back to first run. A refusal by the server leaves the phone as it was, and so does an Account the phone remembers but cannot reach now. */
     deleteAccount(): Promise<void> {
       return exclusive(async () => {
@@ -1559,7 +1569,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         if (live === undefined && (await account())) throw new Error(SIGN_IN_AGAIN);
         // a phone not signed in has no account on the server, so only its own rows go
         if (live !== undefined) await server.deleteAccount();
-        await store.transaction('rw', store.tables, () => Promise.all(store.tables.map((table) => table.clear())));
+        await clearPhone();
       });
     },
 
