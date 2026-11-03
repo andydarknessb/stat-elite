@@ -31,6 +31,8 @@ export class InviteRefused extends Error {
 export interface Server {
   /** The signed-in account's id, or undefined when signed out. */
   session(): Promise<string | undefined>;
+  /** The signed-in account's sign-in address, or undefined when signed out. */
+  email(): Promise<string | undefined>;
   /** Sends a magic link and a 6-digit code to the address. An Invite's token rides in the link, so accepting it survives the sign-in. Rejects when the server cannot be reached. */
   signIn(email: string, invite?: string): Promise<void>;
   /** Signs the account in with the code from the sign-in email. Rejects when the code is wrong or the server cannot be reached. */
@@ -87,6 +89,9 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
         // as Supabase's getSession does, this await leaves Dexie's zone: a liveQuery stops observing at a non-Dexie await
         await new NativePromise((resolve) => setTimeout(resolve));
         return account;
+      },
+      async email() {
+        return account === undefined ? undefined : emails.get(account);
       },
       async signIn(_email: string, _invite?: string) {
         reach();
@@ -193,6 +198,7 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
 /** Supabase through its client: the server the deployed app syncs with. */
 export function createSupabaseServer(client: SupabaseClient): Server {
   const session = async () => (await client.auth.getSession()).data.session?.user.id;
+  const email = async () => (await client.auth.getSession()).data.session?.user.email;
   // whether the signed-in account is a Member of the Athlete a row names, not its Owner: its own membership row, which RLS lets it read
   const isMemberOf = async (row: UploadRow) => {
     const me = await session();
@@ -203,6 +209,7 @@ export function createSupabaseServer(client: SupabaseClient): Server {
   };
   return {
     session,
+    email,
     async signIn(email, invite) {
       const redirect = invite ? `${location.origin}/?invite=${invite}` : location.origin;
       const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect } });
@@ -305,6 +312,7 @@ export function serverFor({ url, key, host }: { url?: string; key?: string; host
   };
   return {
     session: async () => undefined,
+    email: async () => undefined,
     signIn: refuse,
     verifyCode: refuse,
     upload: refuse,
