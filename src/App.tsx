@@ -321,7 +321,7 @@ function SignInForm({ core, onSignedIn }: { core: AppCore; onSignedIn?: () => vo
   };
   if (sent) {
     return (
-      <form onSubmit={submitCode}>
+      <form key="code" onSubmit={submitCode}>
         <p>Check your email and type the 6-digit code.</p>
         <label>
           Code
@@ -334,7 +334,7 @@ function SignInForm({ core, onSignedIn }: { core: AppCore; onSignedIn?: () => vo
     );
   }
   return (
-    <form onSubmit={submit}>
+    <form key="email" onSubmit={submit}>
       <label>
         Email
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />

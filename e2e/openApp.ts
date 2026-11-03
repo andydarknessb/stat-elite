@@ -4,11 +4,15 @@ import type { Page } from '@playwright/test';
 export async function openApp(page: Page) {
   await page.goto('/');
   const email = page.getByLabel('Email');
-  // the first screen is sign-in on an empty phone, and Add Athlete once a phone is signed in; wait for whichever it is
-  await email.or(page.getByLabel('Athlete name')).waitFor();
+  const athleteName = page.getByLabel('Athlete name');
+  const startGame = page.getByRole('button', { name: 'Start Game' });
+  // the first screen is sign-in on an empty phone; a phone already signed in opens on Add Athlete or on Home
+  await email.or(athleteName).or(startGame).waitFor();
   if (!(await email.isVisible())) return;
   await email.fill('casey@example.com');
   await page.getByRole('button', { name: 'Send code' }).click();
   await page.getByLabel('Code').fill('123456');
   await page.getByRole('button', { name: 'Sign in' }).click();
+  // the spec goes on only once the sign-in has landed: a reload or an offline switch sooner would cut it short
+  await athleteName.or(startGame).waitFor();
 }
