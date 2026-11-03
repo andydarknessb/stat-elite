@@ -327,3 +327,5 @@ create trigger games_keep_athlete before update on games for each row execute fu
 -- ADR 0006: a Recorder removes its Backlogged Game. Every phone hides it, and its row stays on the server. A live Game can never be removed.
 alter table games add column removed boolean not null default false
   check (not removed or totals is not null);
+-- ADR 0008: a Recorder removes any finished Game, so a removed Game no longer needs Totals. The server cannot tell a finished Game from one whose Events have not uploaded yet, so App Core alone keeps a Game in progress from being removed.
+alter table games drop constraint games_check1;

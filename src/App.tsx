@@ -1033,8 +1033,9 @@ function ScoreLabel({ name, children }: { name: string; children: ReactNode }) {
 /** A finished Game's summary, a result card: its badge and Final Score, the Opponent, date and the Athlete's line; basketball adds Plus/Minus, Playing Share and the tiles. */
 function GameSummary({ core, gameId, onBack, onEdit, onRemoved }: { core: AppCore; gameId: string; onBack: () => void; onEdit: () => void; onRemoved: () => void }) {
   const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
-  // only a Backlogged Game its Recorder entered has an entry to edit, or to remove (ADR 0005, ADR 0006)
+  // only a Backlogged Game its Recorder entered has an entry to edit (ADR 0005); its Recorder can remove any finished Game (ADR 0008)
   const backlog = useReadModel(() => core.backlogEntry(gameId), [core, gameId]);
+  const removable = useReadModel(() => core.canRemoveGame(gameId), [core, gameId]);
   // Remove asks first, and the confirm step says only what leaves the app: the Game is hidden, not erased (ADR 0006)
   const [confirming, setConfirming] = useState(false);
   if (!game) return null;
@@ -1067,13 +1068,13 @@ function GameSummary({ core, gameId, onBack, onEdit, onRemoved }: { core: AppCor
         )}
       </section>
       {backlog && <button onClick={onEdit}>Edit</button>}
-      {backlog && !confirming && <button onClick={() => setConfirming(true)}>Remove</button>}
-      {backlog && confirming && (
+      {removable && !confirming && <button onClick={() => setConfirming(true)}>Remove</button>}
+      {removable && confirming && (
         <section className="card">
-          <p>Remove this Game? It leaves the Games feed and the season line.</p>
+          <p>Remove this Game? It leaves the Games feed and the season line on every phone, and the app can't bring it back.</p>
           <button
             onClick={async () => {
-              await core.removeBacklog(gameId);
+              await core.removeGame(gameId);
               onRemoved();
             }}
           >
