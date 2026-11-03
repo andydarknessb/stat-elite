@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openApp } from './openApp';
 
 async function addAthlete(page: Page) {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
 }
@@ -54,7 +55,7 @@ test('under dark, form inputs are 52px on the surface, and Settings marks the ch
   page,
 }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.goto('/');
+  await openApp(page);
   const athleteName = page.getByLabel('Athlete name');
   await expect(athleteName).toHaveCSS('background-color', 'rgb(19, 26, 44)');
   expect((await athleteName.boundingBox())?.height).toBeGreaterThanOrEqual(52);

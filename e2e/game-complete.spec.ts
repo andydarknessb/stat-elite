@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { openApp } from './openApp';
 
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
 test('ending a Game opens Game Complete with the Final Score, the line and Plus/Minus, and Copy text copies the summary', async ({ page }) => {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { openApp } from './openApp';
 import { expect, test, type Page } from '@playwright/test';
 
 // A 1x1 PNG, enough for the photo to render (as athletes.spec.ts uses it).
@@ -17,7 +18,7 @@ const BAD_PHOTO = { name: 'bad.png', mimeType: 'image/png', buffer: Buffer.from(
 type Photo = { name: string; mimeType: string; buffer: Buffer };
 
 async function endAGame(page: Page, photo?: Photo) {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   if (photo) await page.getByLabel('Photo (optional)').setInputFiles(photo);
   await page.getByRole('button', { name: 'Add Athlete' }).click();

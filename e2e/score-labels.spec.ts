@@ -1,7 +1,8 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { openApp } from './openApp';
 
 async function addAthlete(page: Page, name: string) {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill(name);
   await page.getByRole('button', { name: 'Add Athlete' }).click();
 }
@@ -69,7 +70,7 @@ test("Edit past Game labels the score with the Game's Athlete, after another tab
   await expect(page.getByText('Casey Smith 40 – Opponent 32')).toBeVisible();
 
   const other = await context.newPage();
-  await other.goto('/');
+  await openApp(other);
   await other.getByRole('button', { name: 'Add Athlete' }).click();
   await other.getByLabel('Athlete name').fill('Sam Lee');
   await other.getByRole('button', { name: 'Add Athlete' }).click();

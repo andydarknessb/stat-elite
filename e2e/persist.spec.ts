@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openApp } from './openApp';
 
 type PersistWindow = { persistCalls: number };
 
@@ -13,7 +14,7 @@ test('first run asks the browser to keep storage permanently', async ({ page }) 
     };
   });
 
-  await page.goto('/');
+  await openApp(page);
   await expect(page.getByRole('heading', { name: 'Add Athlete' })).toBeVisible();
 
   const calls = await page.evaluate(() => (window as unknown as PersistWindow).persistCalls);
@@ -30,7 +31,7 @@ test('every launch asks the browser to keep storage permanently, once an Athlete
     };
   });
 
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();

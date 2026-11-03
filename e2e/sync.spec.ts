@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openApp } from './openApp';
 
 // A Game recorded with the network off uploads once the Recorder saves it online, and the badge reaches 0.
 // The smoke runs with no Supabase URL or key, so no request may reach supabase.co (#9).
@@ -11,7 +12,7 @@ test('a Game recorded offline uploads once it is saved, and the badge reaches 0'
   // a second guard: no request to Supabase leaves the browser, even from a build that has its URL and key
   await page.route(/\.supabase\.co\//, (route) => route.abort());
 
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
 
@@ -36,7 +37,7 @@ test('a Game recorded offline uploads once it is saved, and the badge reaches 0'
 
 // A wrong code on Save this game offers a new link with the address kept, and the code and error clear (#76).
 test('a wrong code on Save this game offers a new link with the email kept', async ({ page }) => {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -66,7 +67,7 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
     if (request.url().includes('supabase.co')) supabaseRequests.push(request.url());
   });
 
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -100,7 +101,7 @@ test('Home offers Save this game after a finished Game, and signing in there cle
   });
   await page.route(/\.supabase\.co\//, (route) => route.abort());
 
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await expect(page.getByText('No finished Games yet.')).toBeVisible();

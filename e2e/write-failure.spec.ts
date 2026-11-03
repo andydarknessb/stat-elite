@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openApp } from './openApp';
 
 const NOT_SAVED = 'Not saved. Try again.';
 
@@ -42,7 +43,7 @@ async function expectNotSaved(page: Page) {
 }
 
 async function caseyFirstRun(page: Page) {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();

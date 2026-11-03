@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openApp } from './openApp';
 
 async function startBasketballGame(page: Page, periodFormat: 'Quarters' | 'Halves' | '8 Periods' = 'Quarters') {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();

@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
+import { openApp } from './openApp';
 
 test('a Recorder adds an Athlete, taps STL, and still sees the count after a reload', async ({ page }) => {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -17,7 +18,7 @@ test('a Recorder adds an Athlete, taps STL, and still sees the count after a rel
 });
 
 test("the page is navy whatever the phone's setting is", async ({ page }) => {
-  await page.goto('/');
+  await openApp(page);
   const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 
   await page.emulateMedia({ colorScheme: 'light' });
