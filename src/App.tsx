@@ -1,5 +1,5 @@
 import { liveQuery } from 'dexie';
-import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
+import { useEffect, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import {
   BUTTON_SIZES,
   HALF_COURT,
@@ -510,6 +510,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
       <BacklogForm
         core={core}
         athleteId={athlete.id}
+        athleteName={athlete.name}
         gameId={summary}
         onDone={(savedGameId) => {
           setForm(undefined);
@@ -934,6 +935,15 @@ function InsightsTab({ core, athleteId }: { core: AppCore; athleteId: string }) 
   );
 }
 
+/** The Team's label: the Athlete's name, cut with "…" if it does not fit, then the text after it, which is never cut. */
+function ScoreLabel({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <span className="score-label">
+      <span className="score-name">{name}</span> <span>{children}</span>
+    </span>
+  );
+}
+
 /** A finished Game's summary, a result card: its badge and Final Score, the Opponent, date and the Athlete's line; basketball adds Plus/Minus, Playing Share and the tiles. */
 function GameSummary({ core, gameId, onBack, onEdit, onRemoved }: { core: AppCore; gameId: string; onBack: () => void; onEdit: () => void; onRemoved: () => void }) {
   const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
@@ -952,7 +962,9 @@ function GameSummary({ core, gameId, onBack, onEdit, onRemoved }: { core: AppCor
             {letter}
           </span>
           <p className="final">
-            Team {game.final.team} – Opponent {game.final.opponent}
+            <ScoreLabel name={game.athleteName}>
+              {game.final.team} – Opponent {game.final.opponent}
+            </ScoreLabel>
           </p>
         </div>
         <h1>{game.opponent}</h1>
@@ -990,10 +1002,6 @@ function GameSummary({ core, gameId, onBack, onEdit, onRemoved }: { core: AppCor
 
 /** A count field's key in the form's text and its visible label. The scores come first in every form. */
 type CountField = [key: string, label: string];
-const SCORE_FIELDS: CountField[] = [
-  ['teamScore', 'Team score'],
-  ['opponentScore', 'Opponent score'],
-];
 const BASKETBALL_FIELDS: CountField[] = [
   ['shot2Made', '2PT made'],
   ['shot2Attempted', '2PT attempted'],
@@ -1064,24 +1072,29 @@ function totalsOf(sport: BacklogEntry['sport'], text: Record<string, string>): G
 function BacklogForm({
   core,
   athleteId,
+  athleteName,
   gameId,
   onDone,
 }: {
   core: AppCore;
   athleteId: string;
+  athleteName: string;
   gameId?: string;
   onDone: (savedGameId?: string) => void;
 }) {
   const setup = useReadModel(() => core.gameSetup(athleteId), [core, athleteId]);
   const entry = useReadModel(() => (gameId ? core.backlogEntry(gameId) : Promise.resolve(undefined)), [core, gameId]);
+  // an Edit labels the Game's own Athlete: another tab can change the selected one while this form is open
+  const summary = useReadModel(() => (gameId ? core.gameSummary(gameId) : Promise.resolve(undefined)), [core, gameId]);
   if (!setup || (gameId && !entry)) return null;
-  return <BacklogFields core={core} athleteId={athleteId} gameId={gameId} setup={setup} entry={entry} onDone={onDone} />;
+  return <BacklogFields core={core} athleteId={athleteId} athleteName={summary?.athleteName ?? athleteName} gameId={gameId} setup={setup} entry={entry} onDone={onDone} />;
 }
 
 /** The fields hold what the Recorder types from the first render on; the prefill only seeds them. */
 function BacklogFields({
   core,
   athleteId,
+  athleteName,
   gameId,
   setup,
   entry,
@@ -1089,6 +1102,7 @@ function BacklogFields({
 }: {
   core: AppCore;
   athleteId: string;
+  athleteName: string;
   gameId?: string;
   setup: GameSetup;
   entry?: BacklogEntry;
@@ -1103,7 +1117,11 @@ function BacklogFields({
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
   const typed = (key: string) => text[key] ?? '';
-  const fields = [...SCORE_FIELDS, ...(sport === 'basketball' ? BASKETBALL_FIELDS : BATTING_FIELDS)];
+  const fields: CountField[] = [
+    ['teamScore', `${athleteName} score`],
+    ['opponentScore', 'Opponent score'],
+    ...(sport === 'basketball' ? BASKETBALL_FIELDS : BATTING_FIELDS),
+  ];
   // a count is a whole number or the form says which one is not: no coercion, no rounding
   const notWhole = fields.find(([key]) => !/^\s*\d*\s*$/.test(typed(key)));
   const ready = opponent.trim() !== '' && gameDate !== '' && typed('teamScore').trim() !== '' && typed('opponentScore').trim() !== '';
@@ -1148,7 +1166,7 @@ function BacklogFields({
         <div className="counts">
           {fields.map(([key, label]) => (
             <label key={key}>
-              {label}
+              {key === 'teamScore' ? <ScoreLabel name={athleteName}>score</ScoreLabel> : label}
               <input
                 value={typed(key)}
                 onChange={(e) => setText((current) => ({ ...current, [key]: e.target.value }))}
@@ -1287,7 +1305,7 @@ function DeleteAccount({ core, onCancel }: { core: AppCore; onCancel: () => void
 function ScoreSide({ label, value, onAdjust }: { label: string; value: number; onAdjust: (delta: 1 | -1) => void }) {
   return (
     <div className="side" role="group" aria-label={label}>
-      <span>{label}</span>
+      <span className="score-name">{label}</span>
       <div>
         <button aria-label={`${label} -1`} disabled={value === 0} onClick={() => onAdjust(-1)}>
           −
@@ -1305,6 +1323,7 @@ function ScoreSide({ label, value, onAdjust }: { label: string; value: number; o
 function EndGameForm({
   core,
   gameId,
+  athleteName,
   score,
   onEnded,
   onCancel,
@@ -1312,6 +1331,7 @@ function EndGameForm({
 }: {
   core: AppCore;
   gameId: string;
+  athleteName: string;
   score: Scores;
   onEnded: () => void;
   onCancel: () => void;
@@ -1332,7 +1352,7 @@ function EndGameForm({
     <form onSubmit={submit}>
       <h2>Finish game?</h2>
       <label>
-        Team final
+        <ScoreLabel name={athleteName}>final</ScoreLabel>
         <input value={team} onChange={(e) => setTeam(e.target.value)} inputMode="numeric" autoComplete="off" />
       </label>
       <label>
@@ -1437,7 +1457,9 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
             {letter}
           </span>
           <p className="final">
-            Team {game.final.team} – Opponent {game.final.opponent}
+            <ScoreLabel name={game.athleteName}>
+              {game.final.team} – Opponent {game.final.opponent}
+            </ScoreLabel>
           </p>
         </div>
         <p>{gameLineText(game)}</p>
@@ -1799,7 +1821,7 @@ function LiveGame({
         </section>
       )}
       <section key={pulse} className={pulse ? 'strip pulse' : 'strip'} aria-label="Score">
-        <ScoreSide label="Team" value={game.score.team} onAdjust={(delta) => adjust('team', delta)} />
+        <ScoreSide label={game.athleteName} value={game.score.team} onAdjust={(delta) => adjust('team', delta)} />
         <ScoreSide label="Opponent" value={game.score.opponent} onAdjust={(delta) => adjust('opponent', delta)} />
       </section>
       {/* on screen right under the score, not below the Period row the Recorder may not see */}
@@ -1849,6 +1871,7 @@ function LiveGame({
         <EndGameForm
           core={core}
           gameId={gameId}
+          athleteName={game.athleteName}
           score={game.score}
           onCancel={() => setEnding(false)}
           onEnded={() => {

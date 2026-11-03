@@ -210,6 +210,33 @@ button:disabled {
   font-weight: 600;
 }
 
+/* The Athlete's name in a score label: one line, cut with "…". */
+.score-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The label fills the width it is given and asks for none, so a long name is cut and never widens the screen. */
+.strip .score-name,
+.score-label {
+  contain: inline-size;
+}
+
+.strip .score-name {
+  justify-self: stretch;
+}
+
+/* Only the name gives way: the text after it keeps its full width. */
+.score-label {
+  display: flex;
+  gap: 0.25em;
+}
+
+.score-label > :last-child {
+  flex: none;
+}
+
 .final {
   font-size: 32px;
   font-weight: 600;
@@ -765,6 +792,12 @@ form h2 {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* The Final Score takes the rest of the head, which gives its score label a width to cut the name at. */
+.result-head .final {
+  flex: 1;
+  font-size: 24px;
 }
 
 /* Game Complete's trophy and result letter are gold text; the result rows keep the plain badge. */

@@ -22,7 +22,7 @@ test('a basketball Game added from Home opens its summary with no Game Complete,
   await expect(page.getByRole('heading', { name: 'Add past Game' })).toBeVisible();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
   await page.getByLabel('Date', { exact: true }).fill(played);
-  await page.getByLabel('Team score').fill('40');
+  await page.getByLabel('Casey score').fill('40');
   await page.getByLabel('Opponent score').fill('32');
   await page.getByLabel('2PT made').fill('6');
   await page.getByLabel('2PT attempted').fill('10');
@@ -33,7 +33,7 @@ test('a basketball Game added from Home opens its summary with no Game Complete,
   await page.getByRole('button', { name: 'Save', exact: true }).click();
 
   // the summary: the Final Score, the line, and Plus/Minus and Playing Share read as dashes
-  await expect(page.getByText('Team 40 – Opponent 32')).toBeVisible();
+  await expect(page.getByText('Casey 40 – Opponent 32')).toBeVisible();
   await expect(page.getByText('16 PTS · FG 6/10 · FT 4/4')).toBeVisible();
   await expect(page.getByText('Plus/Minus — · Playing Share —')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Game Complete' })).toHaveCount(0);
@@ -56,14 +56,14 @@ test('a softball Game added, then edited, shows the new batting line, and its Sp
   await page.getByLabel('Sport').selectOption('Softball');
   await page.getByLabel('Opponent', { exact: true }).fill('Hawks');
   await page.getByLabel('Date', { exact: true }).fill(played);
-  await page.getByLabel('Team score').fill('5');
+  await page.getByLabel('Casey score').fill('5');
   await page.getByLabel('Opponent score').fill('3');
   // a double with 1 RBI: one At-Bat, one hit
   await page.getByLabel('2B', { exact: true }).fill('1');
   await page.getByLabel('RBI', { exact: true }).fill('1');
   expect(await fitsWidth(page)).toBe(true);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByText('Team 5 – Opponent 3')).toBeVisible();
+  await expect(page.getByText('Casey 5 – Opponent 3')).toBeVisible();
   await expect(page.getByText('H/AB 1/1 · 1 RBI', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -85,7 +85,7 @@ test('a 2PT made above 2PT attempted disables Save with an alert, and the date i
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
   await page.getByLabel('Date', { exact: true }).fill(today);
-  await page.getByLabel('Team score').fill('40');
+  await page.getByLabel('Casey score').fill('40');
   await page.getByLabel('Opponent score').fill('32');
   const save = page.getByRole('button', { name: 'Save', exact: true });
 
@@ -130,10 +130,10 @@ test('a Backlogged Game removed from its summary after confirming lands on Home,
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
   await page.getByLabel('Date', { exact: true }).fill(played);
-  await page.getByLabel('Team score').fill('40');
+  await page.getByLabel('Casey score').fill('40');
   await page.getByLabel('Opponent score').fill('32');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByText('Team 40 – Opponent 32')).toBeVisible();
+  await expect(page.getByText('Casey 40 – Opponent 32')).toBeVisible();
 
   await page.getByRole('button', { name: 'Remove', exact: true }).click();
   await expect(page.getByText('Remove this Game? It leaves the Games feed and the season line.')).toBeVisible();

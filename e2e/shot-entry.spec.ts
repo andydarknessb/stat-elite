@@ -20,7 +20,7 @@ async function tapCourt(page: Page, x: number, y: number) {
 }
 
 const result = (page: Page) => page.getByRole('group', { name: 'Shot result' });
-const teamCount = (page: Page) => page.getByRole('group', { name: 'Team' }).locator('.count');
+const teamCount = (page: Page) => page.getByRole('group', { name: 'Casey' }).locator('.count');
 
 test('a Shot is saved only at MAKE or MISS, and a made Shot adds its points to the strip', async ({ page }) => {
   await addAthlete(page);

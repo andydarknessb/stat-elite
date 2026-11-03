@@ -116,7 +116,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await check('softball live screen, Outcome armed');
   await page.getByRole('button', { name: '0 RBI' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByLabel('Team final').fill('3');
+  await page.getByLabel('Casey final').fill('3');
   await page.getByLabel('Opponent final').fill('1');
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();

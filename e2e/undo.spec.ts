@@ -61,7 +61,7 @@ test('a repeated tap on the same tile restarts the 3 seconds', async ({ page }) 
 
 test('a repeated Team +1 restarts the 3 seconds', async ({ page }) => {
   await startGame(page);
-  const teamUp = page.getByRole('button', { name: 'Team +1' });
+  const teamUp = page.getByRole('button', { name: 'Casey +1' });
 
   await teamUp.click();
   await page.waitForTimeout(2000);

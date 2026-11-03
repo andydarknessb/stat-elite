@@ -3196,3 +3196,35 @@ test('a Backlogged Game is dated on a real day from 1900 on: 2026-02-31, 0000-00
   const leapDay = await t.core.backlogGame(backlogEntry(athleteId, { gameDate: '2024-02-29' }));
   expect(await t.inspect.games.get(leapDay)).toMatchObject({ game_date: '2024-02-29' });
 });
+
+async function finishedGameFor(core: ReturnType<typeof createAppCore>, name: string) {
+  const athleteId = await core.addAthlete({ name });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.endGame(gameId, { teamScore: 3, opponentScore: 1 });
+  return { athleteId, gameId };
+}
+
+test("a Game's read models carry its own Athlete's name, whichever Athlete is selected", async () => {
+  const { core } = setup();
+  const casey = await finishedGameFor(core, 'Casey Smith');
+  const sam = await finishedGameFor(core, 'Sam Lee');
+
+  // adding Sam selected Sam, so Casey's Game is not the selected Athlete's
+  expect(await core.liveGame(casey.gameId)).toMatchObject({ athleteName: 'Casey Smith' });
+  expect(await core.gameSummary(casey.gameId)).toMatchObject({ athleteName: 'Casey Smith' });
+  expect(await core.liveGame(sam.gameId)).toMatchObject({ athleteName: 'Sam Lee' });
+  expect(await core.gameSummary(sam.gameId)).toMatchObject({ athleteName: 'Sam Lee' });
+});
+
+test("a rename changes the name a finished Game's read models carry, and with the Athlete's row gone they read 'Athlete'", async () => {
+  const { core, inspect } = setup();
+  const { athleteId, gameId } = await finishedGameFor(core, 'Casey Smith');
+
+  await core.editAthlete({ id: athleteId, name: 'Casey Jones', jerseyNumber: '' });
+  expect(await core.liveGame(gameId)).toMatchObject({ athleteName: 'Casey Jones' });
+  expect(await core.gameSummary(gameId)).toMatchObject({ athleteName: 'Casey Jones' });
+
+  await inspect.athletes.delete(athleteId);
+  expect(await core.liveGame(gameId)).toMatchObject({ athleteName: 'Athlete' });
+  expect(await core.gameSummary(gameId)).toMatchObject({ athleteName: 'Athlete' });
+});

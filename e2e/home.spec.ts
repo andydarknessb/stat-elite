@@ -24,14 +24,14 @@ async function recordBasketballGame(page: Page) {
 }
 
 // the same Game games-feed.spec.ts records: one double with 2 RBI, 3–1
-async function recordSoftballGame(page: Page) {
+async function recordSoftballGame(page: Page, athlete = 'Casey') {
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByLabel('Sport').selectOption('Softball');
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await page.getByRole('button', { name: '2 RBI' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByLabel('Team final').fill('3');
+  await page.getByLabel(`${athlete} final`).fill('3');
   await page.getByLabel('Opponent final').fill('1');
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
@@ -79,7 +79,7 @@ test('switching Athlete opens the season card on its first sport, not the one ch
   await page.getByLabel('Athlete name').fill('Sam');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await recordBasketballGame(page);
-  await recordSoftballGame(page);
+  await recordSoftballGame(page, 'Sam');
 
   const season = page.getByRole('region', { name: 'Season' });
   await season.getByRole('button', { name: 'Softball' }).click();
