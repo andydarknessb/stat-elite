@@ -115,7 +115,7 @@ test('"Casey Smith" fits whole beside a 9–7 score on Game Complete and the sum
 });
 
 test.describe('a 40-character name', () => {
-  const NAME = 'Wilhelmina Montgomery-Worthington Mwangi';
+  const NAME = 'Mohammed Wadsworth-Montgomery Bloomquist';
 
   /** The name is cut with "…" on one line, and the page does not scroll sideways. */
   async function expectNameCut(page: Page, scope: Locator) {
