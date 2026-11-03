@@ -28,7 +28,7 @@ import {
   type TileEventType,
   type UndoableType,
 } from './core/appCore';
-import { InviteRefused } from './core/server';
+import { CodeTooSoon, InviteRefused } from './core/server';
 import { renderShareCard } from './core/shareCard';
 import { OUTCOMES, PITCHES, type BaseMove, type GameTotals, type Outcome, type Pitch } from './core/store';
 import { InstallPrompt } from './InstallPrompt';
@@ -93,7 +93,7 @@ export function App({ core }: { core: AppCore }) {
   );
 }
 
-/** An Invite link. Signed out, the invitee signs in with the same form as Save this game, the Invite's token riding on the link; signed in, accepting it makes them a Member. */
+/** An Invite link. Signed out, the invitee signs in with the same form as Save this game, the Invite's token held here while the code is typed; signed in, accepting it makes them a Member. */
 function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; onDone: () => void }) {
   const sync = useReadModel(() => core.sync(), [core]);
   // the code signs the invitee in here; sync does not re-read on a phone with nothing queued, so it may never say so
@@ -114,7 +114,7 @@ function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; o
       <main>
         <h1>Join an Athlete</h1>
         <p>Sign in with your email to become a Member.</p>
-        <SignInForm core={core} invite={token} onSignedIn={() => setVerified(true)} />
+        <SignInForm core={core} onSignedIn={() => setVerified(true)} />
       </main>
     );
   }
@@ -254,8 +254,8 @@ function SaveFromHome({ core, athleteId }: { core: AppCore; athleteId: string })
   return <SaveGame core={core} />;
 }
 
-/** The sign-in step of Save this game and the Invite screen: the email gets a link and a code, and typing the code signs the Recorder in here (the link does it in the browser that opens it). */
-function SignInForm({ core, invite, onSignedIn }: { core: AppCore; invite?: string; onSignedIn?: () => void }) {
+/** The sign-in step of Save this game and the Invite screen: the email gets a 6-digit code, and typing it signs the Recorder in here. */
+function SignInForm({ core, onSignedIn }: { core: AppCore; onSignedIn?: () => void }) {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
@@ -263,19 +263,22 @@ function SignInForm({ core, invite, onSignedIn }: { core: AppCore; invite?: stri
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await core.signIn(email.trim(), invite);
+      await core.signIn(email.trim());
       setSent(true);
-    } catch {
-      setError('Could not send the link. Check the connection and try again.');
+    } catch (refusal) {
+      setError(
+        refusal instanceof CodeTooSoon
+          ? 'Wait a minute before asking for another code.'
+          : 'Could not send the code. Check the connection and try again.',
+      );
     }
   };
-  // a Recorder in the installed app cannot open the link there, so the code signs in instead
   const submitCode = async (e: FormEvent) => {
     e.preventDefault();
     try {
       await core.verifyCode(email.trim(), code.trim());
     } catch {
-      setError('That code did not work. Check it and try again, or send a new link.');
+      setError('That code did not work. Check it and try again, or send a new code.');
       return;
     }
     onSignedIn?.();
@@ -283,13 +286,13 @@ function SignInForm({ core, invite, onSignedIn }: { core: AppCore; invite?: stri
   if (sent) {
     return (
       <form onSubmit={submitCode}>
-        <p>Check your email. Open the link on this phone, or type the 6-digit code here.</p>
+        <p>Check your email and type the 6-digit code.</p>
         <label>
           Code
           <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" required autoComplete="one-time-code" />
         </label>
         <button className="primary">Sign in</button>
-        <button type="button" onClick={() => { setSent(false); setCode(''); setError(undefined); }}>Send a new link</button>
+        <button type="button" onClick={() => { setSent(false); setCode(''); setError(undefined); }}>Send a new code</button>
         {error && <p role="alert">{error}</p>}
       </form>
     );
@@ -300,7 +303,7 @@ function SignInForm({ core, invite, onSignedIn }: { core: AppCore; invite?: stri
         Email
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
       </label>
-      <button className="primary">Send link</button>
+      <button className="primary">Send code</button>
       {error && <p role="alert">{error}</p>}
     </form>
   );

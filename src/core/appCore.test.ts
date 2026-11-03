@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import Dexie, { liveQuery } from 'dexie';
 import { expect, test, vi } from 'vitest';
 import { arcPreset, backlogProblem, createAppCore, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
-import { createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
+import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
 import { openStore, OUTCOMES, type Outcome, type Pitch, type Store } from './store';
 
 let stores = 0;
@@ -824,7 +824,7 @@ test('with no account, writes stay on the phone, and the badge counts each row n
   expect(server.uploads).toEqual([]);
 });
 
-test("the link signs nothing in; the emailed code makes the account the Owner of the phone's Athletes and uploads everything recorded so far, in order", async () => {
+test("sending the code signs nothing in; the emailed code makes the account the Owner of the phone's Athletes and uploads everything recorded so far, in order", async () => {
   const { core, server, inspect } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
   const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
@@ -1713,16 +1713,11 @@ test("the Supabase server leaves an Athlete as the signed-in Member, removing on
   expect(removed).toEqual([['members', 'athlete_id', 'a1', 'member_id', 'member-1']]);
 });
 
-test('the Supabase server makes an Invite as its Owner, sends it with the sign-in link, and names why an Invite was refused', async () => {
-  vi.stubGlobal('location', { origin: 'https://stat-elite.netlify.app' });
+test('the Supabase server makes an Invite as its Owner and names why an Invite was refused', async () => {
   const calls: unknown[][] = [];
   const client = {
     auth: {
       getSession: async () => ({ data: { session: { user: { id: 'owner-1' } } } }),
-      signInWithOtp: async (args: unknown) => {
-        calls.push(['signInWithOtp', args]);
-        return { error: null };
-      },
     },
     from: (table: string) => ({
       insert: (row: unknown) => ({
@@ -1743,17 +1738,41 @@ test('the Supabase server makes an Invite as its Owner, sends it with the sign-i
 
   expect(await server.createInvite('a1')).toBe('t1');
   await expect(server.acceptInvite('t1')).rejects.toBeInstanceOf(InviteRefused);
-  await server.signIn('casey@example.com', 't1');
 
-  vi.unstubAllGlobals();
   expect(calls).toEqual([
     ['insert', 'invites', { athlete_id: 'a1', owner_id: 'owner-1' }],
     ['rpc', 'accept_invite', { invite_token: 't1' }],
-    [
-      'signInWithOtp',
-      { email: 'casey@example.com', options: { emailRedirectTo: 'https://stat-elite.netlify.app/?invite=t1' } },
-    ],
   ]);
+});
+
+test('the Supabase server sends the code to the address with no link, and names a send Supabase rate-limits as CodeTooSoon', async () => {
+  const calls: unknown[] = [];
+  let reply: { error: unknown } = { error: null };
+  const client = {
+    auth: {
+      signInWithOtp: async (args: unknown) => {
+        calls.push(args);
+        return reply;
+      },
+    },
+  };
+  const server = createSupabaseServer(client as never);
+
+  await server.signIn('casey@example.com');
+  expect(calls).toEqual([{ email: 'casey@example.com' }]);
+
+  reply = { error: { code: 'over_email_send_rate_limit', message: 'Email rate limit exceeded' } };
+  await expect(server.signIn('casey@example.com')).rejects.toBeInstanceOf(CodeTooSoon);
+
+  reply = { error: { code: 'unexpected_failure', message: 'boom' } };
+  await expect(server.signIn('casey@example.com')).rejects.not.toBeInstanceOf(CodeTooSoon);
+});
+
+test('the stand-in refuses too-soon@example.com as CodeTooSoon and sends to every other address', async () => {
+  const server = createStandInServer(() => true);
+
+  await expect(server.signIn('too-soon@example.com')).rejects.toBeInstanceOf(CodeTooSoon);
+  await expect(server.signIn('casey@example.com')).resolves.toBeUndefined();
 });
 
 test('the Supabase server checks the emailed code as an email OTP', async () => {

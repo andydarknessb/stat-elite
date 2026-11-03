@@ -1460,9 +1460,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
-    /** Sends the sign-in link and code to the address. The Recorder is signed in once the code is entered (verifyCode). An Invite's token rides in the link. */
-    signIn(email: string, invite?: string): Promise<void> {
-      return server.signIn(email, invite);
+    /** Sends the sign-in code to the address. The Recorder is signed in once the code is entered (verifyCode). */
+    signIn(email: string): Promise<void> {
+      return server.signIn(email);
     },
 
     /** Signs the Recorder in with the emailed code, then uploads everything recorded so far. */

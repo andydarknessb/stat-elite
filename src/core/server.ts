@@ -27,14 +27,21 @@ export class InviteRefused extends Error {
   }
 }
 
+/** A sign-in code that cannot be sent yet: the address was sent one too recently. */
+export class CodeTooSoon extends Error {
+  constructor() {
+    super('code too soon');
+  }
+}
+
 /** The backend App Core syncs with: Supabase in a configured build, the in-memory stand-in on localhost. */
 export interface Server {
   /** The signed-in account's id, or undefined when signed out. */
   session(): Promise<string | undefined>;
   /** The signed-in account's sign-in address, or undefined when signed out. */
   email(): Promise<string | undefined>;
-  /** Sends a magic link and a 6-digit code to the address. An Invite's token rides in the link, so accepting it survives the sign-in. Rejects when the server cannot be reached. */
-  signIn(email: string, invite?: string): Promise<void>;
+  /** Sends a 6-digit code to the address. Rejects with a CodeTooSoon when the address was sent one too recently, and when the server cannot be reached. */
+  signIn(email: string): Promise<void>;
   /** Signs the account in with the code from the sign-in email. Rejects when the code is wrong or the server cannot be reached. */
   verifyCode(email: string, code: string): Promise<void>;
   /** Writes one row. Rejects when the server cannot be reached or refuses the row; the outbox keeps it. */
@@ -95,8 +102,10 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       async email() {
         return account === undefined ? undefined : emails.get(account);
       },
-      async signIn(_email: string, _invite?: string) {
+      async signIn(email: string) {
         reach();
+        // shortcut: one address stands in for Supabase's send rate limit, so a spec can reach the message; upgrade when a test needs the real limit
+        if (email === 'too-soon@example.com') throw new CodeTooSoon();
       },
       // shortcut: any six digits pass and the address is never checked, upgrade when a test needs a real code refused
       async verifyCode(email: string, code: string) {
@@ -217,9 +226,9 @@ export function createSupabaseServer(client: SupabaseClient): Server {
   return {
     session,
     email,
-    async signIn(email, invite) {
-      const redirect = invite ? `${location.origin}/?invite=${invite}` : location.origin;
-      const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect } });
+    async signIn(email) {
+      const { error } = await client.auth.signInWithOtp({ email });
+      if (error?.code === 'over_email_send_rate_limit') throw new CodeTooSoon();
       if (error) throw error;
     },
     async verifyCode(email, code) {
