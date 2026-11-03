@@ -94,6 +94,26 @@ test("a result row's Final Score keeps its own width, leaving the row to the Opp
   expect(score.width).toBeLessThan(text.width / 2);
 });
 
+test('"Casey Smith" fits whole beside a 9–7 score on Game Complete and the summary', async ({ page }) => {
+  // the fit depends on the condensed font, so measure only once it has loaded
+  const expectWhole = async (name: Locator) => {
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    const { scrollWidth, clientWidth } = await name.evaluate((element) => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
+    expect(scrollWidth).toBe(clientWidth);
+  };
+  await addAthlete(page, 'Casey Smith');
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page, 'Casey Smith');
+
+  await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();
+  await expectWhole(page.locator('.result-head').getByText('Casey Smith', { exact: true }));
+
+  await openSummary(page);
+  await expect(page.getByRole('heading', { name: 'Opponent' })).toBeVisible();
+  await expectWhole(page.locator('.result-head').getByText('Casey Smith', { exact: true }));
+});
+
 test.describe('a 40-character name', () => {
   const NAME = 'Wilhelmina Montgomery-Worthington Mwangi';
 
