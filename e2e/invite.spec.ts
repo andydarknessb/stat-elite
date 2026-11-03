@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-// An Invite opened on a phone with nothing recorded signs the invitee in with the emailed code, the same form Save this game uses (#76).
+// An Invite opened on a phone with nothing recorded signs the invitee in with the emailed code, the same sign-in form as the first screen (#76).
 // The stand-in accepts any six digits and refuses a token it does not hold, so the refusal shows the invitee was signed in first.
 test('an invitee signs in with the code on the Invite screen, and a wrong code offers a new code', async ({ page }) => {
   await page.goto('/?invite=not-a-token');

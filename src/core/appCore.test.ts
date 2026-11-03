@@ -33,7 +33,7 @@ async function basketballGame(core: ReturnType<typeof createAppCore>) {
 // the six digits the stand-in accepts in place of the emailed code
 const CODE = '123456';
 
-// a phone signs in as the Save this game screen does: the link is sent, then the code is entered
+// a phone signs in as the sign-in screen does: the code is sent, then the code is entered
 async function signInWithCode(core: ReturnType<typeof createAppCore>, email: string) {
   await core.signIn(email);
   await core.verifyCode(email, CODE);
@@ -965,6 +965,75 @@ test('a phone that never signed in has no Account, reads as signed out, and its 
   expect(await core.account()).toBeUndefined();
   expect((await core.sync()).signedIn).toBe(false);
   expect(await core.home()).toMatchObject({ liveGameId: gameId });
+});
+
+test('entry() sends a phone with no Account to sign-in unless a Game is live, and an Account with Athletes to the app', async () => {
+  const empty = setup();
+  expect(await empty.core.entry()).toBe('sign-in');
+
+  const withAthlete = setup();
+  await withAthlete.core.addAthlete({ name: 'Casey' });
+  expect(await withAthlete.core.entry()).toBe('sign-in');
+
+  const live = setup();
+  await basketballGame(live.core);
+  expect(await live.core.entry()).toBe('app');
+
+  const signedIn = setup();
+  await signedIn.core.addAthlete({ name: 'Casey' });
+  await signInWithCode(signedIn.core, 'casey@example.com');
+  expect(await signedIn.core.entry()).toBe('app');
+});
+
+test("signing in where download rejects leaves entry() at downloading; firstDownload() rejects, then resolves once the download works, with the Account's Athletes in home()", async () => {
+  const { core, server } = setup();
+  await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+
+  // a second phone with nothing on it, whose download is refused while it signs in
+  const phone = server.phone();
+  const refusing = { ...phone, download: async () => { throw new Error('The server cannot be reached'); } };
+  const name = `test-${++stores}`;
+  const newPhone = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server: refusing });
+  await signInWithCode(newPhone, 'casey@example.com');
+  expect(await newPhone.entry()).toBe('downloading');
+  await expect(newPhone.firstDownload()).rejects.toThrow();
+
+  const working = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server: phone });
+  await working.firstDownload();
+  expect(await working.entry()).toBe('app');
+  expect(await working.home()).toMatchObject({ athlete: { name: 'Casey' } });
+});
+
+test('firstDownload() rejects while the session cannot be confirmed, so the phone stays at downloading', async () => {
+  const { server } = setup();
+  const phone = server.phone();
+  const refusing = { ...phone, download: async () => { throw new Error('The server cannot be reached'); } };
+  const name = `test-${++stores}`;
+  const signing = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server: refusing });
+  await signInWithCode(signing, 'casey@example.com');
+
+  const lapsed = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: openStore(name), server: signedOut(phone) });
+  await expect(lapsed.firstDownload()).rejects.toThrow();
+  expect(await lapsed.entry()).toBe('downloading');
+});
+
+test('after a download that finds no Athletes, a refresh with the link down leaves entry() at app', async () => {
+  const { core, link } = setup();
+  // the sign-in's download succeeds and finds no Athletes
+  await signInWithCode(core, 'casey@example.com');
+
+  link.up = false;
+  await core.refresh();
+  expect(await core.entry()).toBe('app');
+});
+
+test('an Athlete added before sign-in reaches the server after it, owned by the Account', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+
+  expect(server.rows.athletes.get(athleteId)).toMatchObject({ owner_id: await server.session() });
 });
 
 // a fake Supabase client signed in as `userId` (signed out when undefined), recording each write; `memberOf` names the

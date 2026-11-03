@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { openApp } from './openApp';
 
-// A Game recorded with the network off uploads once the Recorder saves it online, and the badge reaches 0.
+// A Game recorded with the network off uploads once the connection returns, and the badge reaches 0.
 // The smoke runs with no Supabase URL or key, so no request may reach supabase.co (#9).
-test('a Game recorded offline uploads once it is saved, and the badge reaches 0', async ({ page, context }) => {
+test('a Game recorded offline uploads once the connection returns, and the badge reaches 0', async ({ page, context }) => {
   const supabaseRequests: string[] = [];
   page.on('request', (request) => {
     if (request.url().includes('supabase.co')) supabaseRequests.push(request.url());
@@ -13,10 +13,10 @@ test('a Game recorded offline uploads once it is saved, and the badge reaches 0'
   await page.route(/\.supabase\.co\//, (route) => route.abort());
 
   await openApp(page);
+  // the network goes first, so the Athlete waits in the queue with the rest
+  await context.setOffline(true);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
-
-  await context.setOffline(true);
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   await page.getByRole('button', { name: /^STL/ }).click();
@@ -26,26 +26,13 @@ test('a Game recorded offline uploads once it is saved, and the badge reaches 0'
   await expect(page.getByText('4 not synced')).toBeVisible();
 
   await context.setOffline(false);
-  await page.getByRole('button', { name: 'Save this game' }).click();
-  await page.getByLabel('Email').fill('casey@example.com');
-  await page.getByRole('button', { name: 'Send code' }).click();
-  await page.getByLabel('Code').fill('123456');
-  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('0 not synced')).toBeVisible();
   expect(supabaseRequests).toEqual([]);
 });
 
-// A wrong code on Save this game offers a new code with the email kept, and the code and error clear; the right one then signs in (#76).
-test('a wrong code on Save this game offers a new code with the email kept, and the right one signs in', async ({ page }) => {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-  await page.getByRole('button', { name: /^STL/ }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'Save this game' }).click();
+// A wrong code on the sign-in screen offers a new code with the email kept, and the code and error clear; the right one then signs in (#76).
+test('a wrong code on the sign-in screen offers a new code with the email kept, and the right one signs in', async ({ page }) => {
+  await page.goto('/');
   await page.getByLabel('Email').fill('casey@example.com');
   await page.getByRole('button', { name: 'Send code' }).click();
   await expect(page.getByText('Check your email and type the 6-digit code.')).toBeVisible();
@@ -79,11 +66,6 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
   await page.getByRole('button', { name: /^STL/ }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'Save this game' }).click();
-  await page.getByLabel('Email').fill('casey@example.com');
-  await page.getByRole('button', { name: 'Send code' }).click();
-  await page.getByLabel('Code').fill('123456');
-  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('0 not synced')).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
 
@@ -94,38 +76,5 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
 
   await context.setOffline(false);
   await expect(page.getByText('0 not synced')).toBeVisible();
-  expect(supabaseRequests).toEqual([]);
-});
-
-// Home offers Save this game once the Recorder has a finished Game, so a signed-out Recorder who taps Done can still sign in (#138).
-test('Home offers Save this game after a finished Game, and signing in there clears the badge', async ({ page }) => {
-  const supabaseRequests: string[] = [];
-  page.on('request', (request) => {
-    if (request.url().includes('supabase.co')) supabaseRequests.push(request.url());
-  });
-  await page.route(/\.supabase\.co\//, (route) => route.abort());
-
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await expect(page.getByText('No finished Games yet.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save this game' })).toHaveCount(0);
-
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-  await page.getByRole('button', { name: /^STL/ }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByRole('button', { name: 'Save this game' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save this game' })).toBeInViewport();
-
-  await page.getByRole('button', { name: 'Save this game' }).click();
-  await page.getByLabel('Email').fill('casey@example.com');
-  await page.getByRole('button', { name: 'Send code' }).click();
-  await page.getByLabel('Code').fill('123456');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByText('0 not synced')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save this game' })).toHaveCount(0);
   expect(supabaseRequests).toEqual([]);
 });

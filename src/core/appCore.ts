@@ -60,6 +60,9 @@ export interface Home {
   liveGameId?: string;
 }
 
+/** Where the Recorder starts (ADR 0007): the sign-in screen, the first download of an Account with nothing on this phone yet, or the app. */
+export type Entry = 'sign-in' | 'downloading' | 'app';
+
 /** How large the live-game buttons are (GLOSSARY: Button Size). */
 export const BUTTON_SIZES = ['compact', 'standard', 'bleacher'] as const;
 export type ButtonSize = (typeof BUTTON_SIZES)[number];
@@ -69,6 +72,8 @@ const BUTTON_SIZE = 'buttonSize';
 const FIELD_MODE = 'fieldMode';
 /** The account whose rows this phone last downloaded: a sign-in clears it, so the next one downloads again. */
 const DOWNLOADED_FOR = 'downloadedFor';
+/** The account whose rows this phone has downloaded at least once: nothing clears it between launches, unlike DOWNLOADED_FOR (ADR 0007). */
+const DOWNLOADED_ONCE = 'downloadedOnce';
 /** The Account this phone last saw signed in, as JSON: kept so the phone still knows it when the session cannot be read (ADR 0004). */
 const ACCOUNT = 'account';
 /** Settings key prefix, one per Athlete another account owns and shared with this phone (ADR 0004). */
@@ -909,6 +914,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       // an Event never changes, so the phone takes only the ones it lacks
       const eventRows = events.map(eventOf);
       await store.events.bulkAdd(lacking(eventRows, await store.events.bulkGet(eventRows.map((r) => r.id))));
+      // only a download that confirmed the session counts: an unconfirmed one may have come back empty (ADR 0007)
+      if (me !== undefined) await store.settings.put({ key: DOWNLOADED_ONCE, value: me });
     });
   };
 
@@ -1388,6 +1395,26 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         next: athletes.length > 1 ? { id: next.id, name: next.name } : undefined,
         liveGameId,
       };
+    },
+
+    /** Where the Recorder starts (ADR 0007): sign-in with no Account and no live Game; the first download for an Account with no Athletes that no download has confirmed on this phone; otherwise the app. */
+    async entry(): Promise<Entry> {
+      const me = await account();
+      const { athlete, liveGameId } = await this.home();
+      if (me === undefined) return liveGameId === undefined ? 'sign-in' : 'app';
+      if (athlete === undefined && (await store.settings.get(DOWNLOADED_ONCE))?.value !== me.id) return 'downloading';
+      return 'app';
+    },
+
+    /** The first download of a sign-in (ADR 0007): rejects unless the download confirms this phone's session, so the screen can say so and offer Retry. */
+    firstDownload(): Promise<void> {
+      return exclusive(async () => {
+        await download();
+        const me = await account();
+        if (me === undefined || (await store.settings.get(DOWNLOADED_ONCE))?.value !== me.id) {
+          throw new Error('The Athletes were not downloaded: the session could not be confirmed');
+        }
+      });
     },
 
     liveGame,

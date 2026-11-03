@@ -84,6 +84,17 @@ function auditScreen(screen: string): string[] {
   return failures;
 }
 
+// the sign-in screen an empty phone opens on: its email step, then its code step (ADR 0007)
+async function auditSignIn(page: Page, theme: string): Promise<string[]> {
+  await page.goto('/');
+  await expect(page.getByLabel('Email')).toBeVisible();
+  const email = await page.evaluate(auditScreen, `${theme}, sign-in email step`);
+  await page.getByLabel('Email').fill('casey@example.com');
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await expect(page.getByLabel('Code')).toBeVisible();
+  return [...email, ...(await page.evaluate(auditScreen, `${theme}, sign-in code step`))];
+}
+
 // the Home-to-Games-to-Settings walk, shared by all three audits: basketball then softball finish, so Home lists both
 async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   const failures: string[] = [];
@@ -154,6 +165,11 @@ test.describe('dark', () => {
     const failures = await visitEveryScreen(page, 'dark');
     expect(failures, failures.join('\n')).toEqual([]);
   });
+
+  test('the sign-in screen meets contrast and 44px target size under the dark theme', async ({ page }) => {
+    const failures = await auditSignIn(page, 'dark');
+    expect(failures, failures.join('\n')).toEqual([]);
+  });
 });
 
 test.describe('light phone', () => {
@@ -163,6 +179,11 @@ test.describe('light phone', () => {
     await addAthlete(page);
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
     const failures = await visitEveryScreen(page, 'light');
+    expect(failures, failures.join('\n')).toEqual([]);
+  });
+
+  test('the sign-in screen meets contrast and 44px target size on a light phone', async ({ page }) => {
+    const failures = await auditSignIn(page, 'light');
     expect(failures, failures.join('\n')).toEqual([]);
   });
 });

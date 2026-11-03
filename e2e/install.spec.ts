@@ -12,6 +12,22 @@ test.describe('on iPhone', () => {
     const card = page.getByRole('region', { name: 'Add to Home Screen' });
     await expect(card).toContainText('tap Share, then Add to Home Screen');
   });
+
+  test('the sign-in screen puts the install card above the Email field, and dismissing it leaves the form usable', async ({ page }) => {
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Add to Home Screen' });
+    const email = page.getByLabel('Email');
+    await expect(card).toBeVisible();
+    const cardBox = await card.boundingBox();
+    const emailBox = await email.boundingBox();
+    expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(emailBox!.y);
+
+    await page.getByRole('button', { name: 'Not now' }).click();
+    await expect(card).toHaveCount(0);
+    await email.fill('casey@example.com');
+    await expect(email).toHaveValue('casey@example.com');
+    await expect(page.getByRole('button', { name: 'Send code' })).toBeEnabled();
+  });
 });
 
 test.describe('on Android', () => {

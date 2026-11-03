@@ -178,11 +178,11 @@ test('deleting the account clears Field mode on the next cold load', async ({ pa
 
   await page.getByRole('button', { name: 'Delete my account and all data' }).click();
   await page.getByRole('button', { name: 'Delete everything' }).click();
-  await expect(page.getByLabel('Athlete name')).toBeVisible();
+  await expect(page.getByLabel('Email')).toBeVisible();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
 
   await page.reload();
-  await expect(page.getByLabel('Athlete name')).toBeVisible();
+  await expect(page.getByLabel('Email')).toBeVisible();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
   expect(await readHead(page)).toEqual({ field: false, colorScheme: 'dark', themeColors: ['#0b1020'], cleared: false });
 });

@@ -48,6 +48,8 @@ function useReadModel<T>(read: () => Promise<T>, deps: unknown[]): T | undefined
 
 export function App({ core }: { core: AppCore }) {
   const home = useReadModel(() => core.home(), [core]);
+  // where the Recorder starts: sign-in, the first download, or the app (ADR 0007)
+  const entry = useReadModel(() => core.entry(), [core]);
   // the Game the Recorder just ended stays on screen, showing its Final Score, until Done
   const [ended, setEnded] = useState<string>();
   // an Invite link opens its own screen until the invitee is done with it
@@ -77,8 +79,11 @@ export function App({ core }: { core: AppCore }) {
     };
     return <InviteScreen core={core} token={invite} onDone={done} />;
   }
-  if (!home) return null;
+  if (!home || !entry) return null;
   const gameId = home.liveGameId ?? ended;
+  // a Game on screen, Game Complete included, holds the sign-in screen off until Done
+  if (!gameId && entry === 'sign-in') return <SignInScreen core={core} />;
+  if (!gameId && entry === 'downloading') return <FirstDownload core={core} />;
   return (
     <>
       <NotSynced core={core} />
@@ -93,7 +98,7 @@ export function App({ core }: { core: AppCore }) {
   );
 }
 
-/** An Invite link. Signed out, the invitee signs in with the same form as Save this game, the Invite's token held here while the code is typed; signed in, accepting it makes them a Member. */
+/** An Invite link. Signed out, the invitee signs in with the same form as the first screen, the Invite's token held here while the code is typed; signed in, accepting it makes them a Member. */
 function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; onDone: () => void }) {
   const sync = useReadModel(() => core.sync(), [core]);
   // the code signs the invitee in here; sync does not re-read on a phone with nothing queued, so it may never say so
@@ -238,28 +243,59 @@ function NotSynced({ core }: { core: AppCore }) {
   return <p className="sync">{sync.notSynced} not synced</p>;
 }
 
-/** Save this game: a signed-out Recorder gets an email with a link and a code, and the rows upload once the account is signed in. */
-function SaveGame({ core }: { core: AppCore }) {
-  const sync = useReadModel(() => core.sync(), [core]);
-  const [open, setOpen] = useState(false);
-  if (!sync || sync.signedIn) return null;
-  if (!open) return <button onClick={() => setOpen(true)}>Save this game</button>;
-  return <SignInForm core={core} />;
+/** The first screen on a phone with no Account and no live Game (ADR 0007): what the app is, the install card, then the sign-in form. */
+function SignInScreen({ core }: { core: AppCore }) {
+  return (
+    <main>
+      <h1>StatElite</h1>
+      <p>Record your Athlete&apos;s Games from the sideline, even with no signal.</p>
+      <InstallPrompt />
+      <SignInForm core={core} />
+    </main>
+  );
 }
 
-/** Save this game on Home once a Game has finished: Game Complete is gone after Done, so this is the only sign-in control (#138). */
-function SaveFromHome({ core, athleteId }: { core: AppCore; athleteId: string }) {
-  const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
-  if (!feed || feed.games.length === 0) return null;
-  return <SaveGame core={core} />;
+/** The first download of a sign-in: the Account's Athletes come down before the app opens, and Retry follows a failed one (ADR 0007). */
+function FirstDownload({ core }: { core: AppCore }) {
+  const [failed, setFailed] = useState(false);
+  const download = () => {
+    setFailed(false);
+    void core.firstDownload().catch(() => setFailed(true));
+  };
+  useEffect(download, [core]);
+  if (failed) {
+    return (
+      <main>
+        <p role="alert">Could not get your Athletes. Check the connection and try again.</p>
+        <button className="primary" onClick={download}>Retry</button>
+      </main>
+    );
+  }
+  return <main><p>Getting your Athletes…</p></main>;
 }
 
-/** The sign-in step of Save this game and the Invite screen: the email gets a 6-digit code, and typing it signs the Recorder in here. */
+/** Whether the phone has a connection: the browser reports it, and the message clears when signal returns. */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+  return online;
+}
+
+/** The sign-in step of the first screen and the Invite screen: the email gets a 6-digit code, and typing it signs the Recorder in here. */
 function SignInForm({ core, onSignedIn }: { core: AppCore; onSignedIn?: () => void }) {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string>();
+  const online = useOnline();
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
@@ -285,7 +321,7 @@ function SignInForm({ core, onSignedIn }: { core: AppCore; onSignedIn?: () => vo
   };
   if (sent) {
     return (
-      <form onSubmit={submitCode}>
+      <form key="code" onSubmit={submitCode}>
         <p>Check your email and type the 6-digit code.</p>
         <label>
           Code
@@ -298,22 +334,33 @@ function SignInForm({ core, onSignedIn }: { core: AppCore; onSignedIn?: () => vo
     );
   }
   return (
-    <form onSubmit={submit}>
+    <form key="email" onSubmit={submit}>
       <label>
         Email
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
       </label>
+      <p>We only use your email to sign you in. If you join someone&apos;s Athlete, they&apos;ll see it.</p>
+      {!online && <p>You need a connection to sign in.</p>}
       <button className="primary">Send code</button>
       {error && <p role="alert">{error}</p>}
     </form>
   );
 }
 
-/** No Athlete yet: offers the install and Add Athlete. */
+/** No Athlete yet: Add Athlete, with the signed-in address and Sign out (ADR 0007), then the install card. */
 function FirstRun({ core }: { core: AppCore }) {
+  const account = useReadModel(() => core.account(), [core]);
+  const [signingOut, setSigningOut] = useState(false);
+  if (signingOut) return <SignOut core={core} onCancel={() => setSigningOut(false)} />;
   return (
     <>
       <AthleteForm core={core} />
+      {account && (
+        <>
+          <p>Signed in as {account.email}</p>
+          <button onClick={() => setSigningOut(true)}>Sign out</button>
+        </>
+      )}
       <InstallPrompt />
     </>
   );
@@ -576,7 +623,6 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
         <button className="primary" onClick={() => setForm('setup')}>
           Start Game
         </button>
-        <SaveFromHome core={core} athleteId={athlete.id} />
         <button onClick={() => setForm('backlog')}>Add past Game</button>
         <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
         <section className="card sharing" aria-label="Sharing">
@@ -1672,7 +1718,6 @@ function LiveGame({
     return (
       <main>
         <GameComplete core={core} gameId={gameId} />
-        <SaveGame core={core} />
         <button onClick={onDone}>
           Done
         </button>
