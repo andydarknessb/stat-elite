@@ -51,6 +51,8 @@ export interface Server {
   removeMember(athleteId: string, memberId: string): Promise<void>;
   /** Removes the signed-in account's membership of an Athlete. */
   leave(athleteId: string): Promise<void>;
+  /** Signs this phone out, on this phone only: the account's other sessions stay signed in. Rejects when the server cannot be reached or refuses. */
+  signOut(): Promise<void>;
   /** Deletes the signed-in account and everything it owns, then signs the phone out. Rejects when the server cannot be reached or refuses. */
   deleteAccount(): Promise<void>;
 }
@@ -100,7 +102,8 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       async verifyCode(email: string, code: string) {
         reach();
         if (!/^\d{6}$/.test(code)) throw new Error('invalid code');
-        account ??= crypto.randomUUID();
+        // one Account per address, as the server gives it: signing in again finds the Account this address made
+        account ??= [...emails].find(([, held]) => held === email)?.[0] ?? crypto.randomUUID();
         emails.set(account, email);
       },
       async upload(table: SyncedTable, row: UploadRow) {
@@ -153,6 +156,10 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       async leave(athleteId: string) {
         reach();
         members.delete(`${athleteId} ${account}`);
+      },
+      async signOut() {
+        reach();
+        account = undefined;
       },
       async deleteAccount() {
         reach();
@@ -280,6 +287,11 @@ export function createSupabaseServer(client: SupabaseClient): Server {
       const { error } = await client.from('members').delete().eq('athlete_id', athleteId).eq('member_id', await session());
       if (error) throw error;
     },
+    async signOut() {
+      // local scope: the library's default signs out every device the account is signed in on
+      const { error } = await client.auth.signOut({ scope: 'local' });
+      if (error) throw error;
+    },
     async deleteAccount() {
       const { error } = await client.rpc('delete_my_account');
       if (error) throw error;
@@ -322,6 +334,7 @@ export function serverFor({ url, key, host }: { url?: string; key?: string; host
     members: refuse,
     removeMember: refuse,
     leave: refuse,
+    signOut: refuse,
     deleteAccount: refuse,
   };
 }

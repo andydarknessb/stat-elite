@@ -7,6 +7,7 @@ import {
   backlogProblem,
   gameLineText,
   movesFrom,
+  SIGN_OUT_REFUSED,
   signed,
   type AppCore,
   type BacklogEntry,
@@ -1194,10 +1195,13 @@ function BacklogFields({
 function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void }) {
   const size = useReadModel(() => core.buttonSize(), [core]);
   const [deleting, setDeleting] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const account = useReadModel(() => core.account(), [core]);
   const field = useReadModel(() => core.fieldMode(), [core]);
   // a setting the store refused: the alert shows until a setting lands
   const [failed, setFailed] = useState(false);
   if (deleting) return <DeleteAccount core={core} onCancel={() => setDeleting(false)} />;
+  if (signingOut) return <SignOut core={core} onCancel={() => setSigningOut(false)} />;
   if (!size || field === undefined) return null;
   return (
     <main>
@@ -1224,6 +1228,12 @@ function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void })
         </button>
         {failed && <p role="alert">{NOT_SAVED}</p>}
       </section>
+      {account && (
+        <>
+          <p>Signed in as {account.email}</p>
+          <button onClick={() => setSigningOut(true)}>Sign out</button>
+        </>
+      )}
       <button onClick={() => setDeleting(true)}>Delete my account and all data</button>
       <button className="primary" onClick={onDone}>
         Done
@@ -1294,6 +1304,46 @@ function DeleteAccount({ core, onCancel }: { core: AppCore; onCancel: () => void
         Delete everything
       </button>
       <button disabled={deleting} onClick={onCancel}>
+        Cancel
+      </button>
+      {error && <p role="alert">{error}</p>}
+    </main>
+  );
+}
+
+/** Sign out: says what the phone loses and keeps, then clears this phone; the Account and its rows stay on the server. */
+function SignOut({ core, onCancel }: { core: AppCore; onCancel: () => void }) {
+  const photos = useReadModel(() => core.photoCount(), [core]);
+  const [signingOut, setSigningOut] = useState(false);
+  const [error, setError] = useState<string>();
+  if (photos === undefined) return null;
+  const signOut = async () => {
+    setSigningOut(true);
+    setError(undefined);
+    try {
+      // on success the phone has no Athlete, so App shows first run and this screen goes
+      await core.signOut();
+    } catch {
+      setError(SIGN_OUT_REFUSED);
+      setSigningOut(false);
+    }
+  };
+  return (
+    <main>
+      <section className="card">
+        <h1>Sign out</h1>
+        <p>
+          This clears this phone. Your Athletes and Games stay on your Account. Photos are only on this phone and can&apos;t be brought
+          back.
+        </p>
+        <ul>
+          <li>Photos on this phone: {photos}</li>
+        </ul>
+      </section>
+      <button className="primary" disabled={signingOut} onClick={() => void signOut()}>
+        Sign out
+      </button>
+      <button disabled={signingOut} onClick={onCancel}>
         Cancel
       </button>
       {error && <p role="alert">{error}</p>}

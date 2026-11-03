@@ -74,6 +74,8 @@ const ACCOUNT = 'account';
 /** Settings key prefix, one per Athlete another account owns and shared with this phone (ADR 0004). */
 const SHARED = 'shared:';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
+/** What Sign out says when the phone is not cleared: rows still queued, or the server refuses or cannot be reached. */
+export const SIGN_OUT_REFUSED = 'Could not sign out. Wait for everything to sync and check the connection, then try again.';
 const SIGN_IN_AGAIN = 'The account cannot be reached: sign in again to delete it';
 
 /** Every Event type Undo can retract: all but a Retraction itself. */
@@ -832,6 +834,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     const value = (await store.settings.get(ACCOUNT))?.value;
     return value === undefined ? undefined : JSON.parse(value);
   };
+  // clears every table on this phone, as a sign-out or a deletion leaves it
+  const clearPhone = () => store.transaction('rw', store.tables, () => Promise.all(store.tables.map((table) => table.clear())));
   // remembers a live session's account, written only when it changes so a flush that finds it held writes nothing
   const remember = async (id: string) => {
     const email = await server.email();
@@ -1524,6 +1528,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       void flush();
     },
 
+    /** The photos this phone holds, which Sign out clears. Read here, so the Sign out screen needs no connection. */
+    photoCount(): Promise<number> {
+      return store.athletePhotos.count();
+    },
+
     /** What deleting the account does to each Athlete the phone holds: it passes to its first Member, is deleted with its Games, or this account leaves it. Signed out, the phone clears all of it. Rejects when an Account is remembered but cannot be reached now. */
     async deletionSummary(): Promise<DeletionSummary> {
       const me = await server.session();
@@ -1551,6 +1560,21 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
+    /** Signs this phone out: the Account and its rows stay on the server, and this phone is cleared. Rejects, and the phone keeps its rows, while anything is still queued or the server refuses. */
+    async signOut(): Promise<void> {
+      // as leave does, the queue uploads first; a row the server refuses stays queued and refuses the sign-out
+      await flush();
+      return exclusive(async () => {
+        if ((await store.outbox.count()) > 0) throw new Error(SIGN_OUT_REFUSED);
+        try {
+          await server.signOut();
+        } catch {
+          throw new Error(SIGN_OUT_REFUSED);
+        }
+        await clearPhone();
+      });
+    },
+
     /** Deletes the account and everything it owns on the server, then clears this phone back to first run. A refusal by the server leaves the phone as it was, and so does an Account the phone remembers but cannot reach now. */
     deleteAccount(): Promise<void> {
       return exclusive(async () => {
@@ -1559,7 +1583,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         if (live === undefined && (await account())) throw new Error(SIGN_IN_AGAIN);
         // a phone not signed in has no account on the server, so only its own rows go
         if (live !== undefined) await server.deleteAccount();
-        await store.transaction('rw', store.tables, () => Promise.all(store.tables.map((table) => table.clear())));
+        await clearPhone();
       });
     },
 
