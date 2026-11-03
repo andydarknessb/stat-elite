@@ -203,14 +203,16 @@ export interface FeedGame {
   line: Line;
   /** The batting line: the stat line on softball and baseball (gameLineText). */
   batting: Batting;
+  /** The runs and stolen bases a softball or baseball line adds to its batting (gameLineText). */
+  baserunning: Baserunning;
   tiles: Record<TileEventType, number>;
   playingShare: number;
   /** A Backlogged Game, entered from its Totals after it was played (ADR 0005). */
   backlogged: boolean;
 }
 
-/** One sport's season: the basketball Games' totals, or the softball or baseball Games' batting (plan: Home). */
-export type Season = { sport: 'basketball'; line: Line } | { sport: 'softball' | 'baseball'; batting: Batting };
+/** One sport's season: the basketball Games' totals, or the softball or baseball Games' batting and baserunning (plan: Home). */
+export type Season = { sport: 'basketball'; line: Line } | { sport: 'softball' | 'baseball'; batting: Batting; baserunning: Baserunning };
 
 /** The Games feed: a season line for each sport the Athlete has finished Games in, and every finished Game, newest first. */
 export interface GameFeed {
@@ -228,9 +230,11 @@ export const lineText = (line: Line) =>
 /** A batting line in words: hits over At-Bats, and RBI. */
 export const battingText = (batting: Batting) => `H/AB ${batting.hits}/${batting.atBats} · ${batting.rbi} RBI`;
 
-/** A Game's stat line in words: the basketball line, or the batting line on softball and baseball. */
-export const gameLineText = (game: Pick<FeedGame, 'sport' | 'line' | 'batting'>) =>
-  game.sport === 'basketball' ? lineText(game.line) : battingText(game.batting);
+/** A Game's stat line in words: the basketball line, or on softball and baseball the batting line with its runs and stolen bases. */
+export const gameLineText = (game: Pick<FeedGame, 'sport' | 'line' | 'batting' | 'baserunning'>) =>
+  game.sport === 'basketball'
+    ? lineText(game.line)
+    : `${battingText(game.batting)} · ${game.baserunning.runs} R · ${game.baserunning.stolenBases} SB`;
 
 /** The hashtag a Game's copy text ends with, by sport (GLOSSARY: Game). */
 const SPORT_TAG: Record<GameRow['sport'], string> = { basketball: '#basketball', softball: '#softball', baseball: '#baseball' };
@@ -476,6 +480,12 @@ const battingOfGames = (games: LiveGame[]): Batting => {
     sacFlies: sum((b) => b.sacFlies),
   });
 };
+
+// a season's runs and stolen bases: its Games' counts summed
+const baserunningOfGames = (games: LiveGame[]): Baserunning => ({
+  runs: games.reduce((total, game) => total + game.baserunning.runs, 0),
+  stolenBases: games.reduce((total, game) => total + game.baserunning.stolenBases, 0),
+});
 
 // Today, Yesterday, This Week (2 to 6 days back), else Earlier; both dates are local calendar days, so the difference is whole days
 const groupOf = (gameDate: string, today: string): FeedGame['group'] => {
@@ -1060,6 +1070,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         final,
         line: lineOf([live]),
         batting: live.batting,
+        baserunning: live.baserunning,
         tiles: live.tiles,
         playingShare: live.playingShare,
         backlogged: Boolean(game.totals),
@@ -1445,7 +1456,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const seasons: Season[] = (['basketball', 'softball', 'baseball'] as const).flatMap((sport) => {
         const played = lives.filter((live) => live.sport === sport);
         if (played.length === 0) return [];
-        return [sport === 'basketball' ? { sport, line: lineOf(played) } : { sport, batting: battingOfGames(played) }];
+        return [
+          sport === 'basketball'
+            ? { sport, line: lineOf(played) }
+            : { sport, batting: battingOfGames(played), baserunning: baserunningOfGames(played) },
+        ];
       });
       return { seasons: seasons.length > 0 ? seasons : [{ sport: 'basketball', line: lineOf([]) }], games };
     },
