@@ -9,6 +9,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 - No account until the first Game ends: "Save this game" asks for an email magic link or the emailed code, then uploads everything recorded so far.
 - Photos stay on the phone. Only stats sync.
 - Settings has "Delete my account and all data" (`delete_my_account()`), which also clears the phone. From M3, shared Athletes pass to a Member instead of being deleted.
+- Settings shows "Signed in as <address>" and Sign out when an Account is remembered. Sign out clears this phone and leaves the Account and its rows on the server; it is refused while anything on the phone is still unsynced.
 
 ## Screens
 
