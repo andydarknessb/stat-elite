@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openApp } from './openApp';
 
 async function startBasketballGame(page: Page) {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -57,7 +58,7 @@ test('tapping the Game line lists each closed Shift with its time and Plus/Minus
 
 for (const size of ['Compact', 'Bleacher']) {
   test(`at ${size} the Shifts list opens in the Shift bar and does not widen the page`, async ({ page }) => {
-    await page.goto('/');
+    await openApp(page);
     await page.getByLabel('Athlete name').fill('Casey');
     await page.getByRole('button', { name: 'Add Athlete' }).click();
     await page.getByRole('button', { name: 'Settings' }).click();

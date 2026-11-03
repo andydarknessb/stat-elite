@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openApp } from './openApp';
 
 // A 1x1 PNG, enough for the photo to render.
 const PHOTO = {
@@ -11,7 +12,7 @@ const PHOTO = {
 };
 
 async function firstRunAdd(page: Page, name: string, number?: string) {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill(name);
   if (number) await page.getByLabel('Number').fill(number);
   await page.getByRole('button', { name: 'Add Athlete' }).click();
@@ -54,7 +55,7 @@ test('the photo shows on Home and nothing is uploaded', async ({ page }) => {
     if (request.method() !== 'GET') writes.push(request.url());
   });
 
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByLabel('Photo (optional)').setInputFiles(PHOTO);
   await page.getByRole('button', { name: 'Add Athlete' }).click();

@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
+import { openApp } from './openApp';
 
 test('the Insights tab opens with no Games and says nothing stands out', async ({ page }) => {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
 

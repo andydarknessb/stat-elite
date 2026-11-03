@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openApp } from './openApp';
 
 async function addAthlete(page: Page) {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
 }

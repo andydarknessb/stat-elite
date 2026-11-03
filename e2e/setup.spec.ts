@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { openApp } from './openApp';
 
 const today = () => new Date().toLocaleDateString('en-CA');
 
 test('Start Game opens setup, Start opens the live screen, and the next setup is prefilled from that Game', async ({ page }) => {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -27,7 +28,7 @@ test('Start Game opens setup, Start opens the live screen, and the next setup is
 });
 
 test('the next setup is prefilled with 8 Periods from a Game started that way', async ({ page }) => {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -44,7 +45,7 @@ test('the next setup is prefilled with 8 Periods from a Game started that way', 
 });
 
 test('a baseball Game is set up in innings, and Cancel starts nothing', async ({ page }) => {
-  await page.goto('/');
+  await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();

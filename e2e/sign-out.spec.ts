@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openApp } from './openApp';
 
 // The Invite screen signs the phone in with the emailed code; the refused link then leaves it on Continue, signed in, with no reload.
 async function signInOnThisPhone(page: Page, email: string) {
@@ -51,7 +52,7 @@ test('Sign out with the network off shows the refusal, and the Athlete is still 
 });
 
 test('a phone that never signed in has no Signed in as line and no Sign out in Settings', async ({ page }) => {
-  await page.goto('/');
+  await openApp(page);
   await addAthlete(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('group', { name: 'Button Size' })).toBeVisible();
