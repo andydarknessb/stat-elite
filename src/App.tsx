@@ -510,7 +510,6 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
       <BacklogForm
         core={core}
         athleteId={athlete.id}
-        // a summary only opens from the selected Athlete's Games, so an Edit's Game is this Athlete's too
         athleteName={athlete.name}
         gameId={summary}
         onDone={(savedGameId) => {
@@ -1085,8 +1084,10 @@ function BacklogForm({
 }) {
   const setup = useReadModel(() => core.gameSetup(athleteId), [core, athleteId]);
   const entry = useReadModel(() => (gameId ? core.backlogEntry(gameId) : Promise.resolve(undefined)), [core, gameId]);
+  // an Edit labels the Game's own Athlete: another tab can change the selected one while this form is open
+  const summary = useReadModel(() => (gameId ? core.gameSummary(gameId) : Promise.resolve(undefined)), [core, gameId]);
   if (!setup || (gameId && !entry)) return null;
-  return <BacklogFields core={core} athleteId={athleteId} athleteName={athleteName} gameId={gameId} setup={setup} entry={entry} onDone={onDone} />;
+  return <BacklogFields core={core} athleteId={athleteId} athleteName={summary?.athleteName ?? athleteName} gameId={gameId} setup={setup} entry={entry} onDone={onDone} />;
 }
 
 /** The fields hold what the Recorder types from the first render on; the prefill only seeds them. */

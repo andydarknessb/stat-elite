@@ -58,6 +58,42 @@ test('the Add past Game form labels the Team score with the Athlete, and its sum
   await expect(page.getByText('Casey Smith 40 – Opponent 32')).toBeVisible();
 });
 
+test("Edit past Game labels the score with the Game's Athlete, after another tab selects another Athlete", async ({ page, context }) => {
+  await addAthlete(page, 'Casey Smith');
+  await page.getByRole('button', { name: 'Add past Game' }).click();
+  await page.getByLabel('Opponent', { exact: true }).fill('Lions');
+  await page.getByLabel('Date', { exact: true }).fill('2026-01-15');
+  await page.getByLabel('Casey Smith score').fill('40');
+  await page.getByLabel('Opponent score').fill('32');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Casey Smith 40 – Opponent 32')).toBeVisible();
+
+  const other = await context.newPage();
+  await other.goto('/');
+  await other.getByRole('button', { name: 'Add Athlete' }).click();
+  await other.getByLabel('Athlete name').fill('Sam Lee');
+  await other.getByRole('button', { name: 'Add Athlete' }).click();
+  await expect(other.getByRole('heading', { name: 'Sam Lee' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Edit' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit past Game' })).toBeVisible();
+  await expect(page.getByLabel('Sam Lee score')).toHaveCount(0);
+  await expect(page.getByLabel('Casey Smith score')).toHaveValue('40');
+});
+
+test("a result row's Final Score keeps its own width, leaving the row to the Opponent and the line", async ({ page }) => {
+  await addAthlete(page, 'Casey Smith');
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page, 'Casey Smith');
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  const row = page.locator('.result-row');
+  const text = (await row.locator('.result-text').boundingBox())!;
+  const score = (await row.locator('.final').boundingBox())!;
+  expect(score.width).toBeLessThan(text.width / 2);
+});
+
 test.describe('a 40-character name', () => {
   const NAME = 'Wilhelmina Montgomery-Worthington Mwangi';
 

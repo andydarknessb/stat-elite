@@ -782,7 +782,6 @@ form h2 {
 }
 
 .final {
-  flex: 1;
   font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-size: 28px;
   font-weight: 700;
@@ -793,6 +792,11 @@ form h2 {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* The Final Score takes the rest of the head, which gives its score label a width to cut the name at. */
+.result-head .final {
+  flex: 1;
 }
 
 /* Game Complete's trophy and result letter are gold text; the result rows keep the plain badge. */
