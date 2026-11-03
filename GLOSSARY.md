@@ -31,7 +31,7 @@ One contest the Athlete plays in, from first Event to Final Score.
 _Avoid_: match, session, contest
 
 **Team**:
-The side the Athlete plays for.
+The side the Athlete plays for. UI copy labels it with the Athlete's name; its score is still the whole side's.
 _Avoid_: us, home
 
 **Opponent**:

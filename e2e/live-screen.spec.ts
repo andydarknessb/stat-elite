@@ -101,7 +101,7 @@ test.describe('under dark', () => {
     await addAthlete(page);
     await startGame(page);
 
-    await expect(page.getByRole('group', { name: 'Team', exact: true }).locator('.count')).toHaveCSS('color', 'rgb(245, 184, 65)');
+    await expect(page.getByRole('group', { name: 'Casey', exact: true }).locator('.count')).toHaveCSS('color', 'rgb(245, 184, 65)');
     await expect(page.getByRole('group', { name: 'Opponent', exact: true }).locator('.count')).toHaveCSS('color', 'rgb(242, 244, 248)');
   });
 

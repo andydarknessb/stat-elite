@@ -130,6 +130,8 @@ export type Base = 'first' | 'second' | 'third';
 export interface LiveGame extends Counts {
   id: string;
   sport: GameRow['sport'];
+  /** The name of the Game's Athlete as it reads now, or 'Athlete' if their record is missing: the Team's label (GLOSSARY: Team). */
+  athleteName: string;
   /** The current Period's label in the Game's format (H1, Q3, OT1, Inn 4). */
   periodLabel: string;
   /** The same stats split by Period: every Period up to the current one, a Period with no Events at zero. */
@@ -172,6 +174,8 @@ export interface Line {
 export interface FeedGame {
   id: string;
   sport: GameRow['sport'];
+  /** As on LiveGame. */
+  athleteName: string;
   opponent: string;
   gameDate: string;
   /** Today, Yesterday, This Week (2 to 6 days back) or Earlier, by the phone's local date. */
@@ -971,6 +975,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       ...countOf(live),
       id: game.id,
       sport: game.sport,
+      athleteName: (await store.athletes.get(game.athlete_id))?.name ?? 'Athlete',
       periodLabel: periodLabel(game.period_format, period),
       byPeriod,
       score,
@@ -1007,6 +1012,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       row: {
         id: game.id,
         sport: game.sport,
+        athleteName: live.athleteName,
         opponent: game.opponent_name,
         gameDate: game.game_date,
         group: groupOf(game.game_date, today),
@@ -1388,7 +1394,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const game = await store.games.get(gameId);
       const summary = game && (await finishedGame(game, localDate(clock())))?.row;
       if (!game || !summary) return undefined;
-      const name = (await store.athletes.get(game.athlete_id))?.name ?? 'Athlete';
+      const name = summary.athleteName;
       return [
         `${name} vs ${summary.opponent}: ${summary.final.team}–${summary.final.opponent} final`,
         // Plus/Minus is defined per Shift, and only basketball has Shifts (docs/plan.md, ADR 0002)

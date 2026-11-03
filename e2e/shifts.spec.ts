@@ -24,8 +24,8 @@ test('tapping the Game line lists each closed Shift with its time and Plus/Minus
   await startBasketballGame(page);
 
   await page.getByRole('button', { name: 'Sub In' }).click();
-  await page.getByRole('button', { name: 'Team +1' }).click();
-  await page.getByRole('button', { name: 'Team +1' }).click();
+  await page.getByRole('button', { name: 'Casey +1' }).click();
+  await page.getByRole('button', { name: 'Casey +1' }).click();
   await page.getByRole('button', { name: 'Sub Out' }).click();
   await page.getByRole('button', { name: 'Sub In' }).click();
   await page.getByRole('button', { name: 'Opponent +1' }).click();
@@ -67,7 +67,7 @@ for (const size of ['Compact', 'Bleacher']) {
     await page.getByRole('button', { name: 'Start', exact: true }).click();
 
     await page.getByRole('button', { name: 'Sub In' }).click();
-    await page.getByRole('button', { name: 'Team +1' }).click();
+    await page.getByRole('button', { name: 'Casey +1' }).click();
     await page.getByRole('button', { name: 'Sub Out' }).click();
     await page.locator('.shift .game').click();
 
@@ -80,7 +80,7 @@ test('a long Shifts list scrolls inside its line and does not widen the page', a
   await startBasketballGame(page);
   for (let i = 0; i < 4; i++) {
     await page.getByRole('button', { name: 'Sub In' }).click();
-    await page.getByRole('button', { name: 'Team +1' }).click();
+    await page.getByRole('button', { name: 'Casey +1' }).click();
     await page.getByRole('button', { name: 'Sub Out' }).click();
   }
   await page.locator('.shift .game').click();
@@ -107,7 +107,7 @@ test('the Shift on court stays off the Shifts list', async ({ page }) => {
   await startBasketballGame(page);
 
   await page.getByRole('button', { name: 'Sub In' }).click();
-  await page.getByRole('button', { name: 'Team +1' }).click();
+  await page.getByRole('button', { name: 'Casey +1' }).click();
   await page.locator('.shift .game').click();
 
   await expect(page.getByRole('list', { name: 'Shifts' })).toHaveCount(1);

@@ -149,10 +149,10 @@ test("the strip's Team +1: a refused save leaves Team at 0 and shows no toast", 
   await startGame(page);
   await failWrites(page);
 
-  await page.getByRole('button', { name: 'Team +1' }).click();
+  await page.getByRole('button', { name: 'Casey +1' }).click();
 
   await expectNotSaved(page);
-  await expect(page.getByRole('group', { name: 'Team', exact: true }).locator('.count')).toHaveText('0');
+  await expect(page.getByRole('group', { name: 'Casey', exact: true }).locator('.count')).toHaveText('0');
   await expect(page.getByRole('status')).toBeHidden();
   expect(errors).toEqual([]);
 });

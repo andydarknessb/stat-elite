@@ -210,6 +210,33 @@ button:disabled {
   font-weight: 600;
 }
 
+/* The Athlete's name in a score label: one line, cut with "…". */
+.score-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The label fills the width it is given and asks for none, so a long name is cut and never widens the screen. */
+.strip .score-name,
+.score-label {
+  contain: inline-size;
+}
+
+.strip .score-name {
+  justify-self: stretch;
+}
+
+/* Only the name gives way: the text after it keeps its full width. */
+.score-label {
+  display: flex;
+  gap: 0.25em;
+}
+
+.score-label > :last-child {
+  flex: none;
+}
+
 .final {
   font-size: 32px;
   font-weight: 600;
@@ -755,6 +782,7 @@ form h2 {
 }
 
 .final {
+  flex: 1;
   font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-size: 28px;
   font-weight: 700;

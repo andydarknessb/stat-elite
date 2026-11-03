@@ -22,7 +22,7 @@ test('ending a Game opens Game Complete with the Final Score, the line and Plus/
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();
-  await expect(page.getByText('Team 3 – Opponent 0')).toBeVisible();
+  await expect(page.getByText('Casey 3 – Opponent 0')).toBeVisible();
   await expect(page.getByText('3 PTS · FG 1/1 · FT 1/1 · 1 REB · 1 AST')).toBeVisible();
   await expect(page.getByText('Plus/Minus +3', { exact: true })).toBeVisible();
   await expect(page.getByRole('img', { name: 'Won' })).toBeVisible();
