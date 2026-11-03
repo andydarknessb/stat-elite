@@ -31,7 +31,7 @@ test('Settings names the signed-in address, Sign out warns, Cancel changes nothi
 
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-  await expect(page.getByLabel('Athlete name')).toBeVisible();
+  await expect(page.getByLabel('Email')).toBeVisible();
   await expect(page.getByText('Signed in as')).toHaveCount(0);
 });
 
@@ -51,11 +51,19 @@ test('Sign out with the network off shows the refusal, and the Athlete is still 
   await expect(page.getByRole('heading', { name: 'Casey', level: 1 })).toBeVisible();
 });
 
-test('a phone that never signed in has no Signed in as line and no Sign out in Settings', async ({ page }) => {
+test('Sign out on Add Athlete, once confirmed, returns to the sign-in screen', async ({ page }) => {
   await openApp(page);
-  await addAthlete(page);
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByRole('group', { name: 'Button Size' })).toBeVisible();
+  await expect(page.getByText('Signed in as casey@example.com')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByLabel('Email')).toBeVisible();
+  await expect(page.getByText('Signed in as')).toHaveCount(0);
+});
+
+test('a phone that never signed in opens on the sign-in screen, with no Signed in as line and no Sign out', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByLabel('Email')).toBeVisible();
 
   await expect(page.getByText('Signed in as')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);

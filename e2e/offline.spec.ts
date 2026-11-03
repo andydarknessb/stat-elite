@@ -1,24 +1,17 @@
 import { expect, test } from '@playwright/test';
 
-test('after one online visit, the app opens and records with the network off', async ({ page, context }) => {
+// The deployed check runs this spec, so it stops at the sign-in screen; recording offline is tested on localhost in offline-recording.spec.ts
+test('after one online visit, the sign-in screen opens with the network off and says so', async ({ page, context }) => {
   await page.goto('/');
   // the service worker precaches the app shell while it installs; a reload hands the page to it
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Add Athlete' })).toBeVisible();
+  await expect(page.getByLabel('Email')).toBeVisible();
 
   await context.setOffline(true);
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Add Athlete' })).toBeVisible();
-
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-
-  const steal = page.getByRole('button', { name: /^STL/ });
-  await steal.click();
-  await expect(steal).toHaveText('STL 1');
+  await expect(page.getByLabel('Email')).toBeVisible();
+  await expect(page.getByText('You need a connection to sign in.')).toBeVisible();
 });
