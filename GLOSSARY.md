@@ -59,7 +59,7 @@ The counts of what the Athlete did in a Backlogged Game, entered all at once.
 _Avoid_: box score, stat line, aggregates
 
 **Removed Game**:
-A Backlogged Game its Recorder removed: every phone hides it, and its row stays on the server (ADR 0006).
+A finished Game its Recorder removed: every phone hides it, and its row stays on the server (ADR 0006, ADR 0008).
 _Avoid_: deleted game, erased game, trashed game
 
 **Period**:

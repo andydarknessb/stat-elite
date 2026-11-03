@@ -1176,15 +1176,22 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
-    /** Removes a Backlogged Game from every phone: a Game edit that hides it, its row kept on the server (ADR 0006). Only its Recorder removes it, and only a Backlogged Game. */
-    async removeBacklog(gameId: string): Promise<void> {
+    /** Removes a finished Game from every phone: a Game edit that hides it, its row and Events kept on the server (ADR 0006, ADR 0008). Only its Recorder removes it, and only a finished Game. */
+    async removeGame(gameId: string): Promise<void> {
       const game = await store.games.get(gameId);
-      if (!game?.totals) throw new Error('Only a Backlogged Game can be removed');
+      if (!game || !(await finishedGame(game, localDate(clock())))) throw new Error('Only a finished Game can be removed');
       if (!(await isRecorder(game))) throw new Error('Only the Recorder can remove this Game');
       await write([store.games], async () => {
         await store.games.update(gameId, { removed: true, updated_at: now() });
         await queue('games', gameId);
       });
+    },
+
+    /** Whether this account can remove the Game: a finished Game that is not removed, and whose Recorder it is (ADR 0008). */
+    async canRemoveGame(gameId: string): Promise<boolean> {
+      const game = await store.games.get(gameId);
+      if (!game || game.removed) return false;
+      return (await finishedGame(game, localDate(clock()))) !== undefined && (await isRecorder(game));
     },
 
     /** The form's prefill for a Backlogged Game: undefined unless the Game has Totals and this account is its Recorder (ADR 0005). */
@@ -1389,8 +1396,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       // every read is Dexie's: a liveQuery stops observing at an await that is not Dexie's, and End Game would never re-run Home
       const unclosed = [];
       for (const game of [...games].reverse()) {
-        // a Backlogged Game has no Events, so it is never the one in progress (ADR 0005)
-        if (game.totals) continue;
+        // a Backlogged Game has no Events, so it is never the one in progress (ADR 0005); a removed Game is never in progress either, since a second phone may hold its row before its Events (ADR 0008)
+        if (game.totals || game.removed) continue;
         if ((await gameEvents(game.id).last())?.type !== 'game_end') unclosed.push(game);
       }
       const session = (await account())?.id;
