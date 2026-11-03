@@ -101,11 +101,13 @@ export function App({ core }: { core: AppCore }) {
 /** An Invite link. Signed out, the invitee signs in with the same form as the first screen, the Invite's token held here while the code is typed; signed in, accepting it makes them a Member. */
 function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; onDone: () => void }) {
   const sync = useReadModel(() => core.sync(), [core]);
+  const account = useReadModel(() => core.account(), [core]);
   // the code signs the invitee in here; sync does not re-read on a phone with nothing queued, so it may never say so
   const [verified, setVerified] = useState(false);
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState<string>();
-  const signedIn = verified || sync?.signedIn === true;
+  // a phone whose session ended is not signed in until its remembered address signs in again (ADR 0007)
+  const signedIn = verified || (sync?.signedIn === true && !sync.sessionEnded);
   useEffect(() => {
     if (!signedIn) return;
     core.acceptInvite(token).then(
@@ -119,7 +121,7 @@ function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; o
       <main>
         <h1>Join an Athlete</h1>
         <p>Sign in with your email to become a Member.</p>
-        <SignInForm core={core} onSignedIn={() => setVerified(true)} />
+        <SignInForm core={core} onSignedIn={() => setVerified(true)} remembered={account?.email} />
       </main>
     );
   }
@@ -150,6 +152,20 @@ function refusalMessage(error: unknown): string {
   if (error.reason === 'used') return 'This invite link has already been used.';
   if (error.reason === 'expired') return 'This invite link has expired. Ask for a new one.';
   return 'This invite link is not valid.';
+}
+
+/** Home's notice when the server ended this phone's session: recording still works, and the remembered address's code syncs it again (ADR 0007). */
+function SignInAgain({ core }: { core: AppCore }) {
+  const sync = useReadModel(() => core.sync(), [core]);
+  const account = useReadModel(() => core.account(), [core]);
+  if (!sync?.sessionEnded || !account) return null;
+  return (
+    <section className="card" aria-label="Sign in again">
+      <h2>Sign in again to sync</h2>
+      <p>Recording still works on this phone.</p>
+      <SignInForm core={core} remembered={account.email} />
+    </section>
+  );
 }
 
 /** Invite co-parent, for the Owner of a signed-in Athlete: makes an Invite, then offers its link to the share sheet (ADR 0004). */
@@ -258,11 +274,22 @@ function SignInScreen({ core }: { core: AppCore }) {
 /** The first download of a sign-in: the Account's Athletes come down before the app opens, and Retry follows a failed one (ADR 0007). */
 function FirstDownload({ core }: { core: AppCore }) {
   const [failed, setFailed] = useState(false);
+  const sync = useReadModel(() => core.sync(), [core]);
+  const account = useReadModel(() => core.account(), [core]);
   const download = () => {
     setFailed(false);
     void core.firstDownload().catch(() => setFailed(true));
   };
   useEffect(download, [core]);
+  // retrying cannot work once the server ended the session, so the sign-in form replaces Retry
+  if (sync?.sessionEnded && account) {
+    return (
+      <main>
+        <h1>Sign in again to sync</h1>
+        <SignInForm core={core} remembered={account.email} />
+      </main>
+    );
+  }
   if (failed) {
     return (
       <main>
@@ -289,17 +316,18 @@ function useOnline(): boolean {
   return online;
 }
 
-/** The sign-in step of the first screen and the Invite screen: the email gets a 6-digit code, and typing it signs the Recorder in here. */
-function SignInForm({ core, onSignedIn }: { core: AppCore; onSignedIn?: () => void }) {
-  const [email, setEmail] = useState('');
+/** The sign-in step of the first screen, the Invite screen and Sign in again: the email gets a 6-digit code, and typing it signs the Recorder in here. A phone whose session ended signs in with its remembered address only (ADR 0007). */
+function SignInForm({ core, onSignedIn, remembered }: { core: AppCore; onSignedIn?: () => void; remembered?: string }) {
+  const [typed, setTyped] = useState('');
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string>();
   const online = useOnline();
+  const address = (remembered ?? typed).trim();
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await core.signIn(email.trim());
+      await core.signIn(address);
       setSent(true);
     } catch (refusal) {
       setError(
@@ -312,7 +340,7 @@ function SignInForm({ core, onSignedIn }: { core: AppCore; onSignedIn?: () => vo
   const submitCode = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await core.verifyCode(email.trim(), code.trim());
+      await core.verifyCode(address, code.trim());
     } catch {
       setError('That code did not work. Check it and try again, or send a new code.');
       return;
@@ -337,7 +365,14 @@ function SignInForm({ core, onSignedIn }: { core: AppCore; onSignedIn?: () => vo
     <form key="email" onSubmit={submit}>
       <label>
         Email
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+        <input
+          type="email"
+          value={remembered ?? typed}
+          onChange={(e) => setTyped(e.target.value)}
+          readOnly={remembered !== undefined}
+          required
+          autoComplete="email"
+        />
       </label>
       <p>We only use your email to sign you in. If you join someone&apos;s Athlete, they&apos;ll see it.</p>
       {!online && <p>You need a connection to sign in.</p>}
@@ -607,6 +642,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
             <Icon name="settings" />
           </button>
         </header>
+        <SignInAgain core={core} />
         <div className="athlete">
           <SwitchPhoto core={core} athlete={athlete} next={next} />
           <h1>{athlete.name}</h1>

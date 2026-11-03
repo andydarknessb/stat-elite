@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, isAuthRetryableFetchError, type SupabaseClient } from '@supabase/supabase-js';
 import type { AthleteRow, EventRow, GameRow } from './store';
 
 /** The tables the outbox uploads: an Athlete before its Game, a Game before its Events (ADR 0001). */
@@ -40,6 +40,8 @@ export interface Server {
   session(): Promise<string | undefined>;
   /** The signed-in account's sign-in address, or undefined when signed out. */
   email(): Promise<string | undefined>;
+  /** Whether the server ended this phone's session: none is held, and the server said so rather than failing to be reached (ADR 0007). */
+  sessionEnded(): Promise<boolean>;
   /** Sends a 6-digit code to the address. Rejects with a CodeTooSoon when the address was sent one too recently, and when the server cannot be reached. */
   signIn(email: string): Promise<void>;
   /** Signs the account in with the code from the sign-in email. Rejects when the code is wrong or the server cannot be reached. */
@@ -101,6 +103,10 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       },
       async email() {
         return account === undefined ? undefined : emails.get(account);
+      },
+      // a page reload on localhost looks like this: no session, with the server reachable
+      async sessionEnded() {
+        return account === undefined && reachable();
       },
       async signIn(email: string) {
         reach();
@@ -215,6 +221,11 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
 export function createSupabaseServer(client: SupabaseClient): Server {
   const session = async () => (await client.auth.getSession()).data.session?.user.id;
   const email = async () => (await client.auth.getSession()).data.session?.user.email;
+  const sessionEnded = async () => {
+    const { data, error } = await client.auth.getSession();
+    // a network failure the library retries is not the server ending the session
+    return !data.session && !isAuthRetryableFetchError(error);
+  };
   // whether the signed-in account is a Member of the Athlete a row names, not its Owner: its own membership row, which RLS lets it read
   const isMemberOf = async (row: UploadRow) => {
     const me = await session();
@@ -226,6 +237,7 @@ export function createSupabaseServer(client: SupabaseClient): Server {
   return {
     session,
     email,
+    sessionEnded,
     async signIn(email) {
       const { error } = await client.auth.signInWithOtp({ email });
       if (error?.code === 'over_email_send_rate_limit') throw new CodeTooSoon();
@@ -334,6 +346,8 @@ export function serverFor({ url, key, host }: { url?: string; key?: string; host
   return {
     session: async () => undefined,
     email: async () => undefined,
+    // nothing is signed in, and nothing can be reached to end it
+    sessionEnded: async () => false,
     signIn: refuse,
     verifyCode: refuse,
     upload: refuse,

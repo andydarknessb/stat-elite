@@ -76,12 +76,15 @@ const DOWNLOADED_FOR = 'downloadedFor';
 const DOWNLOADED_ONCE = 'downloadedOnce';
 /** The Account this phone last saw signed in, as JSON: kept so the phone still knows it when the session cannot be read (ADR 0004). */
 const ACCOUNT = 'account';
+/** Set when the server ended this phone's session: the phone keeps recording and asks for the remembered address's code. A verified code clears it (ADR 0007). */
+const SESSION_ENDED = 'sessionEnded';
 /** Settings key prefix, one per Athlete another account owns and shared with this phone (ADR 0004). */
 const SHARED = 'shared:';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
 /** What Sign out says when the phone is not cleared: rows still queued, or the server refuses or cannot be reached. */
 export const SIGN_OUT_REFUSED = 'Could not sign out. Wait for everything to sync and check the connection, then try again.';
 const SIGN_IN_AGAIN = 'The account cannot be reached: sign in again to delete it';
+const SAME_ADDRESS = 'This phone signs in again only with the address it was signed in with';
 
 /** Every Event type Undo can retract: all but a Retraction itself. */
 export type UndoableType = Exclude<EventRow['type'], 'retraction'>;
@@ -923,7 +926,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   // shortcut: a row the server refuses holds up every row behind it until someone fixes it, upgrade when a refusal needs its own state
   const drain = async () => {
     const owner = await server.session();
-    if (!owner) return;
+    if (!owner) {
+      // a remembered Account whose session the server ended: Home asks for its code (ADR 0007)
+      if ((await account()) && (await server.sessionEnded())) await store.settings.put({ key: SESSION_ENDED, value: 'on' });
+      return;
+    }
     await remember(owner);
     // a sign-in downloads before anything uploads, so the server's newer copies land before this phone's older ones go up
     if ((await store.settings.get(DOWNLOADED_FOR))?.value !== owner) {
@@ -1487,16 +1494,18 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
-    /** Sends the sign-in code to the address. The Recorder is signed in once the code is entered (verifyCode). */
-    signIn(email: string): Promise<void> {
+    /** Sends the sign-in code to the address. The Recorder is signed in once the code is entered (verifyCode). While an Account is remembered, only its own address may sign in again (ADR 0007). */
+    async signIn(email: string): Promise<void> {
+      const held = await account();
+      if (held && held.email !== email) throw new Error(SAME_ADDRESS);
       return server.signIn(email);
     },
 
     /** Signs the Recorder in with the emailed code, then uploads everything recorded so far. */
     async verifyCode(email: string, code: string): Promise<void> {
       await server.verifyCode(email, code);
-      // the account is signing in here, so it downloads again even if this phone has downloaded it before
-      await store.settings.delete(DOWNLOADED_FOR);
+      // the account is signing in here, so it downloads again even if this phone has downloaded it before; the code ends a session the server ended
+      await store.settings.bulkDelete([DOWNLOADED_FOR, SESSION_ENDED]);
       await flush();
     },
 
@@ -1563,8 +1572,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** What deleting the account does to each Athlete the phone holds: it passes to its first Member, is deleted with its Games, or this account leaves it. Signed out, the phone clears all of it. Rejects when an Account is remembered but cannot be reached now. */
     async deletionSummary(): Promise<DeletionSummary> {
       const me = await server.session();
-      // a remembered Account with no live session may still exist on the server, so its rows stay until it is signed in again
-      if (me === undefined && (await account())) throw new Error(SIGN_IN_AGAIN);
+      // a remembered Account with no live session may still exist on the server, unless the server ended its session: then the phone acts as having no Account
+      if (me === undefined && (await account()) && !(await server.sessionEnded())) throw new Error(SIGN_IN_AGAIN);
       // a signed-in phone first brings the server's owners down, so an Athlete that passed to this account reads as its own
       if (me !== undefined) await exclusive(download);
       const athletes = await store.athletes.orderBy('created_at').toArray();
@@ -1606,20 +1615,21 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     deleteAccount(): Promise<void> {
       return exclusive(async () => {
         const live = await server.session();
-        // a remembered Account with no live session may still exist on the server, so this refuses rather than clear the phone
-        if (live === undefined && (await account())) throw new Error(SIGN_IN_AGAIN);
+        // a remembered Account with no live session may still exist on the server, so this refuses rather than clear the phone, unless the server ended its session: then it clears without a server call
+        if (live === undefined && (await account()) && !(await server.sessionEnded())) throw new Error(SIGN_IN_AGAIN);
         // a phone not signed in has no account on the server, so only its own rows go
         if (live !== undefined) await server.deleteAccount();
         await clearPhone();
       });
     },
 
-    /** The "N not synced" badge: whether the Recorder is signed in, and how many rows still live only on the phone. */
-    async sync(): Promise<{ signedIn: boolean; notSynced: number }> {
+    /** The "N not synced" badge: whether the Recorder is signed in, how many rows still live only on the phone, and whether the server ended the session (ADR 0007). */
+    async sync(): Promise<{ signedIn: boolean; notSynced: number; sessionEnded: boolean }> {
       const pending = await store.outbox.toArray();
       return {
         signedIn: (await account()) !== undefined,
         notSynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size,
+        sessionEnded: (await store.settings.get(SESSION_ENDED))?.value === 'on',
       };
     },
 
