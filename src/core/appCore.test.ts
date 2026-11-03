@@ -873,6 +873,100 @@ test('a write made while the server is unreachable waits on the phone, then uplo
   expect(server.rows.athletes.has(athleteId)).toBe(true);
 });
 
+// the Server a phone reopened with its session stuck sees: session() never settles, as getSession does while its retries run
+const unsettled = (server: Server): Server => ({ ...server, session: () => new Promise<string | undefined>(() => {}) });
+// the Server a phone reopened signed out sees: session() resolves undefined, as getSession does once its retries give up
+const signedOut = (server: Server): Server => ({ ...server, session: async () => undefined });
+
+test('a signed-in Recorder with a live Game, reopened while session() never settles, still has that Game live and reads as signed in', async () => {
+  const { core, server, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+
+  const reopened = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: inspect, server: unsettled(server) });
+
+  expect(await reopened.home()).toMatchObject({ liveGameId: gameId });
+  expect((await reopened.sync()).signedIn).toBe(true);
+});
+
+test('reopened while session() resolves undefined, a Game started now is the live one, recorded by the Account', async () => {
+  const { core, server, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const account = await server.session();
+
+  const reopened = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: inspect, server: signedOut(server) });
+  const gameId = await reopened.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+
+  expect(await reopened.home()).toMatchObject({ liveGameId: gameId });
+  expect(await inspect.games.get(gameId)).toMatchObject({ recorded_by: account });
+});
+
+test("reopened while session() resolves undefined, the Account owns its own Athlete, and account() gives the address it signed in with", async () => {
+  const { core, server, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const account = await server.session();
+
+  const reopened = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: inspect, server: signedOut(server) });
+
+  expect(await reopened.isOwner(athleteId)).toBe(true);
+  expect(await reopened.canInvite(athleteId)).toBe(true);
+  expect(await reopened.account()).toEqual({ id: account, email: 'casey@example.com' });
+});
+
+test('a Member reopened while session() resolves undefined starts a Game on the shared Athlete, which is its live one, recorded by the Member', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const memberPhone = server.phone();
+  const memberStore = openStore(`test-${++stores}`);
+  const member = createAppCore({ clock: () => new Date('2026-10-30T19:00:00Z'), store: memberStore, server: memberPhone });
+  await signInWithCode(member, 'sam@example.com');
+  await member.acceptInvite(token);
+  const memberId = await memberPhone.session();
+
+  const reopened = createAppCore({ clock: () => new Date('2026-10-30T19:00:00Z'), store: memberStore, server: signedOut(memberPhone) });
+  const gameId = await reopened.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+
+  expect(await reopened.home()).toMatchObject({ liveGameId: gameId });
+  expect(await memberStore.games.get(gameId)).toMatchObject({ recorded_by: memberId });
+});
+
+test('reopened while session() resolves undefined, deleting the account is refused and the phone keeps its Athletes', async () => {
+  const { core, server, inspect } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+
+  const reopened = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: inspect, server: signedOut(server) });
+
+  await expect(reopened.deletionSummary()).rejects.toThrow();
+  await expect(reopened.deleteAccount()).rejects.toThrow();
+  expect(await inspect.athletes.get(athleteId)).toBeDefined();
+  expect(server.rows.athletes.has(athleteId)).toBe(true);
+});
+
+test("a session made on the server without App Core's verifyCode is remembered by refresh(), so a reopen signed out still has the Account", async () => {
+  const { core, server, inspect } = setup();
+  await server.verifyCode('casey@example.com', CODE);
+
+  await core.refresh();
+  const reopened = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: inspect, server: signedOut(server) });
+
+  expect(await reopened.account()).toEqual({ id: expect.any(String), email: 'casey@example.com' });
+});
+
+test('a phone that never signed in has no Account, reads as signed out, and its live Game is still live', async () => {
+  const { core } = setup();
+  const gameId = await basketballGame(core);
+
+  expect(await core.account()).toBeUndefined();
+  expect((await core.sync()).signedIn).toBe(false);
+  expect(await core.home()).toMatchObject({ liveGameId: gameId });
+});
+
 // a fake Supabase client signed in as `userId` (signed out when undefined), recording each write; `memberOf` names the
 // Athletes the account is a Member of, which is what its membership query finds
 function recordingClient(calls: unknown[][], userId: string | undefined, memberOf: string[] = []) {
@@ -2516,15 +2610,15 @@ test("a Member's deletion summary names the Athlete that passed to it, even befo
   expect(await sam.core.deletionSummary()).toEqual({ athletes: [{ name: 'Casey', fate: 'deleted', games: 1 }], photos: 0, unsynced: 0 });
 });
 
-test('a phone signed out names every Athlete it holds, since its deletion clears them all', async () => {
+test('a phone whose session has lapsed refuses to name its deletion, since its remembered Account may still exist on the server', async () => {
   const { core, inspect, server } = setup();
   await signInWithCode(core, 'casey@example.com');
   await core.addAthlete({ name: 'Casey' });
   await core.flush();
-  // the same store, seen by a phone whose session has lapsed: its rows still carry the account's owner
+  // the same store, seen by a phone whose session has lapsed: the Account it signed in with is still remembered
   const lapsed = createAppCore({ clock: () => new Date('2026-10-30T18:00:00Z'), store: inspect, server: server.phone() });
 
-  expect(await lapsed.deletionSummary()).toMatchObject({ athletes: [{ name: 'Casey', fate: 'deleted', games: 0 }], unsynced: 0 });
+  await expect(lapsed.deletionSummary()).rejects.toThrow();
 });
 
 test('the deletion summary counts the rows not yet uploaded, which the deletion discards', async () => {
