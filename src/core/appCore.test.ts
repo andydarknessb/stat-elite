@@ -2508,6 +2508,54 @@ test('signing out empties the phone, and signing in again with the same address 
   expect(await core.account()).toEqual({ id: owner, email: 'casey@example.com' });
 });
 
+test('signing out with a row still queued and the link down is refused: the row stays queued and the Account stays remembered', async () => {
+  const { core, inspect, link } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  link.up = false;
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.flush();
+
+  await expect(core.signOut()).rejects.toThrow('Could not sign out. Wait for everything to sync and check the connection, then try again.');
+
+  expect(await core.sync()).toEqual({ signedIn: true, notSynced: 1 });
+  expect(await inspect.athletes.get(athleteId)).toBeDefined();
+  expect(await core.account()).toEqual({ id: expect.any(String), email: 'casey@example.com' });
+});
+
+test('signing out while the server refuses every upload is refused: the phone keeps its rows', async () => {
+  const { core, inspect, server } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  vi.spyOn(server, 'upload').mockRejectedValue(new Error('refused'));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+
+  await expect(core.signOut()).rejects.toThrow('Could not sign out. Wait for everything to sync and check the connection, then try again.');
+
+  expect(await inspect.athletes.get(athleteId)).toBeDefined();
+  expect(await core.sync()).toEqual({ signedIn: true, notSynced: 1 });
+});
+
+test('signing out with the link down and nothing queued is refused: the phone keeps its rows', async () => {
+  const { core, inspect, server, link } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await core.flush();
+  link.up = false;
+
+  await expect(core.signOut()).rejects.toThrow('Could not sign out. Wait for everything to sync and check the connection, then try again.');
+
+  expect(server.rows.athletes.has(athleteId)).toBe(true);
+  expect(await inspect.athletes.get(athleteId)).toBeDefined();
+  expect(await core.sync()).toEqual({ signedIn: true, notSynced: 0 });
+});
+
+test('the phone counts the photos it holds, which Sign out says it clears', async () => {
+  const { core } = setup();
+  await core.addAthlete({ name: 'Casey', photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) });
+  await core.addAthlete({ name: 'Sam' });
+
+  expect(await core.photoCount()).toBe(1);
+});
+
 test('the deletion summary names what happens to each Athlete, and counts the photos the deletion clears', async () => {
   const { core, inspect, server } = setup();
   await signInWithCode(core, 'casey@example.com');
