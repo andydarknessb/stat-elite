@@ -28,15 +28,15 @@ test('a Game recorded offline uploads once it is saved, and the badge reaches 0'
   await context.setOffline(false);
   await page.getByRole('button', { name: 'Save this game' }).click();
   await page.getByLabel('Email').fill('casey@example.com');
-  await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByRole('button', { name: 'Send code' }).click();
   await page.getByLabel('Code').fill('123456');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('0 not synced')).toBeVisible();
   expect(supabaseRequests).toEqual([]);
 });
 
-// A wrong code on Save this game offers a new link with the address kept, and the code and error clear (#76).
-test('a wrong code on Save this game offers a new link with the email kept', async ({ page }) => {
+// A wrong code on Save this game offers a new code with the email kept, and the code and error clear; the right one then signs in (#76).
+test('a wrong code on Save this game offers a new code with the email kept, and the right one signs in', async ({ page }) => {
   await openApp(page);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
@@ -47,16 +47,20 @@ test('a wrong code on Save this game offers a new link with the email kept', asy
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'Save this game' }).click();
   await page.getByLabel('Email').fill('casey@example.com');
-  await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await expect(page.getByText('Check your email and type the 6-digit code.')).toBeVisible();
   await page.getByLabel('Code').fill('12345');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText(/That code did not work/)).toBeVisible();
 
-  await page.getByRole('button', { name: 'Send a new link' }).click();
+  await page.getByRole('button', { name: 'Send a new code' }).click();
   await expect(page.getByLabel('Email')).toHaveValue('casey@example.com');
   await expect(page.getByText(/That code did not work/)).toBeHidden();
-  await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByRole('button', { name: 'Send code' }).click();
   await expect(page.getByLabel('Code')).toHaveValue('');
+  await page.getByLabel('Code').fill('123456');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByText('0 not synced')).toBeVisible();
 });
 
 // A Game recorded offline after sign-in uploads when the connection returns, with no tap in between (#48).
@@ -77,7 +81,7 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'Save this game' }).click();
   await page.getByLabel('Email').fill('casey@example.com');
-  await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByRole('button', { name: 'Send code' }).click();
   await page.getByLabel('Code').fill('123456');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('0 not synced')).toBeVisible();
@@ -118,7 +122,7 @@ test('Home offers Save this game after a finished Game, and signing in there cle
 
   await page.getByRole('button', { name: 'Save this game' }).click();
   await page.getByLabel('Email').fill('casey@example.com');
-  await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByRole('button', { name: 'Send code' }).click();
   await page.getByLabel('Code').fill('123456');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('0 not synced')).toBeVisible();

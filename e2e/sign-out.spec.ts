@@ -5,7 +5,7 @@ import { openApp } from './openApp';
 async function signInOnThisPhone(page: Page, email: string) {
   await page.goto('/?invite=not-a-token');
   await page.getByLabel('Email').fill(email);
-  await page.getByRole('button', { name: 'Send link' }).click();
+  await page.getByRole('button', { name: 'Send code' }).click();
   await page.getByLabel('Code').fill('123456');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('This invite link is not valid.')).toBeVisible();
