@@ -21,7 +21,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Live game, softball/baseball | Team–Opponent strip, optional Pitch buttons, Outcome grid, RBI chips, diamond for the Athlete only | spec's Plate Appearance flow |
 | Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus on basketball rows, "—" on a Backlogged Game | Stattie Activity |
 | Game Complete | Share card and ready-to-paste text | MyKidDid |
-| Add past Game | Sport, Opponent, date, Final Score and Totals. Save opens the Backlogged Game's summary, where its Recorder can edit it (ADR 0005) | — |
+| Add past Game | Sport, Opponent, date, Final Score and Totals. Save opens the Backlogged Game's summary, where its Recorder can edit or remove it (ADR 0005, ADR 0006) | — |
 | Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
 | Athlete sharing | Invite co-parent (link through the share sheet), Members list, Remove Member (Owner only), Leave (Members). Members also edit the Athlete's name and number, from Home's Edit | — |
 

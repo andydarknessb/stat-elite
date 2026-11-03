@@ -121,4 +121,25 @@ test('a live Game summary has no Edit button', async ({ page }) => {
   await page.getByRole('button', { name: /Opponent/ }).click();
   await expect(page.getByRole('heading', { name: 'Opponent' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
+});
+
+test('a Backlogged Game removed from its summary after confirming lands on Home, and leaves the Games feed', async ({ page }) => {
+  const played = localDate(-10);
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Add past Game' }).click();
+  await page.getByLabel('Opponent', { exact: true }).fill('Lions');
+  await page.getByLabel('Date', { exact: true }).fill(played);
+  await page.getByLabel('Team score').fill('40');
+  await page.getByLabel('Opponent score').fill('32');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Team 40 – Opponent 32')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(page.getByText('Remove this Game? It leaves the Games feed and the season line.')).toBeVisible();
+  await page.getByRole('button', { name: 'Yes, remove', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Lions/ })).toHaveCount(0);
 });

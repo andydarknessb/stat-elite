@@ -3041,6 +3041,69 @@ test('editBacklog refuses a live Game and an account that is not the Recorder, a
   expect(t.server.rows.games.get(gameId)).toMatchObject({ opponent_name: 'Hawks' });
 });
 
+test('removeBacklog hides a Backlogged Game on every phone and keeps its row, so the feed, the season line, the summary and setup skip it', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  await signInWithCode(t.core, 'casey@example.com');
+  const kept = await t.core.backlogGame(backlogEntry(athleteId, { opponentName: 'Rams', gameDate: '2026-10-28' }));
+  // created an hour later, so setup prefills from it until it is removed
+  const removed = await coreAt(t, new Date(2026, 9, 30, 13).toISOString()).backlogGame(backlogEntry(athleteId, { gameDate: '2026-10-29' }));
+  await t.core.flush();
+  const second = phoneOn(t.server);
+  await signInWithCode(second.core, 'casey@example.com');
+  // before the removal, phone B lists both Games and sums their Totals
+  expect(await second.core.gameFeed(athleteId)).toMatchObject({ seasons: [{ sport: 'basketball', line: { points: 38 } }], games: [{ gameDate: '2026-10-29' }, { gameDate: '2026-10-28' }] });
+  expect((await second.core.gameSetup(athleteId)).opponentName).toBe('Hawks');
+
+  await coreAt(t, new Date(2026, 9, 31, 9).toISOString()).removeBacklog(removed);
+  await t.core.flush();
+  await second.core.refresh();
+
+  expect(await second.core.gameFeed(athleteId)).toMatchObject({ seasons: [{ sport: 'basketball', line: { points: 19 } }], games: [{ gameDate: '2026-10-28' }] });
+  expect(await second.core.gameSummary(removed)).toBeUndefined();
+  expect(await second.core.gameSummary(kept)).toMatchObject({ opponent: 'Rams' });
+  expect((await second.core.gameSetup(athleteId)).opponentName).toBe('Rams');
+  // the row stays on the server, marked removed
+  expect(t.server.rows.games.get(removed)).toMatchObject({ removed: true });
+});
+
+test('removeBacklog throws, with no row changed and nothing queued, for a live Game and for an account that is not the Recorder', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  await signInWithCode(t.core, 'casey@example.com');
+  const gameId = await t.core.backlogGame(backlogEntry(athleteId));
+  const live = await t.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await t.core.flush();
+  const before = await t.inspect.games.toArray();
+
+  await expect(t.core.removeBacklog(live)).rejects.toThrow('Only a Backlogged Game can be removed');
+  expect(await t.inspect.outbox.count()).toBe(0);
+
+  // a Member of the Athlete sees the Backlogged Game, but did not record it
+  const token = await t.core.createInvite(athleteId);
+  const member = phoneOn(t.server.phone());
+  await signInWithCode(member.core, 'member@example.com');
+  await member.core.acceptInvite(token);
+  await expect(member.core.removeBacklog(gameId)).rejects.toThrow('Only the Recorder can remove this Game');
+  expect(await member.inspect.outbox.count()).toBe(0);
+
+  expect(await t.inspect.games.toArray()).toEqual(before);
+});
+
+test("deletionSummary's games count leaves out a removed Game", async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  await signInWithCode(t.core, 'casey@example.com');
+  await t.core.backlogGame(backlogEntry(athleteId, { gameDate: '2026-10-28' }));
+  const removed = await t.core.backlogGame(backlogEntry(athleteId));
+  await t.core.flush();
+  expect(await t.core.deletionSummary()).toEqual({ athletes: [{ name: 'Casey', fate: 'deleted', games: 2 }], photos: 0, unsynced: 0 });
+
+  await coreAt(t, new Date(2026, 9, 31, 9).toISOString()).removeBacklog(removed);
+  await t.core.flush();
+  expect(await t.core.deletionSummary()).toEqual({ athletes: [{ name: 'Casey', fate: 'deleted', games: 1 }], photos: 0, unsynced: 0 });
+});
+
 test('a Backlogged Game and its Totals survive an upload, then a download onto an empty phone, where the Game is finished', async () => {
   const t = setup(new Date(2026, 9, 30, 12));
   const athleteId = await t.core.addAthlete({ name: 'Casey' });
