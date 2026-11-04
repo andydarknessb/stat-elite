@@ -1452,7 +1452,7 @@ function EndGameForm({
 }
 
 /** Game Complete, shown once End Game closes the Game: a result card (trophy, Final, the W/L/T badge and Final Score, the Athlete's line, Plus/Minus), then Share card and Copy text below it. */
-function GameComplete({ gameId }: { gameId: string }) {
+function GameComplete({ gameId, onDone }: { gameId: string; onDone: () => void }) {
   const game = useLive((live) => live.gameSummary(gameId), [gameId]);
   // the text is read before the tap, so the click reaches the clipboard with no await in between (iOS drops the gesture across one)
   const text = useLive((live) => live.gameCopyText(gameId), [gameId]);
@@ -1483,6 +1483,10 @@ function GameComplete({ gameId }: { gameId: string }) {
     );
     return () => controller.abort();
   }, [card]);
+  // the Game was removed on another phone or tab: Game Complete goes Home (#164). liveGame does not read removed, so the summary's null is the signal
+  useEffect(() => {
+    if (game === null) onDone();
+  }, [game]);
   if (!game) return null;
   // the phone cannot share files: the image downloads instead
   const download = (file: File) => {
@@ -1691,7 +1695,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   if (game.final) {
     return (
       <main>
-        <GameComplete gameId={gameId} />
+        <GameComplete gameId={gameId} onDone={onDone} />
         <button onClick={onDone}>
           Done
         </button>
