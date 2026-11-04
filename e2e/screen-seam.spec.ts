@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { addFirstAthlete, endGame, recordBasketballGame, startGame } from './recorder';
 
 // Makes every read of the phone's store throw, as a refused IndexedDB read does; writes still work.
@@ -61,6 +61,50 @@ test('a read that fails before anything is on screen shows the alert and Reload'
 
   await expect(page.getByRole('alert')).toHaveText("Could not read this phone's data.");
   await expect(page.getByRole('button', { name: 'Reload' })).toBeVisible();
+});
+
+/** How many Games the phone's store holds, counted in the page, deleted or not. */
+const gameCount = (page: Page) =>
+  page.evaluate(async () => {
+    const [{ name }] = await indexedDB.databases();
+    return new Promise<number>((resolve, reject) => {
+      const open = indexedDB.open(name!);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const count = open.result.transaction('games').objectStore('games').count();
+        count.onsuccess = () => {
+          open.result.close();
+          resolve(count.result);
+        };
+      };
+    });
+  });
+
+// Start submitted on every task turn for three seconds, the stress that lands a second tap in the gap after the Game is written:
+// one Game, not two. The first submit starts the Game; the rest must be refused by the form's block.
+test('a double tap on Start makes one Game', async ({ page }) => {
+  await addFirstAthlete(page);
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible();
+
+  await page.evaluate(async () => {
+    const form = document.querySelector('form')!;
+    const turn = () =>
+      new Promise((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = resolve;
+        channel.port2.postMessage(0);
+      });
+    const end = performance.now() + 3000;
+    while (document.contains(form) && performance.now() < end) {
+      form.requestSubmit();
+      await turn();
+    }
+  });
+
+  await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(await gameCount(page)).toBe(1);
 });
 
 test('a read that fails with a Game on screen keeps the score strip and shows no alert', async ({ page }) => {

@@ -36,7 +36,7 @@ type RunOptions<T> = {
   onRefused?: (error: unknown) => void;
   /** The alert a refusal shows; the default is the store refusal's message. */
   message?: string;
-  /** A second call while this one is in flight does nothing (a form save); live taps leave it off. */
+  /** A second call while this one is in flight does nothing (a form save), and stays refused after a save until the form leaves; live taps leave it off. */
   block?: boolean;
 };
 export type Run = <T>(command: (core: CommandCore) => Promise<T>, options?: RunOptions<T>) => void;
@@ -90,23 +90,21 @@ export function useCommand(): { run: Run; alert: string | undefined; busy: boole
       inFlight.current = true;
       setBusy(true);
     }
-    command(core)
-      .then(
-        (value) => {
-          setAlert(undefined);
-          options.onDone?.(value);
-        },
-        (error: unknown) => {
-          setAlert(options.message ?? NOT_SAVED);
-          options.onRefused?.(error);
-        },
-      )
-      .finally(() => {
+    command(core).then(
+      (value) => {
+        setAlert(undefined);
+        options.onDone?.(value);
+      },
+      (error: unknown) => {
+        // a blocked command releases only on refusal: a form that saved stays guarded until it leaves the screen, as its old flag did
         if (options.block) {
           inFlight.current = false;
           setBusy(false);
         }
-      });
+        setAlert(options.message ?? NOT_SAVED);
+        options.onRefused?.(error);
+      },
+    );
   };
   return { run, alert, busy };
 }
