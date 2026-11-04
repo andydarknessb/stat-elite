@@ -78,6 +78,10 @@ _Avoid_: game period, segment
 One thing the Athlete did in a Game, as entered by the Recorder.
 _Avoid_: action, stat, play, telemetry
 
+**Event log**:
+A Game's Events in the order they were entered. Events are only ever added.
+_Avoid_: history, timeline
+
 **Undo**:
 Retracting the most recent Events, newest first. A retracted Event no longer counts toward any stat.
 _Avoid_: delete, cancel
