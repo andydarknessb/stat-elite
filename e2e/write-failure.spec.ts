@@ -381,6 +381,28 @@ test('Remove: a refused save keeps the summary open with the alert in view', asy
   expect(errors).toEqual([]);
 });
 
+test('Remove: Cancel clears the alert, so reopening Remove starts clean', async ({ page }) => {
+  const errors = collectPageErrors(page);
+  await addFirstAthlete(page);
+  await recordBasketballGame(page);
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await page.getByRole('button', { name: /Opponent/ }).click();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await failWrites(page);
+  await page.getByRole('button', { name: 'Yes, remove' }).click();
+  await expectNotSaved(page);
+
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+
+  await expect(page.getByRole('button', { name: 'Yes, remove' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await restoreWrites(page);
+  await page.getByRole('button', { name: 'Yes, remove' }).click();
+  await expect(page.getByRole('button', { name: 'Start Game', exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('a refused STL tile, then a Free Throw that lands: the alert clears', async ({ page }) => {
   const errors = collectPageErrors(page);
   await addFirstAthlete(page);

@@ -77,8 +77,8 @@ export function useLive<T>(read: (live: LiveReads) => Promise<T>, deps: unknown[
   return state?.value;
 }
 
-/** Runs one command against App Core, and holds the alert a refusal leaves until the next command lands. */
-export function useCommand(): { run: Run; alert: string | undefined; busy: boolean } {
+/** Runs one command against App Core, and holds the alert a refusal leaves until the next command lands or `clear` is called. */
+export function useCommand(): { run: Run; alert: string | undefined; busy: boolean; clear: () => void } {
   const core = useCore();
   const [alert, setAlert] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -106,7 +106,7 @@ export function useCommand(): { run: Run; alert: string | undefined; busy: boole
       },
     );
   };
-  return { run, alert, busy };
+  return { run, alert, busy, clear: () => setAlert(undefined) };
 }
 
 /** One root boundary: a read that fails before anything is on screen says so, and Reload starts the phone over. */
