@@ -45,7 +45,7 @@ export interface GameRow {
   updated_at: string;
   /** A Backlogged Game's Totals; a Game with Events has none (ADR 0005). */
   totals?: GameTotals | null;
-  /** Set when the Recorder removes a Backlogged Game: every phone hides it, and its row stays (ADR 0006). */
+  /** Set when the Recorder removes a finished Game: every phone hides it, and its row stays (ADR 0006, ADR 0008). */
   removed?: boolean;
 }
 

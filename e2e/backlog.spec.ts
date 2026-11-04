@@ -110,7 +110,23 @@ test('a 2PT made above 2PT attempted disables Save with an alert, and the date i
   await expect(page.getByRole('alert')).toBeVisible();
 });
 
-test('a live Game summary has no Edit button', async ({ page }) => {
+test('a live Game has no Remove button, and a finished Game recorded here has Remove and no Edit', async ({ page }) => {
+  await addAthlete(page);
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await page.getByRole('button', { name: /Opponent/ }).click();
+  await expect(page.getByRole('heading', { name: 'Opponent' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
+});
+
+test('a finished Game recorded here is removed from its summary after confirming, and leaves the Games feed', async ({ page }) => {
   await addAthlete(page);
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Start', exact: true }).click();
@@ -120,9 +136,13 @@ test('a live Game summary has no Edit button', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await page.getByRole('button', { name: /Opponent/ }).click();
-  await expect(page.getByRole('heading', { name: 'Opponent' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(page.getByText("Remove this Game? It leaves the Games feed and the season line on every phone, and the app can't bring it back.")).toBeVisible();
+  await page.getByRole('button', { name: 'Yes, remove', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Opponent/ })).toHaveCount(0);
 });
 
 test('a Backlogged Game removed from its summary after confirming lands on Home, and leaves the Games feed', async ({ page }) => {
@@ -137,7 +157,7 @@ test('a Backlogged Game removed from its summary after confirming lands on Home,
   await expect(page.getByText('Casey 40 – Opponent 32')).toBeVisible();
 
   await page.getByRole('button', { name: 'Remove', exact: true }).click();
-  await expect(page.getByText('Remove this Game? It leaves the Games feed and the season line.')).toBeVisible();
+  await expect(page.getByText("Remove this Game? It leaves the Games feed and the season line on every phone, and the app can't bring it back.")).toBeVisible();
   await page.getByRole('button', { name: 'Yes, remove', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
 
