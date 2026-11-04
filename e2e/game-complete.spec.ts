@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { addFirstAthlete, startGame, tapCourt } from './recorder';
 
-test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
-
-test('ending a Game opens Game Complete with the Final Score, the line and Plus/Minus, and Copy text copies the summary', async ({ page }) => {
+test('ending a Game opens Game Complete with the Final Score, the line and Plus/Minus, and Copy text copies the summary', async ({ page, browserName }) => {
+  // Playwright grants clipboard permissions on Chromium only, so the copy is checked there
+  if (browserName === 'chromium') await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await addFirstAthlete(page);
   await startGame(page);
 
@@ -27,13 +27,15 @@ test('ending a Game opens Game Complete with the Final Score, the line and Plus/
   await expect(page.getByRole('button', { name: 'Done' })).not.toHaveCSS('background-color', 'rgb(245, 184, 65)');
   await expect(page.locator('button.primary')).toHaveCount(1);
 
-  await page.getByRole('button', { name: 'Copy text' }).click();
-  await expect(page.getByRole('status')).toHaveText('Copied');
-  // Windows clipboards hold CRLF, so the line breaks are compared as LF
-  const pasted = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
-  expect(pasted).toBe(
-    ['Casey vs Opponent: 3–0 final', 'Casey: 3 PTS · FG 1/1 · FT 1/1 · 1 REB · 1 AST · Plus/Minus +3', '#basketball'].join('\n'),
-  );
+  if (browserName === 'chromium') {
+    await page.getByRole('button', { name: 'Copy text' }).click();
+    await expect(page.getByRole('status')).toHaveText('Copied');
+    // Windows clipboards hold CRLF, so the line breaks are compared as LF
+    const pasted = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
+    expect(pasted).toBe(
+      ['Casey vs Opponent: 3–0 final', 'Casey: 3 PTS · FG 1/1 · FT 1/1 · 1 REB · 1 AST · Plus/Minus +3', '#basketball'].join('\n'),
+    );
+  }
 
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
