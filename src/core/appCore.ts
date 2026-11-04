@@ -3,7 +3,6 @@ import {
   BASES,
   OUTCOMES,
   PITCHES,
-  TILE_EVENT_TYPES,
   type AthleteRow,
   type BaseMove,
   type EventRow,
@@ -18,8 +17,29 @@ import {
 import type { MemberRow, Server, SyncedTable, UploadRow } from './server';
 import { createPhoneAccount } from './phoneAccount';
 import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type Shift, type Undoable } from './eventLog';
+import { backlogProblem, eventsFromTotals, NO_FIELDS } from './totals';
+import { gameLineText, signed } from './words';
 
 export type { TileEventType };
+export { backlogProblem, gameLineText, signed };
+export { countFields, notWhole, textOf, totalsOf, type CountField } from './totals';
+export {
+  BASE_LABELS,
+  EVENT_LABELS,
+  OUTCOME_LABELS,
+  PITCH_LABELS,
+  TILE_LABELS,
+  baseLabel,
+  clockOf,
+  fateLine,
+  freeThrowLabel,
+  initials,
+  outcomeLabel,
+  rateText,
+  resultOf,
+  shotLabel,
+  undoLabel,
+} from './words';
 export type { Base, Batting, Baserunning, Counts, PitchCount, Scores, Shift, StrikeKind, UndoableType } from './eventLog';
 
 export type GameFormat =
@@ -134,22 +154,6 @@ export interface GameFeed {
   seasons: Season[];
   games: FeedGame[];
 }
-
-/** A count with its sign, as Plus/Minus reads: +3, 0, -2. */
-export const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
-
-/** The totals a season or a Game shows, in words. */
-const lineText = (line: Line) =>
-  `${line.points} PTS · FG ${line.fg.made}/${line.fg.attempted} · FT ${line.ft.made}/${line.ft.attempted} · ${line.rebounds} REB · ${line.assists} AST`;
-
-/** A batting line in words: hits over At-Bats, and RBI. */
-const battingText = (batting: Batting) => `H/AB ${batting.hits}/${batting.atBats} · ${batting.rbi} RBI`;
-
-/** A Game's stat line in words: the basketball line, or on softball and baseball the batting line with its runs and stolen bases. */
-export const gameLineText = (game: Pick<FeedGame, 'sport' | 'line' | 'batting' | 'baserunning'>) =>
-  game.sport === 'basketball'
-    ? lineText(game.line)
-    : `${battingText(game.batting)} · ${game.baserunning.runs} R · ${game.baserunning.stolenBases} SB`;
 
 /** The hashtag a Game's copy text ends with, by sport (GLOSSARY: Game). */
 const SPORT_TAG: Record<GameRow['sport'], string> = { basketball: '#basketball', softball: '#softball', baseball: '#baseball' };
@@ -410,99 +414,6 @@ const practiceFocusOf = (games: { periodFormat: GameRow['period_format']; events
     return side ? [{ title: 'Weak side', drill: `25 shots from the ${side} ${label} spot, then 10 drives to that side finishing with that hand.` }] : [];
   };
   return [...freeThrowCards, ...weakSide('mid', 'mid-range'), ...weakSide('three', '3-point')];
-};
-
-// whether a value is a count or score a Totals takes: a whole number from 0 to 999
-const isCount = (n: unknown): boolean => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 999;
-// every value inside a Totals, at any depth: the scores and counts the form entered
-const valuesIn = (value: unknown): unknown[] => (typeof value === 'object' && value !== null ? Object.values(value).flatMap(valuesIn) : [value]);
-// a count as a row from another phone may hold it: missing, null, not a number or negative reads as 0, and a count is capped at 999
-const readCount = (n: unknown): number => (typeof n === 'number' && n > 0 ? Math.min(Math.floor(n), 999) : 0);
-
-// a real calendar day from 1900 on: the date must survive a round trip, so 2026-02-31 and 0000-00-00 fail (Postgres refuses both)
-const isRealDay = (day: string): boolean => {
-  const [year, month, date] = day.split('-').map(Number);
-  return day >= '1900-01-01' && new Date(Date.UTC(year, month - 1, date)).toISOString().startsWith(day);
-};
-
-/**
- * The sentence to show for a Backlogged Game entry that must not be saved, or undefined when it may be (ADR 0005).
- * shortcut: a Totals missing a count its sport needs passes here, as the form always sends every count, upgrade when another caller builds Totals
- */
-export const backlogProblem = (entry: Omit<BacklogEntry, 'athleteId'>, today: string): string | undefined => {
-  const { sport, opponentName, gameDate, totals } = entry;
-  if (opponentName.trim() === '') return 'A Game needs an Opponent.';
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(gameDate) || !isRealDay(gameDate)) return 'A Game needs a date, as YYYY-MM-DD.';
-  if (gameDate > today) return "A Game can't be dated after today.";
-  if (!valuesIn(totals).every(isCount)) return 'Counts and scores are whole numbers from 0 to 999.';
-  // basketball's Totals carry shots; softball's and baseball's carry outcomes
-  if ((sport === 'basketball') !== ('shots' in totals)) return "Totals don't match this sport.";
-  if ('shots' in totals) {
-    const attempts = [totals.freeThrows, totals.shots[2], totals.shots[3]];
-    return attempts.some(({ made, attempted }) => made > attempted) ? "Made can't be more than attempted." : undefined;
-  }
-  // a Plate Appearance is any Outcome counted
-  const plateAppearances = Object.values(totals.outcomes).reduce((sum, n) => sum + n, 0);
-  if (totals.rbi > 0 && plateAppearances === 0) return 'RBI needs at least one Plate Appearance.';
-  if (totals.runs < totals.outcomes.home_run) return "Runs can't be fewer than home runs.";
-  return undefined;
-};
-
-// the fields an Event leaves empty: each Event sets only the ones its type carries
-const NO_FIELDS = {
-  retracts_id: null,
-  court_x: null,
-  court_y: null,
-  shot_value: null,
-  made: null,
-  team_score: null,
-  opponent_score: null,
-  outcome: null,
-  rbi: null,
-  pitch: null,
-  base: null,
-  stolen: null,
-};
-
-/**
- * A Backlogged Game's Totals as the Events they stand for, built in memory and never stored (ADR 0005): each counted thing is one
- * Event in Period 1, and the last is the game_end carrying the Final Score. The Events share the Game's created_at, so it has no
- * time on court, and its Playing Share reads 0.
- */
-const eventsFromTotals = (game: GameRow): EventRow[] => {
-  const totals = game.totals!;
-  const events: EventRow[] = [];
-  const add = (fields: Pick<EventRow, 'type'> & Partial<EventRow>) => {
-    const seq = events.length + 1;
-    events.push({ ...NO_FIELDS, id: `${game.id}:${seq}`, game_id: game.id, seq, client_ts: game.created_at, period: 1, ...fields });
-  };
-  // shortcut: a row from another phone is not validated, so readCount reads a count it holds badly as 0 and caps each at 999 to keep the Events bounded, upgrade when a download validates Totals
-  const times = (count: number, make: () => void) => {
-    for (let i = 0; i < count; i++) make();
-  };
-  // the Game's sport picks the shape, not the keys the row holds
-  if (game.sport === 'basketball') {
-    const { shots, freeThrows, tiles } = totals as Extract<GameTotals, { shots: unknown }>;
-    for (const value of [2, 3] as const) {
-      const made = readCount(shots?.[value]?.made);
-      times(made, () => add({ type: 'shot', shot_value: value, made: true }));
-      times(readCount(shots?.[value]?.attempted) - made, () => add({ type: 'shot', shot_value: value, made: false }));
-    }
-    const freeThrowsMade = readCount(freeThrows?.made);
-    times(freeThrowsMade, () => add({ type: 'free_throw', made: true }));
-    times(readCount(freeThrows?.attempted) - freeThrowsMade, () => add({ type: 'free_throw', made: false }));
-    for (const type of TILE_EVENT_TYPES) times(readCount(tiles?.[type]), () => add({ type }));
-  } else {
-    const { outcomes, rbi, runs, steals } = totals as Extract<GameTotals, { outcomes: unknown }>;
-    // one Plate Appearance per Outcome counted, all the RBI on the first
-    const counted = OUTCOMES.flatMap((outcome) => Array.from({ length: readCount(outcomes?.[outcome]) }, () => outcome));
-    counted.forEach((outcome, i) => add({ type: 'plate_appearance', outcome, rbi: i === 0 ? readCount(rbi) : 0 }));
-    // the fold already counts each home run as a run, so only the other runs are moves home
-    times(readCount(runs) - readCount(outcomes?.home_run), () => add({ type: 'baserunning', base: 'home', stolen: false }));
-    times(readCount(steals), () => add({ type: 'baserunning', base: 'second', stolen: true }));
-  }
-  add({ type: 'game_end', team_score: readCount(totals.team), opponent_score: readCount(totals.opponent) });
-  return events;
 };
 
 // the account that recorded a Game: a Game stored before Recorders were is the Owner's, and one waiting on sign-in has none yet, so this phone recorded it
