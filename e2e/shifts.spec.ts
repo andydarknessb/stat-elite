@@ -50,13 +50,10 @@ test('tapping the Game line lists each closed Shift with its time and Plus/Minus
   await expect(gameLine).toContainText(/2 Shifts · Plus\/Minus \+1/);
 });
 
-for (const size of ['Compact', 'Bleacher']) {
+for (const size of ['Compact', 'Bleacher'] as const) {
   test(`at ${size} the Shifts list opens in the Shift bar and does not widen the page`, async ({ page }) => {
     await addFirstAthlete(page);
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('button', { name: size, exact: true }).click();
-    await page.getByRole('button', { name: 'Done' }).click();
-    await startGame(page);
+    await startGame(page, { buttonSize: size });
 
     await page.getByRole('button', { name: 'Sub In' }).click();
     await page.getByRole('button', { name: 'Casey +1' }).click();

@@ -1,12 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { openApp } from './openApp';
+import { addFirstAthlete } from './recorder';
 
 const today = () => new Date().toLocaleDateString('en-CA');
 
 test('Start Game opens setup, Start opens the live screen, and the next setup is prefilled from that Game', async ({ page }) => {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Start Game' }).click();
 
   await expect(page.getByRole('heading', { name: 'Game setup' })).toBeVisible();
@@ -28,9 +26,7 @@ test('Start Game opens setup, Start opens the live screen, and the next setup is
 });
 
 test('the next setup is prefilled with 8 Periods from a Game started that way', async ({ page }) => {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByLabel('Period format').selectOption('8 Periods');
   await page.getByRole('button', { name: 'Start', exact: true }).click();
@@ -45,9 +41,7 @@ test('the next setup is prefilled with 8 Periods from a Game started that way', 
 });
 
 test('a baseball Game is set up in innings, and Cancel starts nothing', async ({ page }) => {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Start Game' }).click();
 
   await page.getByLabel('Sport').selectOption('baseball');

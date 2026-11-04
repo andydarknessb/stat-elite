@@ -1,11 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { addFirstAthlete, startGame } from './recorder';
-
-async function chooseButtonSize(page: Page, size: string) {
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('button', { name: size, exact: true }).click();
-  await page.getByRole('button', { name: 'Done' }).click();
-}
 
 test('at Standard the basketball live screen fits a 390×844 phone with no vertical scroll', async ({ page }) => {
   await addFirstAthlete(page);
@@ -46,7 +40,9 @@ test('a Free Throw records MAKE or MISS with no spot, and the row reads made/att
 
 test('Button Size is chosen in Settings and survives a reload', async ({ page }) => {
   await addFirstAthlete(page);
-  await chooseButtonSize(page, 'Bleacher');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Bleacher', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
 
   await page.reload();
   await page.getByRole('button', { name: 'Settings' }).click();
@@ -55,8 +51,7 @@ test('Button Size is chosen in Settings and survives a reload', async ({ page })
 
 test('at Bleacher the live screen splits into two swipe pages, Shots then Other stats', async ({ page }) => {
   await addFirstAthlete(page);
-  await chooseButtonSize(page, 'Bleacher');
-  await startGame(page);
+  await startGame(page, { buttonSize: 'Bleacher' });
   const steal = page.getByRole('button', { name: /^STL \d+$/ });
 
   await expect(page.getByRole('region', { name: 'Shots' })).toBeInViewport();
@@ -72,8 +67,7 @@ test('at Bleacher the live screen splits into two swipe pages, Shots then Other 
 
 test('at Bleacher the half court keeps its feet ratio, and the Shot controls fit beside it', async ({ page }) => {
   await addFirstAthlete(page);
-  await chooseButtonSize(page, 'Bleacher');
-  await startGame(page);
+  await startGame(page, { buttonSize: 'Bleacher' });
 
   const court = await page.getByRole('img', { name: 'Half court' }).boundingBox();
   await expect(page.getByRole('img', { name: 'Half court' })).toHaveAttribute('viewBox', '0 0 50 42');

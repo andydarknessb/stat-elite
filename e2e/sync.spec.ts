@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { openApp } from './openApp';
-import { addFirstAthlete, startGame } from './recorder';
+import { addAthlete, addFirstAthlete, startGame } from './recorder';
 
 // A Game recorded with the network off uploads once the connection returns, and the badge reaches 0.
 // The smoke runs with no Supabase URL or key, so no request may reach supabase.co (#9).
@@ -16,8 +16,7 @@ test('a Game recorded offline uploads once the connection returns, and the badge
   await openApp(page);
   // the network goes first, so the Athlete waits in the queue with the rest
   await context.setOffline(true);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await addAthlete(page);
   await startGame(page);
   await page.getByRole('button', { name: /^STL/ }).click();
   await page.getByRole('button', { name: 'End Game' }).click();

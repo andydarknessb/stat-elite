@@ -16,7 +16,7 @@ test('the strip, the End Game form, Game Complete and the summary label the Team
   await expect(page.getByRole('group', { name: 'Opponent', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'End Game' }).click();
-  await endGame(page, { team: 'Casey Smith', teamScore: '9', opponentScore: '7' });
+  await endGame(page, { teamLabel: 'Casey Smith', teamScore: '9', opponentScore: '7' });
   await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();
   await expect(page.getByText('Casey Smith 9 – Opponent 7')).toBeVisible();
 
@@ -64,7 +64,7 @@ test("a result row's Final Score keeps its own width, leaving the row to the Opp
   await addFirstAthlete(page, { name: 'Casey Smith' });
   await startGame(page);
   await page.getByRole('button', { name: 'End Game' }).click();
-  await endGame(page, { team: 'Casey Smith', teamScore: '9', opponentScore: '7' });
+  await endGame(page, { teamLabel: 'Casey Smith', teamScore: '9', opponentScore: '7' });
   await page.getByRole('button', { name: 'Done' }).click();
 
   const row = page.locator('.result-row');
@@ -83,7 +83,7 @@ test('"Casey Smith" fits whole beside a 9–7 score on Game Complete and the sum
   await addFirstAthlete(page, { name: 'Casey Smith' });
   await startGame(page);
   await page.getByRole('button', { name: 'End Game' }).click();
-  await endGame(page, { team: 'Casey Smith', teamScore: '9', opponentScore: '7' });
+  await endGame(page, { teamLabel: 'Casey Smith', teamScore: '9', opponentScore: '7' });
 
   await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();
   await expectWhole(page.locator('.result-head').getByText('Casey Smith', { exact: true }));
@@ -138,7 +138,7 @@ test.describe('a 40-character name', () => {
     const final = page.locator('label', { hasText: `${NAME} final` });
     await expectNameCut(page, final);
     await expectFullyVisible(final.getByText('final', { exact: true }));
-    await endGame(page, { team: NAME, teamScore: '9', opponentScore: '7' });
+    await endGame(page, { teamLabel: NAME, teamScore: '9', opponentScore: '7' });
 
     // Game Complete
     await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();

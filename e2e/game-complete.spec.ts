@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { addFirstAthlete, startGame } from './recorder';
+import { addFirstAthlete, startGame, tapCourt } from './recorder';
 
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
@@ -9,8 +9,7 @@ test('ending a Game opens Game Complete with the Final Score, the line and Plus/
 
   // on court for a made 2 at the basket, a made Free Throw, an offensive rebound and an assist
   await page.getByRole('button', { name: 'Sub In' }).click();
-  const court = await page.getByRole('img', { name: 'Half court' }).boundingBox();
-  await page.mouse.click(court!.x + court!.width / 2, court!.y + court!.height * 0.11);
+  await tapCourt(page, 50, 11);
   await page.getByRole('group', { name: 'Shot result' }).getByRole('button', { name: 'MAKE' }).click();
   await page.getByRole('group', { name: 'Free Throw' }).getByRole('button', { name: 'MAKE' }).click();
   await page.getByRole('button', { name: /^OREB \d+$/ }).click();
