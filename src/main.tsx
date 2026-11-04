@@ -25,7 +25,7 @@ const core = createAppCore({
     host: location.hostname,
   }),
 });
-syncOnLaunchAndOnline(core, window);
+syncOnLaunchAndOnline(core, window, document);
 // every launch, not only first run: the Games stay on the phone until they sync (ADR 0001)
 void requestPersistence(navigator.storage);
 
