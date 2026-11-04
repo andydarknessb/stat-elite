@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import Dexie, { liveQuery } from 'dexie';
 import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
+import { readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
 import { arcPreset, backlogProblem, createAppCore, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
 import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
@@ -3730,4 +3731,152 @@ test("a rename changes the name a finished Game's read models carry, and with th
   await inspect.athletes.delete(athleteId);
   expect(await core.liveGame(gameId)).toMatchObject({ athleteName: 'Athlete' });
   expect(await core.gameSummary(gameId)).toMatchObject({ athleteName: 'Athlete' });
+});
+
+// Live read models: a screen subscribes through useReadModel, and a liveQuery stops observing at an await that is not Dexie's, so a read model reads only through Dexie
+
+const FINAL = { teamScore: 5, opponentScore: 3 };
+
+test("a liveQuery past an await that is not Dexie's stops observing, with no error", async () => {
+  const { core, server } = setup();
+  const seen: number[] = [];
+  const errors: unknown[] = [];
+  const subscription = liveQuery(async () => {
+    await server.session();
+    return core.photoCount();
+  }).subscribe({ next: (count) => seen.push(count), error: (error) => errors.push(error) });
+  await vi.waitFor(() => expect(seen).toEqual([0]));
+
+  await core.addAthlete({ name: 'Casey', photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  expect(await core.photoCount()).toBe(1);
+  expect(seen).toEqual([0]);
+  expect(errors).toEqual([]);
+  subscription.unsubscribe();
+});
+
+// subscribes as useReadModel does, makes the write, and waits for the subscription to deliver the value that shows it landed
+async function followsWrite<T>(read: () => Promise<T>, write: () => Promise<unknown>, landed: (value: T) => boolean) {
+  const seen: T[] = [];
+  const subscription = liveQuery(read).subscribe((value) => seen.push(value));
+  await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0));
+  expect(landed(seen.at(-1) as T)).toBe(false);
+
+  await write();
+  await vi.waitFor(() => expect(landed(seen.at(-1) as T)).toBe(true));
+  subscription.unsubscribe();
+}
+
+// each read model a screen subscribes to, keyed by its name on App Core
+const LIVE_READ_MODELS: Record<string, () => Promise<void>> = {
+  home: async () => {
+    const { core } = setup();
+    const casey = await core.addAthlete({ name: 'Casey' });
+    await core.addAthlete({ name: 'Sam' });
+    await followsWrite(() => core.home(), () => core.switchAthlete(casey), (home) => home.athlete?.id === casey);
+  },
+  entry: async () => {
+    const { core } = setup();
+    await followsWrite(() => core.entry(), () => basketballGame(core), (entry) => entry === 'app');
+  },
+  fieldMode: async () => {
+    const { core } = setup();
+    await followsWrite(() => core.fieldMode(), () => core.setFieldMode(true), (on) => on);
+  },
+  buttonSize: async () => {
+    const { core } = setup();
+    await followsWrite(() => core.buttonSize(), () => core.setButtonSize('bleacher'), (size) => size === 'bleacher');
+  },
+  sync: async () => {
+    const { core } = setup();
+    await followsWrite(() => core.sync(), () => core.addAthlete({ name: 'Casey' }), (sync) => sync.notSynced === 1);
+  },
+  account: async () => {
+    const { core } = setup();
+    await followsWrite(() => core.account(), () => signInWithCode(core, 'casey@example.com'), (account) => account !== undefined);
+  },
+  canInvite: async () => {
+    const { core } = setup();
+    const athleteId = await core.addAthlete({ name: 'Casey' });
+    await followsWrite(() => core.canInvite(athleteId), () => signInWithCode(core, 'casey@example.com'), (can) => can);
+  },
+  isOwner: async () => {
+    const { core, server } = setup();
+    const athleteId = await core.addAthlete({ name: 'Casey' });
+    await signInWithCode(core, 'casey@example.com');
+    const token = await core.createInvite(athleteId);
+    const member = otherAccount(server);
+    await signInWithCode(member.core, 'sam@example.com');
+    await followsWrite(() => member.core.isOwner(athleteId), () => member.core.acceptInvite(token), (owner) => !owner);
+  },
+  gameSetup: async () => {
+    const { core } = setup();
+    const athleteId = await core.addAthlete({ name: 'Casey' });
+    await followsWrite(() => core.gameSetup(athleteId), () => core.startGame({ athleteId, ...GAME_SETUP, ...QUARTERS }), (next) => next.opponentName === 'Hawks');
+  },
+  // its reads run in parallel, so each of its Games is ended in turn
+  gameFeed: async () => {
+    const { core } = setup();
+    const athleteId = await core.addAthlete({ name: 'Casey' });
+    const start = () => core.startGame({ athleteId, ...GAME_SETUP, ...QUARTERS });
+    const gameIds = [await start(), await start(), await start()];
+    for (const [ended, gameId] of gameIds.entries()) {
+      await followsWrite(() => core.gameFeed(athleteId), () => core.endGame(gameId, FINAL), (feed) => feed.games.length === ended + 1);
+    }
+  },
+  practiceFocus: async () => {
+    const { core } = setup();
+    const athleteId = await core.addAthlete({ name: 'Casey' });
+    const gameId = await core.startGame({ athleteId, ...GAME_SETUP, ...QUARTERS });
+    await splitAt(core, gameId, 3, [10, 0], [0, 10]);
+    await followsWrite(() => core.practiceFocus(athleteId), () => core.endGame(gameId, FINAL), (cards) => cards.length > 0);
+  },
+  gameSummary: async () => {
+    const { core } = setup();
+    const gameId = await basketballGame(core);
+    await followsWrite(() => core.gameSummary(gameId), () => core.endGame(gameId, FINAL), (summary) => summary !== undefined);
+  },
+  backlogEntry: async () => {
+    const { core } = setup();
+    const athleteId = await core.addAthlete({ name: 'Casey' });
+    const gameId = await core.backlogGame(backlogEntry(athleteId));
+    await followsWrite(
+      () => core.backlogEntry(gameId),
+      () => core.editBacklog(gameId, { opponentName: 'Owls', gameDate: '2026-10-29', totals: BASKETBALL_TOTALS }),
+      (entry) => entry?.opponentName === 'Owls',
+    );
+  },
+  canRemoveGame: async () => {
+    const { core } = setup();
+    const gameId = await basketballGame(core);
+    await followsWrite(() => core.canRemoveGame(gameId), () => core.endGame(gameId, FINAL), (can) => can);
+  },
+  photoCount: async () => {
+    const { core } = setup();
+    await followsWrite(() => core.photoCount(), () => core.addAthlete({ name: 'Casey', photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) }), (count) => count === 1);
+  },
+  gameCopyText: async () => {
+    const { core } = setup();
+    const gameId = await basketballGame(core);
+    await followsWrite(() => core.gameCopyText(gameId), () => core.endGame(gameId, FINAL), (text) => text !== undefined);
+  },
+  gameCard: async () => {
+    const { core } = setup();
+    const gameId = await basketballGame(core);
+    await followsWrite(() => core.gameCard(gameId), () => core.endGame(gameId, FINAL), (card) => card !== undefined);
+  },
+  liveGame: async () => {
+    const { core } = setup();
+    const gameId = await basketballGame(core);
+    await followsWrite(() => core.liveGame(gameId), () => core.recordTile(gameId, 'steal'), (game) => game?.tiles.steal === 1);
+  },
+};
+
+test.each(Object.keys(LIVE_READ_MODELS))('a live %s follows the write behind it', (name) => LIVE_READ_MODELS[name]());
+
+test('every read model a screen subscribes to is in LIVE_READ_MODELS', () => {
+  const screens = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  const subscribed = [...screens.matchAll(/useReadModel\([^;]*?core\.(\w+)\(/g)].map(([, name]) => name);
+  expect([...new Set(subscribed)].sort()).toEqual(Object.keys(LIVE_READ_MODELS).sort());
 });
