@@ -6,11 +6,10 @@ import type { AppCore } from './core/appCore';
 export type LiveReads = Pick<
   AppCore,
   | 'home'
-  | 'entry'
+  | 'phoneAccount'
   | 'fieldMode'
   | 'buttonSize'
   | 'sync'
-  | 'account'
   | 'canInvite'
   | 'isOwner'
   | 'gameSetup'

@@ -43,8 +43,8 @@ export function App({ core }: { core: AppCore }) {
 
 function Screens() {
   const home = useLive((live) => live.home(), []);
-  // where the Recorder starts: sign-in, the first download, or the app (ADR 0007)
-  const entry = useLive((live) => live.entry(), []);
+  // where the Recorder starts: signed out, the first download, signed in, or the session ended (ADR 0007)
+  const phone = useLive((live) => live.phoneAccount(), []);
   // the Game the Recorder just ended stays on screen, showing its Final Score, until Done
   const [ended, setEnded] = useState<string>();
   // an Invite link opens its own screen until the invitee is done with it
@@ -74,11 +74,11 @@ function Screens() {
     };
     return <InviteScreen token={invite} onDone={done} />;
   }
-  if (!home || !entry) return null;
+  if (!home || !phone) return null;
   const gameId = home.liveGameId ?? ended;
   // a Game on screen, Game Complete included, holds the sign-in screen off until Done
-  if (!gameId && entry === 'sign-in') return <SignInScreen />;
-  if (!gameId && entry === 'downloading') return <FirstDownload />;
+  if (!gameId && phone.state === 'signed-out') return <SignInScreen />;
+  if (!gameId && (phone.state === 'first-download' || (phone.state === 'session-ended' && phone.firstDownload))) return <FirstDownload />;
   return (
     <>
       <NotSynced />
@@ -95,15 +95,12 @@ function Screens() {
 
 /** An Invite link. Signed out, the invitee signs in with the same form as the first screen, the Invite's token held here while the code is typed; signed in, accepting it makes them a Member. */
 function InviteScreen({ token, onDone }: { token: string; onDone: () => void }) {
-  const sync = useLive((live) => live.sync(), []);
-  const account = useLive((live) => live.account(), []);
+  const phone = useLive((live) => live.phoneAccount(), []);
   const { run } = useCommand();
-  // the code signs the invitee in here; sync does not re-read on a phone with nothing queued, so it may never say so
-  const [verified, setVerified] = useState(false);
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState<string>();
   // a phone whose session ended is not signed in until its remembered address signs in again (ADR 0007)
-  const signedIn = verified || (sync?.signedIn === true && !sync.sessionEnded);
+  const signedIn = phone?.state === 'signed-in' || phone?.state === 'first-download';
   useEffect(() => {
     if (!signedIn) return;
     run((core) => core.acceptInvite(token), {
@@ -111,13 +108,13 @@ function InviteScreen({ token, onDone }: { token: string; onDone: () => void }) 
       onRefused: (refused) => setError(refusalMessage(refused)),
     });
   }, [token, signedIn]);
-  if (!sync) return null;
+  if (!phone) return null;
   if (!signedIn) {
     return (
       <main>
         <h1>Join an Athlete</h1>
         <p>Sign in with your email to become a Member.</p>
-        <SignInForm onSignedIn={() => setVerified(true)} remembered={account?.email} />
+        <SignInForm remembered={phone.state === 'signed-out' ? undefined : phone.email} />
       </main>
     );
   }
@@ -152,14 +149,13 @@ function refusalMessage(error: unknown): string {
 
 /** Home's notice when the server ended this phone's session: recording still works, and the remembered address's code syncs it again (ADR 0007). */
 function SignInAgain() {
-  const sync = useLive((live) => live.sync(), []);
-  const account = useLive((live) => live.account(), []);
-  if (!sync?.sessionEnded || !account) return null;
+  const phone = useLive((live) => live.phoneAccount(), []);
+  if (phone?.state !== 'session-ended') return null;
   return (
     <section className="card" aria-label="Sign in again">
       <h2>Sign in again to sync</h2>
       <p>Recording still works on this phone.</p>
-      <SignInForm remembered={account.email} />
+      <SignInForm remembered={phone.email} />
     </section>
   );
 }
@@ -268,17 +264,16 @@ function SignInScreen() {
 
 /** The first download of a sign-in: the Account's Athletes come down before the app opens, and Retry follows a failed one (ADR 0007). */
 function FirstDownload() {
-  const sync = useLive((live) => live.sync(), []);
-  const account = useLive((live) => live.account(), []);
+  const phone = useLive((live) => live.phoneAccount(), []);
   const { run, alert } = useCommand();
   const download = () => run((core) => core.firstDownload(), { message: 'Could not get your Athletes. Check the connection and try again.' });
   useEffect(() => download(), []);
   // retrying cannot work once the server ended the session, so the sign-in form replaces Retry
-  if (sync?.sessionEnded && account) {
+  if (phone?.state === 'session-ended') {
     return (
       <main>
         <h1>Sign in again to sync</h1>
-        <SignInForm remembered={account.email} />
+        <SignInForm remembered={phone.email} />
       </main>
     );
   }
@@ -309,7 +304,7 @@ function useOnline(): boolean {
 }
 
 /** The sign-in step of the first screen, the Invite screen and Sign in again: the email gets a 6-digit code, and typing it signs the Recorder in here. A phone whose session ended signs in with its remembered address only (ADR 0007). */
-function SignInForm({ onSignedIn, remembered }: { onSignedIn?: () => void; remembered?: string }) {
+function SignInForm({ remembered }: { remembered?: string }) {
   const [typed, setTyped] = useState('');
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
@@ -332,7 +327,6 @@ function SignInForm({ onSignedIn, remembered }: { onSignedIn?: () => void; remem
   const submitCode = (e: FormEvent) => {
     e.preventDefault();
     run((core) => core.verifyCode(address, code.trim()), {
-      onDone: () => onSignedIn?.(),
       onRefused: () => setError('That code did not work. Check it and try again, or send a new code.'),
     });
   };
@@ -373,15 +367,15 @@ function SignInForm({ onSignedIn, remembered }: { onSignedIn?: () => void; remem
 
 /** No Athlete yet: Add Athlete, with the signed-in address and Sign out (ADR 0007), then the install card. */
 function FirstRun() {
-  const account = useLive((live) => live.account(), []);
+  const phone = useLive((live) => live.phoneAccount(), []);
   const [signingOut, setSigningOut] = useState(false);
   if (signingOut) return <SignOut onCancel={() => setSigningOut(false)} />;
   return (
     <>
       <AthleteForm />
-      {account && (
+      {phone && phone.state !== 'signed-out' && (
         <>
-          <p>Signed in as {account.email}</p>
+          <p>Signed in as {phone.email}</p>
           <button onClick={() => setSigningOut(true)}>Sign out</button>
         </>
       )}
@@ -1246,7 +1240,7 @@ function SettingsScreen({ onDone }: { onDone: () => void }) {
   const size = useLive((live) => live.buttonSize(), []);
   const [deleting, setDeleting] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const account = useLive((live) => live.account(), []);
+  const phone = useLive((live) => live.phoneAccount(), []);
   const field = useLive((live) => live.fieldMode(), []);
   // a setting the store refused: the alert shows until a setting lands
   const { run, alert } = useCommand();
@@ -1278,9 +1272,9 @@ function SettingsScreen({ onDone }: { onDone: () => void }) {
         </button>
         {alert && <p role="alert">{alert}</p>}
       </section>
-      {account && (
+      {phone && phone.state !== 'signed-out' && (
         <>
-          <p>Signed in as {account.email}</p>
+          <p>Signed in as {phone.email}</p>
           <button onClick={() => setSigningOut(true)}>Sign out</button>
         </>
       )}
@@ -1305,7 +1299,7 @@ function fateLine(athlete: AthleteFate): string {
 function DeleteAccount({ onCancel }: { onCancel: () => void }) {
   const [summary, setSummary] = useState<DeletionSummary>();
   const [unreadable, setUnreadable] = useState(false);
-  const sync = useLive((live) => live.sync(), []);
+  const phone = useLive((live) => live.phoneAccount(), []);
   const { run, alert, busy } = useCommand();
   // a passing Athlete's Member comes from the server, so the list waits for it and says so when it cannot load
   useEffect(() => {
@@ -1324,7 +1318,7 @@ function DeleteAccount({ onCancel }: { onCancel: () => void }) {
       </main>
     );
   }
-  if (!summary || !sync) return null;
+  if (!summary || !phone) return null;
   // on success the phone has no Athlete, so App shows first run and this screen goes
   const remove = () => run((core) => core.deleteAccount(), { block: true, message: 'Could not delete. Check the connection and try again.' });
   return (
@@ -1332,7 +1326,7 @@ function DeleteAccount({ onCancel }: { onCancel: () => void }) {
       <section className="card">
         <h1>Delete my account and all data</h1>
         <p>
-          {sync.signedIn ? 'This deletes your account from the server and clears this phone.' : 'This clears this phone.'} It cannot be
+          {phone.state !== 'signed-out' ? 'This deletes your account from the server and clears this phone.' : 'This clears this phone.'} It cannot be
           undone.
         </p>
         <ul>

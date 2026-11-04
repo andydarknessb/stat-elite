@@ -16,6 +16,7 @@ import {
   type TileEventType,
 } from './store';
 import type { MemberRow, Server, SyncedTable, UploadRow } from './server';
+import { createPhoneAccount } from './phoneAccount';
 
 export type { TileEventType };
 
@@ -47,21 +48,12 @@ export interface Scores {
   opponent: number;
 }
 
-/** The signed-in Recorder's account: its id and the address it signed in with (GLOSSARY: Recorder). */
-export interface Account {
-  id: string;
-  email?: string;
-}
-
 export interface Home {
   athlete?: { id: string; name: string; jerseyNumber: string | null; photo?: Blob };
   /** The Athlete a tap on the photo switches to; present only when there is more than one. */
   next?: { id: string; name: string };
   liveGameId?: string;
 }
-
-/** Where the Recorder starts (ADR 0007): the sign-in screen, the first download of an Account with nothing on this phone yet, or the app. */
-export type Entry = 'sign-in' | 'downloading' | 'app';
 
 /** How large the live-game buttons are (GLOSSARY: Button Size). */
 export const BUTTON_SIZES = ['compact', 'standard', 'bleacher'] as const;
@@ -70,22 +62,11 @@ export type ButtonSize = (typeof BUTTON_SIZES)[number];
 const SELECTED_ATHLETE = 'selectedAthleteId';
 const BUTTON_SIZE = 'buttonSize';
 const FIELD_MODE = 'fieldMode';
-/** The account whose rows this phone last downloaded: a sign-in clears it, so the next one downloads again. */
-const DOWNLOADED_FOR = 'downloadedFor';
-/** The account whose rows this phone has downloaded at least once: nothing clears it between launches, unlike DOWNLOADED_FOR (ADR 0007). */
-const DOWNLOADED_ONCE = 'downloadedOnce';
-/** The Account this phone last saw signed in, as JSON: kept so the phone still knows it when the session cannot be read (ADR 0004). */
-const ACCOUNT = 'account';
-/** Set when the server ended this phone's session: the phone keeps recording and asks for the remembered address's code. A verified code clears it (ADR 0007). */
-const SESSION_ENDED = 'sessionEnded';
 /** Settings key prefix, one per Athlete another account owns and shared with this phone (ADR 0004). */
 const SHARED = 'shared:';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
 /** What Sign out says when the phone is not cleared: rows still queued, or the server refuses or cannot be reached. */
 export const SIGN_OUT_REFUSED = 'Could not sign out. Wait for everything to sync and check the connection, then try again.';
-const SIGN_IN_AGAIN = 'The account cannot be reached: sign in again to delete it';
-const SAME_ADDRESS = 'This phone signs in again only with the address it was signed in with';
-
 /** Every Event type Undo can retract: all but a Retraction itself. */
 export type UndoableType = Exclude<EventRow['type'], 'retraction'>;
 
@@ -847,21 +828,10 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     await store.athletes.bulkDelete(ids);
     await store.settings.bulkDelete(ids.map((id) => SHARED + id));
   };
-  // the Account this phone signed in with, read from the store so a session that cannot be read does not hide it
-  const account = async (): Promise<Account | undefined> => {
-    const value = (await store.settings.get(ACCOUNT))?.value;
-    return value === undefined ? undefined : JSON.parse(value);
-  };
+  // the phone's sign-in: the Remembered Account, the ended-Session flag and the download markers (#172)
+  const phone = createPhoneAccount(store, server);
   // clears every table on this phone, as a sign-out or a deletion leaves it
   const clearPhone = () => store.transaction('rw', store.tables, () => Promise.all(store.tables.map((table) => table.clear())));
-  // remembers a live session's account, written only when it changes so a flush that finds it held writes nothing
-  const remember = async (id: string) => {
-    const email = await server.email();
-    const held = await account();
-    if (held?.id !== id || held.email !== email) {
-      await store.settings.put({ key: ACCOUNT, value: JSON.stringify({ id, email }) });
-    }
-  };
   // uploads one queued row as it is now; false when the server refuses it, and the row stays queued
   const sendEntry = async (entry: OutboxRow): Promise<boolean> => {
     const loaded = await loadRow(entry);
@@ -928,7 +898,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const eventRows = events.map(eventOf);
       await store.events.bulkAdd(lacking(eventRows, await store.events.bulkGet(eventRows.map((r) => r.id))));
       // only a download that confirmed the session counts: an unconfirmed one may have come back empty (ADR 0007)
-      if (me !== undefined) await store.settings.put({ key: DOWNLOADED_ONCE, value: me });
+      if (me !== undefined) await phone.confirmDownload(me);
     });
   };
 
@@ -937,16 +907,15 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const drain = async () => {
     const owner = await server.session();
     if (!owner) {
-      // a remembered Account whose session the server ended: Home asks for its code (ADR 0007)
-      if ((await account()) && (await server.sessionEnded())) await store.settings.put({ key: SESSION_ENDED, value: 'on' });
+      await phone.noteEndedSession();
       return;
     }
-    await remember(owner);
+    await phone.remember(owner);
     // a sign-in downloads before anything uploads, so the server's newer copies land before this phone's older ones go up
-    if ((await store.settings.get(DOWNLOADED_FOR))?.value !== owner) {
+    if (await phone.needsDownload(owner)) {
       try {
         await download();
-        await store.settings.put({ key: DOWNLOADED_FOR, value: owner });
+        await phone.markDownloaded(owner);
       } catch (error) {
         // the marker stays unset, so the next flush tries again; uploads go on, and the server keeps the later edit either way
         console.error(error);
@@ -980,17 +949,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   // launch and reconnect: the download runs again, after any drain in flight, then the queue uploads (ADR 0004)
   const refresh = () =>
     after(async () => {
-      await store.settings.delete(DOWNLOADED_FOR);
+      await phone.forgetDownload();
       await drain();
     });
 
   // whether this phone's account recorded the Game (its Recorder), or the phone is signed out with none
   const isRecorder = async (game: GameRow) =>
-    recorderOf(game, (await store.athletes.get(game.athlete_id))?.owner_id) === (await account())?.id;
+    recorderOf(game, (await store.athletes.get(game.athlete_id))?.owner_id) === (await phone.account())?.id;
   // whether the phone's account owns the Athlete, or the phone is signed out: Invite is the Owner's (ADR 0004)
   const isOwner = async (athleteId: string) => {
     const owner = (await store.athletes.get(athleteId))?.owner_id;
-    return owner === undefined || owner === (await account())?.id;
+    return owner === undefined || owner === (await phone.account())?.id;
   };
 
   const liveGame = async (gameId: string): Promise<LiveGame | undefined> => {
@@ -1123,7 +1092,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const id = crypto.randomUUID();
       const date = clock();
       // the signed-in account records the Game; a signed-out phone's Game takes its Recorder at sign-in
-      const recorder = (await account())?.id;
+      const recorder = (await phone.account())?.id;
       await write([store.games], async () => {
         await store.games.add({
           id,
@@ -1150,7 +1119,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       // basketball takes the Athlete's last Game's period format; softball and baseball are always innings
       const periodFormat = entry.sport === 'basketball' ? (await gameSetup(entry.athleteId)).basketballPeriods : 'innings';
       // the signed-in account records the Game, as startGame does; a signed-out phone's Game takes its Recorder at sign-in
-      const recorder = (await account())?.id;
+      const recorder = (await phone.account())?.id;
       await write([store.games], async () => {
         await store.games.add({
           id,
@@ -1411,7 +1380,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         if (game.totals || game.removed) continue;
         if ((await gameEvents(game.id).last())?.type !== 'game_end') unclosed.push(game);
       }
-      const session = (await account())?.id;
+      const session = (await phone.account())?.id;
       // the newest Game that End Game has not closed is the one in progress, and only its Recorder's phone records on it
       // a Game stored before Recorders were is the Owner's; one waiting on sign-in has no Recorder yet, and this phone recorded it
       const liveGameId = unclosed.find((game) => recorderOf(game, athlete.owner_id) === session)?.id;
@@ -1422,21 +1391,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       };
     },
 
-    /** Where the Recorder starts (ADR 0007): sign-in with no Account and no live Game; the first download for an Account with no Athletes that no download has confirmed on this phone; otherwise the app. */
-    async entry(): Promise<Entry> {
-      const me = await account();
-      const { athlete, liveGameId } = await this.home();
-      if (me === undefined) return liveGameId === undefined ? 'sign-in' : 'app';
-      if (athlete === undefined && (await store.settings.get(DOWNLOADED_ONCE))?.value !== me.id) return 'downloading';
-      return 'app';
-    },
-
     /** The first download of a sign-in (ADR 0007): rejects unless the download confirms this phone's session, so the screen can say so and offer Retry. */
     firstDownload(): Promise<void> {
       return exclusive(async () => {
         await download();
-        const me = await account();
-        if (me === undefined || (await store.settings.get(DOWNLOADED_ONCE))?.value !== me.id) {
+        if (!(await phone.downloadConfirmed())) {
           throw new Error('The Athletes were not downloaded: the session could not be confirmed');
         }
       });
@@ -1517,17 +1476,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     },
 
     /** Sends the sign-in code to the address. The Recorder is signed in once the code is entered (verifyCode). While an Account is remembered, only its own address may sign in again (ADR 0007). */
-    async signIn(email: string): Promise<void> {
-      const held = await account();
-      if (held && held.email !== email) throw new Error(SAME_ADDRESS);
-      return server.signIn(email);
+    signIn(email: string): Promise<void> {
+      return phone.signIn(email);
     },
 
     /** Signs the Recorder in with the emailed code, then uploads everything recorded so far. */
     async verifyCode(email: string, code: string): Promise<void> {
-      await server.verifyCode(email, code);
-      // the account is signing in here, so it downloads again even if this phone has downloaded it before; the code ends a session the server ended
-      await store.settings.bulkDelete([DOWNLOADED_FOR, SESSION_ENDED]);
+      await phone.verifyCode(email, code);
       await flush();
     },
 
@@ -1539,7 +1494,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** Whether Invite co-parent is offered: the signed-in account is the Athlete's Owner. */
     async canInvite(athleteId: string): Promise<boolean> {
       const owner = (await store.athletes.get(athleteId))?.owner_id;
-      return owner !== undefined && owner === (await account())?.id;
+      return owner !== undefined && owner === (await phone.account())?.id;
     },
 
     isOwner,
@@ -1547,7 +1502,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** Makes the signed-in account a Member of the Invite's Athlete, then brings the Athlete and its Games down (ADR 0004). */
     async acceptInvite(token: string): Promise<void> {
       // cleared first, so a download that fails after the accept is retried by the next flush
-      await store.settings.delete(DOWNLOADED_FOR);
+      await phone.forgetDownload();
       await server.acceptInvite(token);
       await exclusive(download);
     },
@@ -1595,7 +1550,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     async deletionSummary(): Promise<DeletionSummary> {
       const me = await server.session();
       // a remembered Account with no live session may still exist on the server, unless the server ended its session: then the phone acts as having no Account
-      if (me === undefined && (await account()) && !(await server.sessionEnded())) throw new Error(SIGN_IN_AGAIN);
+      await phone.refuseIfUnreachable(me);
       // a signed-in phone first brings the server's owners down, so an Athlete that passed to this account reads as its own
       if (me !== undefined) await exclusive(download);
       const athletes = await store.athletes.orderBy('created_at').toArray();
@@ -1638,25 +1593,21 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       return exclusive(async () => {
         const live = await server.session();
         // a remembered Account with no live session may still exist on the server, so this refuses rather than clear the phone, unless the server ended its session: then it clears without a server call
-        if (live === undefined && (await account()) && !(await server.sessionEnded())) throw new Error(SIGN_IN_AGAIN);
+        await phone.refuseIfUnreachable(live);
         // a phone not signed in has no account on the server, so only its own rows go
         if (live !== undefined) await server.deleteAccount();
         await clearPhone();
       });
     },
 
-    /** The "N not synced" badge: whether the Recorder is signed in, how many rows still live only on the phone, and whether the server ended the session (ADR 0007). */
-    async sync(): Promise<{ signedIn: boolean; notSynced: number; sessionEnded: boolean }> {
+    /** The "N not synced" badge: how many rows still live only on the phone. Whether the phone is signed in is phoneAccount's (ADR 0007). */
+    async sync(): Promise<{ notSynced: number }> {
       const pending = await store.outbox.toArray();
-      return {
-        signedIn: (await account()) !== undefined,
-        notSynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size,
-        sessionEnded: (await store.settings.get(SESSION_ENDED))?.value === 'on',
-      };
+      return { notSynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size };
     },
 
-    /** The Account this phone signed in with, or undefined when it never has. It holds while the session cannot be read. */
-    account,
+    /** Where the phone stands: signed out, the first download due, signed in, or the server ended the session (ADR 0007). Live. */
+    phoneAccount: phone.phoneAccount,
 
     /** Uploads whatever is queued. Called after every write. */
     flush,
