@@ -1,4 +1,3 @@
-import { liveQuery } from 'dexie';
 import { useEffect, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import {
   BUTTON_SIZES,
@@ -32,30 +31,26 @@ import { CodeTooSoon, InviteRefused } from './core/server';
 import { renderShareCard } from './core/shareCard';
 import { OUTCOMES, PITCHES, type BaseMove, type GameTotals, type Outcome, type Pitch } from './core/store';
 import { InstallPrompt } from './InstallPrompt';
-
-/** What the Recorder sees when the phone's store refuses a write; the screen keeps what it had (#42). */
-const NOT_SAVED = 'Not saved. Try again.';
-
-/** Re-renders whenever the store data behind a read model changes. */
-function useReadModel<T>(read: () => Promise<T>, deps: unknown[]): T | undefined {
-  const [value, setValue] = useState<T>();
-  useEffect(() => {
-    const subscription = liveQuery(read).subscribe({ next: setValue, error: console.error });
-    return () => subscription.unsubscribe();
-  }, deps);
-  return value;
-}
+import { SeamProvider, useCommand, useLive, type Run } from './screenSeam';
 
 export function App({ core }: { core: AppCore }) {
-  const home = useReadModel(() => core.home(), [core]);
+  return (
+    <SeamProvider core={core}>
+      <Screens />
+    </SeamProvider>
+  );
+}
+
+function Screens() {
+  const home = useLive((live) => live.home(), []);
   // where the Recorder starts: sign-in, the first download, or the app (ADR 0007)
-  const entry = useReadModel(() => core.entry(), [core]);
+  const entry = useLive((live) => live.entry(), []);
   // the Game the Recorder just ended stays on screen, showing its Final Score, until Done
   const [ended, setEnded] = useState<string>();
   // an Invite link opens its own screen until the invitee is done with it
   const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get('invite') ?? undefined);
   // Field mode marks the root, and theme.css gives it the light tokens over the dark default
-  const fieldMode = useReadModel(() => core.fieldMode(), [core]);
+  const fieldMode = useLive((live) => live.fieldMode(), []);
   useEffect(() => {
     // before the first read, index.html has already marked the root from the copy below: leave it alone
     if (fieldMode === undefined) return;
@@ -77,31 +72,32 @@ export function App({ core }: { core: AppCore }) {
       history.replaceState(null, '', location.pathname);
       setInvite(undefined);
     };
-    return <InviteScreen core={core} token={invite} onDone={done} />;
+    return <InviteScreen token={invite} onDone={done} />;
   }
   if (!home || !entry) return null;
   const gameId = home.liveGameId ?? ended;
   // a Game on screen, Game Complete included, holds the sign-in screen off until Done
-  if (!gameId && entry === 'sign-in') return <SignInScreen core={core} />;
-  if (!gameId && entry === 'downloading') return <FirstDownload core={core} />;
+  if (!gameId && entry === 'sign-in') return <SignInScreen />;
+  if (!gameId && entry === 'downloading') return <FirstDownload />;
   return (
     <>
-      <NotSynced core={core} />
+      <NotSynced />
       {!home.athlete ? (
-        <FirstRun core={core} />
+        <FirstRun />
       ) : !gameId ? (
-        <HomeScreen core={core} athlete={home.athlete} next={home.next} />
+        <HomeScreen athlete={home.athlete} next={home.next} />
       ) : (
-        <LiveGame core={core} gameId={gameId} onEnded={setEnded} onDone={() => setEnded(undefined)} />
+        <LiveGame gameId={gameId} onEnded={setEnded} onDone={() => setEnded(undefined)} />
       )}
     </>
   );
 }
 
 /** An Invite link. Signed out, the invitee signs in with the same form as the first screen, the Invite's token held here while the code is typed; signed in, accepting it makes them a Member. */
-function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; onDone: () => void }) {
-  const sync = useReadModel(() => core.sync(), [core]);
-  const account = useReadModel(() => core.account(), [core]);
+function InviteScreen({ token, onDone }: { token: string; onDone: () => void }) {
+  const sync = useLive((live) => live.sync(), []);
+  const account = useLive((live) => live.account(), []);
+  const { run } = useCommand();
   // the code signs the invitee in here; sync does not re-read on a phone with nothing queued, so it may never say so
   const [verified, setVerified] = useState(false);
   const [joined, setJoined] = useState(false);
@@ -110,18 +106,18 @@ function InviteScreen({ core, token, onDone }: { core: AppCore; token: string; o
   const signedIn = verified || (sync?.signedIn === true && !sync.sessionEnded);
   useEffect(() => {
     if (!signedIn) return;
-    core.acceptInvite(token).then(
-      () => setJoined(true),
-      (refused: unknown) => setError(refusalMessage(refused)),
-    );
-  }, [core, token, signedIn]);
+    run((core) => core.acceptInvite(token), {
+      onDone: () => setJoined(true),
+      onRefused: (refused) => setError(refusalMessage(refused)),
+    });
+  }, [token, signedIn]);
   if (!sync) return null;
   if (!signedIn) {
     return (
       <main>
         <h1>Join an Athlete</h1>
         <p>Sign in with your email to become a Member.</p>
-        <SignInForm core={core} onSignedIn={() => setVerified(true)} remembered={account?.email} />
+        <SignInForm onSignedIn={() => setVerified(true)} remembered={account?.email} />
       </main>
     );
   }
@@ -155,38 +151,35 @@ function refusalMessage(error: unknown): string {
 }
 
 /** Home's notice when the server ended this phone's session: recording still works, and the remembered address's code syncs it again (ADR 0007). */
-function SignInAgain({ core }: { core: AppCore }) {
-  const sync = useReadModel(() => core.sync(), [core]);
-  const account = useReadModel(() => core.account(), [core]);
+function SignInAgain() {
+  const sync = useLive((live) => live.sync(), []);
+  const account = useLive((live) => live.account(), []);
   if (!sync?.sessionEnded || !account) return null;
   return (
     <section className="card" aria-label="Sign in again">
       <h2>Sign in again to sync</h2>
       <p>Recording still works on this phone.</p>
-      <SignInForm core={core} remembered={account.email} />
+      <SignInForm remembered={account.email} />
     </section>
   );
 }
 
 /** Invite co-parent, for the Owner of a signed-in Athlete: makes an Invite, then offers its link to the share sheet (ADR 0004). */
-function InviteCoParent({ core, athleteId }: { core: AppCore; athleteId: string }) {
-  const canInvite = useReadModel(() => core.canInvite(athleteId), [core, athleteId]);
+function InviteCoParent({ athleteId }: { athleteId: string }) {
+  const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId]);
   const [link, setLink] = useState<string>();
-  const [error, setError] = useState<string>();
+  const { run, alert } = useCommand();
   if (!canInvite) return null;
-  const makeInvite = async () => {
-    try {
-      const token = await core.createInvite(athleteId);
-      setLink(`${location.origin}/?invite=${token}`);
-    } catch {
-      setError('Could not make an invite. Check the connection and try again.');
-    }
-  };
+  const makeInvite = () =>
+    run((core) => core.createInvite(athleteId), {
+      onDone: (token) => setLink(`${location.origin}/?invite=${token}`),
+      message: 'Could not make an invite. Check the connection and try again.',
+    });
   if (!link) {
     return (
       <>
-        <button onClick={() => void makeInvite()}>Invite co-parent</button>
-        {error && <p role="alert">{error}</p>}
+        <button onClick={makeInvite}>Invite co-parent</button>
+        {alert && <p role="alert">{alert}</p>}
       </>
     );
   }
@@ -205,36 +198,38 @@ function InviteCoParent({ core, athleteId }: { core: AppCore; athleteId: string 
 }
 
 /** The Members of a shared Athlete: the Owner sees them and removes one; a Member leaves (ADR 0004). */
-function Members({ core, athleteId }: { core: AppCore; athleteId: string }) {
-  const canInvite = useReadModel(() => core.canInvite(athleteId), [core, athleteId]);
-  const owner = useReadModel(() => core.isOwner(athleteId), [core, athleteId]);
+function Members({ athleteId }: { athleteId: string }) {
+  const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId]);
+  const owner = useLive((live) => live.isOwner(athleteId), [athleteId]);
   const [members, setMembers] = useState<Member[]>();
-  const [error, setError] = useState<string>();
+  const { run, alert } = useCommand();
   const load = () =>
-    core.members(athleteId).then(setMembers, () => setError('Could not load the Members. Check the connection and try again.'));
+    run((core) => core.members(athleteId), {
+      onDone: setMembers,
+      message: 'Could not load the Members. Check the connection and try again.',
+    });
   useEffect(() => {
-    if (canInvite) void load();
-  }, [core, athleteId, canInvite]);
+    if (canInvite) load();
+  }, [athleteId, canInvite]);
   if (owner === undefined) return null;
   if (!owner) {
     return (
       <>
-        <button onClick={() => void core.leave(athleteId).catch(() => setError('Could not leave. Wait for everything to sync, then try again.'))}>
+        <button
+          onClick={() => run((core) => core.leave(athleteId), { message: 'Could not leave. Wait for everything to sync, then try again.' })}
+        >
           Leave
         </button>
-        {error && <p role="alert">{error}</p>}
+        {alert && <p role="alert">{alert}</p>}
       </>
     );
   }
   if (!canInvite) return null;
-  const remove = async (memberId: string) => {
-    try {
-      await core.removeMember(athleteId, memberId);
-      await load();
-    } catch {
-      setError('Could not remove. Check the connection and try again.');
-    }
-  };
+  const remove = (memberId: string) =>
+    run((core) => core.removeMember(athleteId, memberId), {
+      onDone: load,
+      message: 'Could not remove. Check the connection and try again.',
+    });
   return (
     <section>
       <h2>Members</h2>
@@ -247,53 +242,50 @@ function Members({ core, athleteId }: { core: AppCore; athleteId: string }) {
           </li>
         ))}
       </ul>
-      {error && <p role="alert">{error}</p>}
+      {alert && <p role="alert">{alert}</p>}
     </section>
   );
 }
 
 /** The "N not synced" badge: the rows that still live only on the phone. */
-function NotSynced({ core }: { core: AppCore }) {
-  const sync = useReadModel(() => core.sync(), [core]);
+function NotSynced() {
+  const sync = useLive((live) => live.sync(), []);
   if (!sync) return null;
   return <p className="sync">{sync.notSynced} not synced</p>;
 }
 
 /** The first screen on a phone with no Account and no live Game (ADR 0007): what the app is, the install card, then the sign-in form. */
-function SignInScreen({ core }: { core: AppCore }) {
+function SignInScreen() {
   return (
     <main>
       <h1>StatElite</h1>
       <p>Record your Athlete&apos;s Games from the sideline, even with no signal.</p>
       <InstallPrompt />
-      <SignInForm core={core} />
+      <SignInForm />
     </main>
   );
 }
 
 /** The first download of a sign-in: the Account's Athletes come down before the app opens, and Retry follows a failed one (ADR 0007). */
-function FirstDownload({ core }: { core: AppCore }) {
-  const [failed, setFailed] = useState(false);
-  const sync = useReadModel(() => core.sync(), [core]);
-  const account = useReadModel(() => core.account(), [core]);
-  const download = () => {
-    setFailed(false);
-    void core.firstDownload().catch(() => setFailed(true));
-  };
-  useEffect(download, [core]);
+function FirstDownload() {
+  const sync = useLive((live) => live.sync(), []);
+  const account = useLive((live) => live.account(), []);
+  const { run, alert } = useCommand();
+  const download = () => run((core) => core.firstDownload(), { message: 'Could not get your Athletes. Check the connection and try again.' });
+  useEffect(() => download(), []);
   // retrying cannot work once the server ended the session, so the sign-in form replaces Retry
   if (sync?.sessionEnded && account) {
     return (
       <main>
         <h1>Sign in again to sync</h1>
-        <SignInForm core={core} remembered={account.email} />
+        <SignInForm remembered={account.email} />
       </main>
     );
   }
-  if (failed) {
+  if (alert) {
     return (
       <main>
-        <p role="alert">Could not get your Athletes. Check the connection and try again.</p>
+        <p role="alert">{alert}</p>
         <button className="primary" onClick={download}>Retry</button>
       </main>
     );
@@ -317,35 +309,32 @@ function useOnline(): boolean {
 }
 
 /** The sign-in step of the first screen, the Invite screen and Sign in again: the email gets a 6-digit code, and typing it signs the Recorder in here. A phone whose session ended signs in with its remembered address only (ADR 0007). */
-function SignInForm({ core, onSignedIn, remembered }: { core: AppCore; onSignedIn?: () => void; remembered?: string }) {
+function SignInForm({ onSignedIn, remembered }: { onSignedIn?: () => void; remembered?: string }) {
   const [typed, setTyped] = useState('');
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string>();
+  const { run } = useCommand();
   const online = useOnline();
   const address = (remembered ?? typed).trim();
-  const submit = async (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    try {
-      await core.signIn(address);
-      setSent(true);
-    } catch (refusal) {
-      setError(
-        refusal instanceof CodeTooSoon
-          ? 'Wait a minute before asking for another code.'
-          : 'Could not send the code. Check the connection and try again.',
-      );
-    }
+    run((core) => core.signIn(address), {
+      onDone: () => setSent(true),
+      onRefused: (refusal) =>
+        setError(
+          refusal instanceof CodeTooSoon
+            ? 'Wait a minute before asking for another code.'
+            : 'Could not send the code. Check the connection and try again.',
+        ),
+    });
   };
-  const submitCode = async (e: FormEvent) => {
+  const submitCode = (e: FormEvent) => {
     e.preventDefault();
-    try {
-      await core.verifyCode(address, code.trim());
-    } catch {
-      setError('That code did not work. Check it and try again, or send a new code.');
-      return;
-    }
-    onSignedIn?.();
+    run((core) => core.verifyCode(address, code.trim()), {
+      onDone: () => onSignedIn?.(),
+      onRefused: () => setError('That code did not work. Check it and try again, or send a new code.'),
+    });
   };
   if (sent) {
     return (
@@ -383,13 +372,13 @@ function SignInForm({ core, onSignedIn, remembered }: { core: AppCore; onSignedI
 }
 
 /** No Athlete yet: Add Athlete, with the signed-in address and Sign out (ADR 0007), then the install card. */
-function FirstRun({ core }: { core: AppCore }) {
-  const account = useReadModel(() => core.account(), [core]);
+function FirstRun() {
+  const account = useLive((live) => live.account(), []);
   const [signingOut, setSigningOut] = useState(false);
-  if (signingOut) return <SignOut core={core} onCancel={() => setSigningOut(false)} />;
+  if (signingOut) return <SignOut onCancel={() => setSigningOut(false)} />;
   return (
     <>
-      <AthleteForm core={core} />
+      <AthleteForm />
       {account && (
         <>
           <p>Signed in as {account.email}</p>
@@ -404,25 +393,20 @@ function FirstRun({ core }: { core: AppCore }) {
 type AthleteFields = NonNullable<Home['athlete']>;
 
 /** Add Athlete (first run, or from Home) or, when given an Athlete, Edit Athlete. A photo picked in either sets this phone's photo; none picked keeps it. */
-function AthleteForm({ core, athlete, onDone }: { core: AppCore; athlete?: AthleteFields; onDone?: () => void }) {
+function AthleteForm({ athlete, onDone }: { athlete?: AthleteFields; onDone?: () => void }) {
   const [name, setName] = useState(athlete?.name ?? '');
   const [number, setNumber] = useState(athlete?.jerseyNumber ?? '');
   const [photo, setPhoto] = useState<File>();
-  const [saving, setSaving] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const submit = async (e: FormEvent) => {
+  const { run, alert } = useCommand();
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    // a second tap while the save is in flight would add a second Athlete
-    if (!name.trim() || saving) return;
-    setSaving(true);
-    try {
-      if (athlete) await core.editAthlete({ id: athlete.id, name: name.trim(), jerseyNumber: number, photo });
-      else await core.addAthlete({ name: name.trim(), jerseyNumber: number, photo });
-      onDone?.();
-    } catch {
-      setFailed(true);
-      setSaving(false);
-    }
+    // a second tap while the save is in flight would add a second Athlete: run's block refuses it
+    if (!name.trim()) return;
+    const fields = { name: name.trim(), jerseyNumber: number, photo };
+    run<unknown>((core) => (athlete ? core.editAthlete({ id: athlete.id, ...fields }) : core.addAthlete(fields)), {
+      block: true,
+      onDone: () => onDone?.(),
+    });
   };
   return (
     <main>
@@ -441,7 +425,7 @@ function AthleteForm({ core, athlete, onDone }: { core: AppCore; athlete?: Athle
           <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files?.[0])} />
         </label>
         {/* above the buttons: a tap on the button scrolls it into view, and an alert below it can land off the bottom edge */}
-        {failed && <p role="alert">{NOT_SAVED}</p>}
+        {alert && <p role="alert">{alert}</p>}
         <button className="primary">{athlete ? 'Save' : 'Add Athlete'}</button>
         {onDone && (
           <button type="button" onClick={onDone}>
@@ -469,44 +453,27 @@ const initials = (name: string) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => [...word][0].toUpperCase()).join('');
 
 /** Game setup: the Athlete's last Game prefills it, so starting is usually one tap. */
-function GameSetupForm({ core, athleteId, onCancel }: { core: AppCore; athleteId: string; onCancel: () => void }) {
-  const setup = useReadModel(() => core.gameSetup(athleteId), [core, athleteId]);
+function GameSetupForm({ athleteId, onCancel }: { athleteId: string; onCancel: () => void }) {
+  const setup = useLive((live) => live.gameSetup(athleteId), [athleteId]);
   if (!setup) return null;
-  return <SetupFields core={core} athleteId={athleteId} setup={setup} onCancel={onCancel} />;
+  return <SetupFields athleteId={athleteId} setup={setup} onCancel={onCancel} />;
 }
 
 /** The fields hold what the user types from the first render on; the prefill only seeds them. */
-function SetupFields({
-  core,
-  athleteId,
-  setup,
-  onCancel,
-}: {
-  core: AppCore;
-  athleteId: string;
-  setup: GameSetup;
-  onCancel: () => void;
-}) {
+function SetupFields({ athleteId, setup, onCancel }: { athleteId: string; setup: GameSetup; onCancel: () => void }) {
   const [sport, setSport] = useState(setup.sport);
   const [periods, setPeriods] = useState(setup.basketballPeriods);
   const [opponent, setOpponent] = useState(setup.opponentName);
   const [gameDate, setGameDate] = useState(setup.gameDate);
-  // a second tap before the Game shows on screen would start a second Game
-  const [starting, setStarting] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // a second tap before the Game shows on screen would start a second Game: run's block refuses it
+  const { run, alert, busy } = useCommand();
   const valid = opponent.trim() !== '' && gameDate !== '';
-  const submit = async (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (!valid || starting) return;
-    setStarting(true);
+    if (!valid) return;
     const format: GameFormat =
       sport === 'basketball' ? { sport, periodFormat: periods } : { sport, periodFormat: 'innings' };
-    try {
-      await core.startGame({ athleteId, opponentName: opponent, gameDate, ...format });
-    } catch {
-      setFailed(true);
-      setStarting(false);
-    }
+    run((core) => core.startGame({ athleteId, opponentName: opponent, gameDate, ...format }), { block: true });
   };
   return (
     <main>
@@ -542,21 +509,21 @@ function SetupFields({
           Date
           <input type="date" value={gameDate} onChange={(e) => setGameDate(e.target.value)} required />
         </label>
-        <button className="primary" disabled={!valid || starting}>
+        <button className="primary" disabled={!valid || busy}>
           Start
         </button>
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
-        {failed && <p role="alert">{NOT_SAVED}</p>}
+        {alert && <p role="alert">{alert}</p>}
       </form>
     </main>
   );
 }
 
 /** The photo: tapping it switches to the next Athlete. A switch the store refuses says so and keeps the Athlete on screen (#42). */
-function SwitchPhoto({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
-  const [failed, setFailed] = useState(false);
+function SwitchPhoto({ athlete, next }: { athlete: AthleteFields; next: Home['next'] }) {
+  const { run, alert } = useCommand();
   return (
     <>
       <button
@@ -564,7 +531,7 @@ function SwitchPhoto({ core, athlete, next }: { core: AppCore; athlete: AthleteF
         disabled={!next}
         aria-label={next ? `Switch to ${next.name}` : athlete.name}
         onClick={() => {
-          if (next) void core.switchAthlete(next.id).then(() => setFailed(false), () => setFailed(true));
+          if (next) run((core) => core.switchAthlete(next.id));
         }}
       >
         {athlete.photo ? (
@@ -576,25 +543,24 @@ function SwitchPhoto({ core, athlete, next }: { core: AppCore; athlete: AthleteF
           </span>
         )}
       </button>
-      {failed && <p role="alert">{NOT_SAVED}</p>}
+      {alert && <p role="alert">{alert}</p>}
     </>
   );
 }
 
-function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFields; next: Home['next'] }) {
+function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['next'] }) {
   const [form, setForm] = useState<'add' | 'edit' | 'setup' | 'settings' | 'backlog'>();
   const [tab, setTab] = useState<Tab>('home');
   // the finished Game whose summary is open, from either tab
   const [summary, setSummary] = useState<string>();
   if (form === 'setup') {
-    return <GameSetupForm core={core} athleteId={athlete.id} onCancel={() => setForm(undefined)} />;
+    return <GameSetupForm athleteId={athlete.id} onCancel={() => setForm(undefined)} />;
   }
-  if (form === 'settings') return <SettingsScreen core={core} onDone={() => setForm(undefined)} />;
+  if (form === 'settings') return <SettingsScreen onDone={() => setForm(undefined)} />;
   // ahead of the summary below: an Edit opens this form over the summary it came from, and Save or Cancel returns to that summary
   if (form === 'backlog') {
     return (
       <BacklogForm
-        core={core}
         athleteId={athlete.id}
         athleteName={athlete.name}
         gameId={summary}
@@ -606,12 +572,11 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
     );
   }
   if (form) {
-    return <AthleteForm core={core} athlete={form === 'edit' ? athlete : undefined} onDone={() => setForm(undefined)} />;
+    return <AthleteForm athlete={form === 'edit' ? athlete : undefined} onDone={() => setForm(undefined)} />;
   }
   if (summary) {
     return (
       <GameSummary
-        core={core}
         gameId={summary}
         onBack={() => setSummary(undefined)}
         onEdit={() => setForm('backlog')}
@@ -625,7 +590,7 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
   if (tab === 'games' || tab === 'insights') {
     return (
       <>
-        {tab === 'games' ? <GamesTab key={athlete.id} core={core} athleteId={athlete.id} onOpen={setSummary} /> : <InsightsTab core={core} athleteId={athlete.id} />}
+        {tab === 'games' ? <GamesTab key={athlete.id} athleteId={athlete.id} onOpen={setSummary} /> : <InsightsTab athleteId={athlete.id} />}
         <TabBar tab={tab} onTab={setTab} />
       </>
     );
@@ -642,9 +607,9 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
             <Icon name="settings" />
           </button>
         </header>
-        <SignInAgain core={core} />
+        <SignInAgain />
         <div className="athlete">
-          <SwitchPhoto core={core} athlete={athlete} next={next} />
+          <SwitchPhoto athlete={athlete} next={next} />
           <h1>{athlete.name}</h1>
           {athlete.jerseyNumber && <p className="number">#{athlete.jerseyNumber}</p>}
           <div className="athlete-actions">
@@ -660,10 +625,10 @@ function HomeScreen({ core, athlete, next }: { core: AppCore; athlete: AthleteFi
           Start Game
         </button>
         <button onClick={() => setForm('backlog')}>Add past Game</button>
-        <SeasonAndRecent core={core} athleteId={athlete.id} onOpen={setSummary} />
+        <SeasonAndRecent athleteId={athlete.id} onOpen={setSummary} />
         <section className="card sharing" aria-label="Sharing">
-          <InviteCoParent core={core} athleteId={athlete.id} />
-          <Members core={core} athleteId={athlete.id} />
+          <InviteCoParent athleteId={athlete.id} />
+          <Members athleteId={athlete.id} />
         </section>
       </main>
       <TabBar tab={tab} onTab={setTab} />
@@ -924,8 +889,8 @@ function ResultRow({ game, onOpen }: { game: FeedGame; onOpen: (gameId: string) 
 }
 
 /** Home's season card, then the Athlete's three most recent finished Games as result rows. */
-function SeasonAndRecent({ core, athleteId, onOpen }: { core: AppCore; athleteId: string; onOpen: (gameId: string) => void }) {
-  const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
+function SeasonAndRecent({ athleteId, onOpen }: { athleteId: string; onOpen: (gameId: string) => void }) {
+  const feed = useLive((live) => live.gameFeed(athleteId), [athleteId]);
   if (!feed) return null;
   return (
     <>
@@ -979,8 +944,8 @@ function SeasonTiles({ season, games }: { season: Season; games: number }) {
 }
 
 /** The Games tab: All, then a chip for each sport with finished Games. A sport's chip shows its season tiles above its Games and filters the feed to it. */
-function GamesTab({ core, athleteId, onOpen }: { core: AppCore; athleteId: string; onOpen: (gameId: string) => void }) {
-  const feed = useReadModel(() => core.gameFeed(athleteId), [core, athleteId]);
+function GamesTab({ athleteId, onOpen }: { athleteId: string; onOpen: (gameId: string) => void }) {
+  const feed = useLive((live) => live.gameFeed(athleteId), [athleteId]);
   const [chosen, setChosen] = useState<Season['sport']>();
   if (!feed) return null;
   const seasons = SPORT_ORDER.flatMap((sport) => feed.seasons.filter((season) => season.sport === sport));
@@ -1006,8 +971,8 @@ function GamesTab({ core, athleteId, onOpen }: { core: AppCore; athleteId: strin
 }
 
 /** The Insights tab: Practice Focus cards from the Athlete's last 5 Games, each with its drill (GLOSSARY: Practice Focus). */
-function InsightsTab({ core, athleteId }: { core: AppCore; athleteId: string }) {
-  const cards = useReadModel(() => core.practiceFocus(athleteId), [core, athleteId]);
+function InsightsTab({ athleteId }: { athleteId: string }) {
+  const cards = useLive((live) => live.practiceFocus(athleteId), [athleteId]);
   if (!cards) return null;
   return (
     <main>
@@ -1033,20 +998,18 @@ function ScoreLabel({ name, children }: { name: string; children: ReactNode }) {
 }
 
 /** A finished Game's summary, a result card: its badge and Final Score, the Opponent, date and the Athlete's line; basketball adds Plus/Minus, Playing Share and the tiles. */
-function GameSummary({ core, gameId, onBack, onEdit, onRemoved }: { core: AppCore; gameId: string; onBack: () => void; onEdit: () => void; onRemoved: () => void }) {
-  // wrapped so a resolved undefined, a Game removed, differs from a read still loading
-  const read = useReadModel(async () => ({ game: await core.gameSummary(gameId) }), [core, gameId]);
-  const game = read?.game;
+function GameSummary({ gameId, onBack, onEdit, onRemoved }: { gameId: string; onBack: () => void; onEdit: () => void; onRemoved: () => void }) {
+  const game = useLive((live) => live.gameSummary(gameId), [gameId]);
   // only a Backlogged Game its Recorder entered has an entry to edit (ADR 0005); its Recorder can remove any finished Game (ADR 0008)
-  const backlog = useReadModel(() => core.backlogEntry(gameId), [core, gameId]);
-  const removable = useReadModel(() => core.canRemoveGame(gameId), [core, gameId]);
+  const backlog = useLive((live) => live.backlogEntry(gameId), [gameId]);
+  const removable = useLive((live) => live.canRemoveGame(gameId), [gameId]);
   // Remove asks first, and the confirm step says only what leaves the app: the Game is hidden, not erased (ADR 0006)
   const [confirming, setConfirming] = useState(false);
-  // a removal can download with this summary open, and its Back button is below the return (#164)
-  const gone = read && !game;
+  const { run, alert } = useCommand();
+  // the Game was removed on another phone or tab, so there is nothing to show: the summary leaves (#164)
   useEffect(() => {
-    if (gone) onBack();
-  }, [gone]);
+    if (game === null) onBack();
+  }, [game]);
   if (!game) return null;
   const { letter, name } = resultOf(game.final);
   return (
@@ -1081,14 +1044,8 @@ function GameSummary({ core, gameId, onBack, onEdit, onRemoved }: { core: AppCor
       {removable && confirming && (
         <section className="card">
           <p>Remove this Game? It leaves the Games feed and the season line on every phone, and the app can't bring it back.</p>
-          <button
-            onClick={async () => {
-              await core.removeGame(gameId);
-              onRemoved();
-            }}
-          >
-            Yes, remove
-          </button>
+          {alert && <p role="alert">{alert}</p>}
+          <button onClick={() => run((core) => core.removeGame(gameId), { onDone: onRemoved })}>Yes, remove</button>
           <button onClick={() => setConfirming(false)}>Cancel</button>
         </section>
       )}
@@ -1166,29 +1123,39 @@ function totalsOf(sport: BacklogEntry['sport'], text: Record<string, string>): G
 
 /** Add past Game (no gameId) or Edit past Game: a Backlogged Game, entered from its Totals (ADR 0005). Loads its prefill before the fields, as GameSetupForm does. */
 function BacklogForm({
-  core,
   athleteId,
   athleteName,
   gameId,
   onDone,
 }: {
-  core: AppCore;
   athleteId: string;
   athleteName: string;
   gameId?: string;
   onDone: (savedGameId?: string) => void;
 }) {
-  const setup = useReadModel(() => core.gameSetup(athleteId), [core, athleteId]);
-  const entry = useReadModel(() => (gameId ? core.backlogEntry(gameId) : Promise.resolve(undefined)), [core, gameId]);
+  const setup = useLive((live) => live.gameSetup(athleteId), [athleteId]);
+  const entry = useLive((live) => (gameId ? live.backlogEntry(gameId) : Promise.resolve(undefined)), [gameId]);
   // an Edit labels the Game's own Athlete: another tab can change the selected one while this form is open
-  const summary = useReadModel(() => (gameId ? core.gameSummary(gameId) : Promise.resolve(undefined)), [core, gameId]);
+  const summary = useLive((live) => (gameId ? live.gameSummary(gameId) : Promise.resolve(undefined)), [gameId]);
+  // the Game left this phone with its Athlete: the form returns, and its summary leaves too. A removal keeps the entry, so the form stays until Cancel or Save (#164)
+  useEffect(() => {
+    if (gameId && entry === null) onDone();
+  }, [entry]);
   if (!setup || (gameId && !entry)) return null;
-  return <BacklogFields core={core} athleteId={athleteId} athleteName={summary?.athleteName ?? athleteName} gameId={gameId} setup={setup} entry={entry} onDone={onDone} />;
+  return (
+    <BacklogFields
+      athleteId={athleteId}
+      athleteName={summary?.athleteName ?? athleteName}
+      gameId={gameId}
+      setup={setup}
+      entry={entry ?? undefined}
+      onDone={onDone}
+    />
+  );
 }
 
 /** The fields hold what the Recorder types from the first render on; the prefill only seeds them. */
 function BacklogFields({
-  core,
   athleteId,
   athleteName,
   gameId,
@@ -1196,7 +1163,6 @@ function BacklogFields({
   entry,
   onDone,
 }: {
-  core: AppCore;
   athleteId: string;
   athleteName: string;
   gameId?: string;
@@ -1209,9 +1175,8 @@ function BacklogFields({
   const [gameDate, setGameDate] = useState(entry?.gameDate ?? '');
   // by key, so a sport's typed counts stay put when the sport changes: the keys do not overlap
   const [text, setText] = useState<Record<string, string>>(() => (entry ? textOf(entry.totals) : {}));
-  // a second tap before the save lands would write a second Game
-  const [saving, setSaving] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // a second tap before the save lands would write a second Game: run's block refuses it
+  const { run, alert, busy } = useCommand();
   const typed = (key: string) => text[key] ?? '';
   const fields: CountField[] = [
     ['teamScore', `${athleteName} score`],
@@ -1223,21 +1188,11 @@ function BacklogFields({
   const ready = opponent.trim() !== '' && gameDate !== '' && typed('teamScore').trim() !== '' && typed('opponentScore').trim() !== '';
   const draft = ready && !notWhole ? { sport, opponentName: opponent.trim(), gameDate, totals: totalsOf(sport, text) } : undefined;
   const problem = notWhole ? `${notWhole[1]} must be a whole number.` : draft && backlogProblem(draft, setup.gameDate);
-  const submit = async (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (!draft || problem || saving) return;
-    setSaving(true);
-    try {
-      if (gameId) {
-        await core.editBacklog(gameId, draft);
-        onDone();
-      } else {
-        onDone(await core.backlogGame({ athleteId, ...draft }));
-      }
-    } catch {
-      setFailed(true);
-      setSaving(false);
-    }
+    if (!draft || problem) return;
+    if (gameId) run((core) => core.editBacklog(gameId, draft), { block: true, onDone: () => onDone() });
+    else run((core) => core.backlogGame({ athleteId, ...draft }), { block: true, onDone });
   };
   return (
     <main>
@@ -1274,8 +1229,8 @@ function BacklogFields({
         </div>
         {/* above the buttons, as AthleteForm places it: the alert sits directly above Save, where a Recorder reaching Save reads it */}
         {problem && <p role="alert">{problem}</p>}
-        {failed && <p role="alert">{NOT_SAVED}</p>}
-        <button className="primary" disabled={!draft || problem !== undefined || saving}>
+        {alert && <p role="alert">{alert}</p>}
+        <button className="primary" disabled={!draft || problem !== undefined || busy}>
           Save
         </button>
         <button type="button" onClick={() => onDone()}>
@@ -1287,17 +1242,17 @@ function BacklogFields({
 }
 
 /** Settings: Button Size, the phone setting the live screen reads (GLOSSARY: Button Size). */
-function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void }) {
-  const size = useReadModel(() => core.buttonSize(), [core]);
+function SettingsScreen({ onDone }: { onDone: () => void }) {
+  const size = useLive((live) => live.buttonSize(), []);
   const [deleting, setDeleting] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const account = useReadModel(() => core.account(), [core]);
-  const field = useReadModel(() => core.fieldMode(), [core]);
+  const account = useLive((live) => live.account(), []);
+  const field = useLive((live) => live.fieldMode(), []);
   // a setting the store refused: the alert shows until a setting lands
-  const [failed, setFailed] = useState(false);
-  if (deleting) return <DeleteAccount core={core} onCancel={() => setDeleting(false)} />;
-  if (signingOut) return <SignOut core={core} onCancel={() => setSigningOut(false)} />;
-  if (!size || field === undefined) return null;
+  const { run, alert } = useCommand();
+  if (deleting) return <DeleteAccount onCancel={() => setDeleting(false)} />;
+  if (signingOut) return <SignOut onCancel={() => setSigningOut(false)} />;
+  if (!size || field == null) return null;
   return (
     <main>
       <section className="card">
@@ -1308,7 +1263,7 @@ function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void })
               key={option}
               aria-pressed={option === size}
               className={option === size ? 'primary' : undefined}
-              onClick={() => void core.setButtonSize(option).then(() => setFailed(false), () => setFailed(true))}
+              onClick={() => run((core) => core.setButtonSize(option))}
             >
               {SIZE_LABELS[option]}
             </button>
@@ -1317,11 +1272,11 @@ function SettingsScreen({ core, onDone }: { core: AppCore; onDone: () => void })
         <button
           aria-pressed={field}
           className={field ? 'primary' : undefined}
-          onClick={() => void core.setFieldMode(!field).then(() => setFailed(false), () => setFailed(true))}
+          onClick={() => run((core) => core.setFieldMode(!field))}
         >
           Field mode
         </button>
-        {failed && <p role="alert">{NOT_SAVED}</p>}
+        {alert && <p role="alert">{alert}</p>}
       </section>
       {account && (
         <>
@@ -1347,37 +1302,31 @@ function fateLine(athlete: AthleteFate): string {
 }
 
 /** Names what happens to each Athlete, then deletes: the account on the server, and everything on this phone. */
-function DeleteAccount({ core, onCancel }: { core: AppCore; onCancel: () => void }) {
+function DeleteAccount({ onCancel }: { onCancel: () => void }) {
   const [summary, setSummary] = useState<DeletionSummary>();
   const [unreadable, setUnreadable] = useState(false);
-  const sync = useReadModel(() => core.sync(), [core]);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string>();
+  const sync = useLive((live) => live.sync(), []);
+  const { run, alert, busy } = useCommand();
   // a passing Athlete's Member comes from the server, so the list waits for it and says so when it cannot load
   useEffect(() => {
-    core.deletionSummary().then(setSummary, () => setUnreadable(true));
-  }, [core]);
+    run((core) => core.deletionSummary(), {
+      onDone: setSummary,
+      onRefused: () => setUnreadable(true),
+      message: 'Could not load what deleting removes. Check the connection and try again.',
+    });
+  }, []);
   if (unreadable) {
     return (
       <main>
         <h1>Delete my account and all data</h1>
-        <p role="alert">Could not load what deleting removes. Check the connection and try again.</p>
+        <p role="alert">{alert}</p>
         <button onClick={onCancel}>Cancel</button>
       </main>
     );
   }
   if (!summary || !sync) return null;
-  const remove = async () => {
-    setDeleting(true);
-    setError(undefined);
-    try {
-      // on success the phone has no Athlete, so App shows first run and this screen goes
-      await core.deleteAccount();
-    } catch {
-      setError('Could not delete. Check the connection and try again.');
-      setDeleting(false);
-    }
-  };
+  // on success the phone has no Athlete, so App shows first run and this screen goes
+  const remove = () => run((core) => core.deleteAccount(), { block: true, message: 'Could not delete. Check the connection and try again.' });
   return (
     <main>
       <section className="card">
@@ -1395,34 +1344,24 @@ function DeleteAccount({ core, onCancel }: { core: AppCore; onCancel: () => void
           <li>Not yet synced: {summary.unsynced}</li>
         </ul>
       </section>
-      <button className="primary" disabled={deleting} onClick={() => void remove()}>
+      <button className="primary" disabled={busy} onClick={remove}>
         Delete everything
       </button>
-      <button disabled={deleting} onClick={onCancel}>
+      <button disabled={busy} onClick={onCancel}>
         Cancel
       </button>
-      {error && <p role="alert">{error}</p>}
+      {alert && <p role="alert">{alert}</p>}
     </main>
   );
 }
 
 /** Sign out: says what the phone loses and keeps, then clears this phone; the Account and its rows stay on the server. */
-function SignOut({ core, onCancel }: { core: AppCore; onCancel: () => void }) {
-  const photos = useReadModel(() => core.photoCount(), [core]);
-  const [signingOut, setSigningOut] = useState(false);
-  const [error, setError] = useState<string>();
+function SignOut({ onCancel }: { onCancel: () => void }) {
+  const photos = useLive((live) => live.photoCount(), []);
+  const { run, alert, busy } = useCommand();
   if (photos === undefined) return null;
-  const signOut = async () => {
-    setSigningOut(true);
-    setError(undefined);
-    try {
-      // on success the phone has no Athlete, so App shows first run and this screen goes
-      await core.signOut();
-    } catch {
-      setError(SIGN_OUT_REFUSED);
-      setSigningOut(false);
-    }
-  };
+  // on success the phone has no Athlete, so App shows first run and this screen goes
+  const signOut = () => run((core) => core.signOut(), { block: true, message: SIGN_OUT_REFUSED });
   return (
     <main>
       <section className="card">
@@ -1435,13 +1374,13 @@ function SignOut({ core, onCancel }: { core: AppCore; onCancel: () => void }) {
           <li>Photos on this phone: {photos}</li>
         </ul>
       </section>
-      <button className="primary" disabled={signingOut} onClick={() => void signOut()}>
+      <button className="primary" disabled={busy} onClick={signOut}>
         Sign out
       </button>
-      <button disabled={signingOut} onClick={onCancel}>
+      <button disabled={busy} onClick={onCancel}>
         Cancel
       </button>
-      {error && <p role="alert">{error}</p>}
+      {alert && <p role="alert">{alert}</p>}
     </main>
   );
 }
@@ -1466,21 +1405,19 @@ function ScoreSide({ label, value, onAdjust }: { label: string; value: number; o
 
 /** End Game: the Final Score, prefilled from the strip. Submit stays disabled until both sides have a whole number. */
 function EndGameForm({
-  core,
+  run,
   gameId,
   athleteName,
   score,
   onEnded,
   onCancel,
-  onFailed,
 }: {
-  core: AppCore;
+  run: Run;
   gameId: string;
   athleteName: string;
   score: Scores;
   onEnded: () => void;
   onCancel: () => void;
-  onFailed: () => void;
 }) {
   const [team, setTeam] = useState(String(score.team));
   const [opponent, setOpponent] = useState(String(score.opponent));
@@ -1491,7 +1428,7 @@ function EndGameForm({
     // leaves the Game on screen before the store closes it, so Home does not flash in between
     onEnded();
     // a refused End Game leaves the Game live, and the live screen says so
-    void core.endGame(gameId, { teamScore: Number(team), opponentScore: Number(opponent) }).catch(onFailed);
+    run((core) => core.endGame(gameId, { teamScore: Number(team), opponentScore: Number(opponent) }));
   };
   return (
     <form onSubmit={submit}>
@@ -1515,10 +1452,10 @@ function EndGameForm({
 }
 
 /** Game Complete, shown once End Game closes the Game: a result card (trophy, Final, the W/L/T badge and Final Score, the Athlete's line, Plus/Minus), then Share card and Copy text below it. */
-function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
-  const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
+function GameComplete({ gameId, onDone }: { gameId: string; onDone: () => void }) {
+  const game = useLive((live) => live.gameSummary(gameId), [gameId]);
   // the text is read before the tap, so the click reaches the clipboard with no await in between (iOS drops the gesture across one)
-  const text = useReadModel(() => core.gameCopyText(gameId), [core, gameId]);
+  const text = useLive((live) => live.gameCopyText(gameId), [gameId]);
   // the outcome shows for 2 seconds in place, no modal; a new object per tap restarts the timer
   const [copied, setCopied] = useState<{ label: string }>();
   useEffect(() => {
@@ -1527,7 +1464,7 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
     return () => clearTimeout(timer);
   }, [copied]);
   // the card is drawn as the sheet opens, so a tap on Share card reaches the share sheet with no await in between (iOS drops the gesture across one)
-  const card = useReadModel(() => core.gameCard(gameId), [core, gameId]);
+  const card = useLive((live) => live.gameCard(gameId), [gameId]);
   const [image, setImage] = useState<File>();
   const [drawFailed, setDrawFailed] = useState(false);
   useEffect(() => {
@@ -1546,6 +1483,10 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
     );
     return () => controller.abort();
   }, [card]);
+  // the Game was removed on another phone or tab: Game Complete goes Home (#164). liveGame does not read removed, so the summary's null is the signal
+  useEffect(() => {
+    if (game === null) onDone();
+  }, [game]);
   if (!game) return null;
   // the phone cannot share files: the image downloads instead
   const download = (file: File) => {
@@ -1568,7 +1509,7 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
     download(image);
   };
   const copy = () => {
-    if (text === undefined) return;
+    if (!text) return;
     // a missing clipboard API lands on the same Copy failed label as a refused write
     const written = navigator.clipboard?.writeText(text) ?? Promise.reject(new Error('no clipboard'));
     written.then(
@@ -1614,7 +1555,7 @@ function GameComplete({ core, gameId }: { core: AppCore; gameId: string }) {
         Share card
       </button>
       {drawFailed && <p role="status">Share card could not be drawn</p>}
-      <button disabled={text === undefined} onClick={copy}>
+      <button disabled={!text} onClick={copy}>
         Copy text
       </button>
       <p role="status">{copied?.label}</p>
@@ -1632,19 +1573,17 @@ type PendingShot = { x: number; y: number; value: 2 | 3 };
 
 /** Shot entry: tap the spot, then MAKE or MISS. Nothing is saved until the result tap (plan: Shot entry). */
 function ShotEntry({
-  core,
+  run,
   gameId,
   shots,
   points,
   onRecorded,
-  attempt,
 }: {
-  core: AppCore;
+  run: Run;
   gameId: string;
   shots: LiveGame['shots'];
   points: number;
   onRecorded: (label: string) => void;
-  attempt: (write: Promise<unknown>, onSaved: () => void, onRefused?: () => void) => void;
 }) {
   const [pending, setPending] = useState<PendingShot>();
   // the court is drawn in feet, so a spot is read off the box as 0–100 on each axis
@@ -1663,11 +1602,10 @@ function ShotEntry({
     if (!pending) return;
     const spot = pending;
     setPending(undefined);
-    attempt(
-      core.recordShot(gameId, { x: spot.x, y: spot.y, value: spot.value, made }),
-      () => onRecorded(shotLabel(spot.value, made)),
-      () => setPending((current) => current ?? spot),
-    );
+    run((core) => core.recordShot(gameId, { x: spot.x, y: spot.y, value: spot.value, made }), {
+      onDone: () => onRecorded(shotLabel(spot.value, made)),
+      onRefused: () => setPending((current) => current ?? spot),
+    });
   };
   return (
     <div className="shot-entry">
@@ -1713,17 +1651,7 @@ function Diamond({ onBase }: { onBase: Base }) {
   );
 }
 
-function LiveGame({
-  core,
-  gameId,
-  onEnded,
-  onDone,
-}: {
-  core: AppCore;
-  gameId: string;
-  onEnded: (gameId: string) => void;
-  onDone: () => void;
-}) {
+function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameId: string) => void; onDone: () => void }) {
   // the live Game re-reads each second, so the Shift timer and Playing Share keep running
   // shortcut: re-reads every Event of the Game each second, fine for one Game; upgrade to a UI-side clock if a Game's read gets slow
   const [second, setSecond] = useState(0);
@@ -1731,13 +1659,13 @@ function LiveGame({
     const timer = setInterval(() => setSecond((n) => n + 1), 1000);
     return () => clearInterval(timer);
   }, []);
-  const game = useReadModel(() => core.liveGame(gameId), [core, gameId, second]);
-  const size = useReadModel(() => core.buttonSize(), [core]) ?? 'standard';
-  const field = useReadModel(() => core.fieldMode(), [core]) ?? false;
+  const game = useLive((live) => live.liveGame(gameId), [gameId, second]);
+  const size = useLive((live) => live.buttonSize(), []) ?? 'standard';
+  const field = useLive((live) => live.fieldMode(), []) ?? false;
   // the toast for the last tap, shown 3 seconds; each call sets a new object, so a repeated label still restarts the timer
   const [toast, setToast] = useState<{ label: string }>();
   // a write the store refused: the alert shows until the next write lands
-  const [notSaved, setNotSaved] = useState(false);
+  const { run, alert } = useCommand();
   const [ending, setEnding] = useState(false);
   // the Outcome picked on softball or baseball, waiting for its RBI chip
   const [pending, setPending] = useState<Outcome>();
@@ -1759,75 +1687,77 @@ function LiveGame({
     const timer = setTimeout(() => setFlash(undefined), 700);
     return () => clearTimeout(timer);
   }, [flash]);
+  // the Game was removed on another phone or tab, so the live screen goes Home (#164)
+  useEffect(() => {
+    if (game === null) onDone();
+  }, [game]);
   if (!game) return null;
   if (game.final) {
     return (
       <main>
-        <GameComplete core={core} gameId={gameId} />
+        <GameComplete gameId={gameId} onDone={onDone} />
         <button onClick={onDone}>
           Done
         </button>
       </main>
     );
   }
-  // a write that lands clears the alert and runs onSaved; one the store refuses shows the alert, runs onRefused to put back what the tap cleared, and leaves the screen as it was
-  const attempt = (write: Promise<unknown>, onSaved: () => void, onRefused?: () => void) =>
-    write.then(() => {
-      setNotSaved(false);
-      onSaved();
-    }, () => {
-      setNotSaved(true);
-      onRefused?.();
-    });
+  // a write that lands clears the alert and runs onDone; one the store refuses shows the alert, runs onRefused to put back what the tap cleared, and leaves the screen as it was. Live taps never block.
   const tap = (type: TileEventType) =>
-    attempt(core.recordTile(gameId, type), () => {
-      setToast({ label: TILE_LABELS[type] });
-      setFlash({ type });
+    run((core) => core.recordTile(gameId, type), {
+      onDone: () => {
+        setToast({ label: TILE_LABELS[type] });
+        setFlash({ type });
+      },
     });
-  const tapFreeThrow = (made: boolean) => attempt(core.recordFreeThrow(gameId, made), () => setToast({ label: freeThrowLabel(made) }));
-  const tapPitch = (pitch: Pitch) => attempt(core.recordPitch(gameId, pitch), () => setToast({ label: PITCH_LABELS[pitch] }));
+  const tapFreeThrow = (made: boolean) => run((core) => core.recordFreeThrow(gameId, made), { onDone: () => setToast({ label: freeThrowLabel(made) }) });
+  const tapPitch = (pitch: Pitch) => run((core) => core.recordPitch(gameId, pitch), { onDone: () => setToast({ label: PITCH_LABELS[pitch] }) });
   // the armed Outcome clears at the tap and comes back if the store refuses it
   const pick = (rbi: number) => {
     if (!pending) return;
     const outcome = pending;
     setPending(undefined);
-    void attempt(
-      core.recordPlateAppearance(gameId, { outcome, rbi }),
-      () => setToast({ label: outcomeLabel(outcome, game.count?.strikeout) }),
-      () => setPending((current) => current ?? outcome),
-    );
+    run((core) => core.recordPlateAppearance(gameId, { outcome, rbi }), {
+      onDone: () => setToast({ label: outcomeLabel(outcome, game.count?.strikeout) }),
+      onRefused: () => setPending((current) => current ?? outcome),
+    });
   };
   // Stole clears at the tap and comes back if the store refuses the move
   const tapBase = (base: BaseMove) => {
     const stolen = stealing;
     setStealing(false);
-    void attempt(
-      core.recordBaserunning(gameId, { base, stolen }),
-      () => setToast({ label: baseLabel(base, stolen) }),
-      () => setStealing(stolen),
-    );
+    run((core) => core.recordBaserunning(gameId, { base, stolen }), {
+      onDone: () => setToast({ label: baseLabel(base, stolen) }),
+      onRefused: () => setStealing(stolen),
+    });
   };
   const adjust = (side: 'team' | 'opponent', delta: 1 | -1) => {
-    void attempt(core.adjustScore(gameId, side, delta), () => setToast({ label: EVENT_LABELS.score }));
+    run((core) => core.adjustScore(gameId, side, delta), { onDone: () => setToast({ label: EVENT_LABELS.score }) });
   };
   const undo = () => {
-    void attempt(core.undo(gameId), () => {
-      setToast(undefined);
-      setPending(undefined);
+    run((core) => core.undo(gameId), {
+      onDone: () => {
+        setToast(undefined);
+        setPending(undefined);
+      },
     });
   };
   // the toast and the pulse wait for the write, so a refused Sub shows neither
   const sub = () => {
     const label = game.onCourt ? EVENT_LABELS.sub_out : EVENT_LABELS.sub_in;
-    void attempt(core.toggleSub(gameId), () => {
-      setToast({ label });
-      setPulse((n) => n + 1);
+    run((core) => core.toggleSub(gameId), {
+      onDone: () => {
+        setToast({ label });
+        setPulse((n) => n + 1);
+      },
     });
   };
   const nextPeriod = () => {
-    void attempt(core.nextPeriod(gameId), () => {
-      setToast({ label: EVENT_LABELS.period_start });
-      setPending(undefined);
+    run((core) => core.nextPeriod(gameId), {
+      onDone: () => {
+        setToast({ label: EVENT_LABELS.period_start });
+        setPending(undefined);
+      },
     });
   };
   // the Shift on court, if any: its timer and Plus/Minus so far
@@ -1836,14 +1766,7 @@ function LiveGame({
   const closed = game.onCourt ? game.shifts.slice(0, -1) : game.shifts;
   const shots = (
     <>
-      <ShotEntry
-        core={core}
-        gameId={gameId}
-        shots={game.shots}
-        points={game.points}
-        onRecorded={(label) => setToast({ label })}
-        attempt={attempt}
-      />
+      <ShotEntry run={run} gameId={gameId} shots={game.shots} points={game.points} onRecorded={(label) => setToast({ label })} />
       <div className="free-throws" role="group" aria-label="Free Throw">
         <button className="make" onClick={() => void tapFreeThrow(true)}>
           MAKE
@@ -1969,7 +1892,7 @@ function LiveGame({
         <ScoreSide label="Opponent" value={game.score.opponent} onAdjust={(delta) => adjust('opponent', delta)} />
       </section>
       {/* on screen right under the score, not below the Period row the Recorder may not see */}
-      {notSaved && <p role="alert">{NOT_SAVED}</p>}
+      {alert && <p role="alert">{alert}</p>}
       {game.sport !== 'basketball' ? (
         plateAppearance
       ) : size === 'bleacher' ? (
@@ -2003,7 +1926,7 @@ function LiveGame({
           aria-label="Field mode"
           aria-pressed={field}
           className={field ? 'primary sun' : 'sun'}
-          onClick={() => void attempt(core.setFieldMode(!field), () => undefined)}
+          onClick={() => run((core) => core.setFieldMode(!field))}
         >
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <circle cx="12" cy="12" r="4" />
@@ -2013,7 +1936,7 @@ function LiveGame({
       </div>
       {ending && (
         <EndGameForm
-          core={core}
+          run={run}
           gameId={gameId}
           athleteName={game.athleteName}
           score={game.score}
@@ -2022,7 +1945,6 @@ function LiveGame({
             setEnding(false);
             onEnded(gameId);
           }}
-          onFailed={() => setNotSaved(true)}
         />
       )}
       {toast && (
