@@ -6,9 +6,10 @@ export async function openApp(page: Page) {
   const email = page.getByLabel('Email');
   const athleteName = page.getByLabel('Athlete name');
   const startGame = page.getByRole('button', { name: 'Start Game' });
-  // the first screen is sign-in on an empty phone; a phone already signed in opens on Add Athlete or on Home
-  await email.or(athleteName).or(startGame).waitFor();
-  if (!(await email.isVisible())) return;
+  // the first screen is sign-in on an empty phone; a phone already signed in opens on Add Athlete or on Home. Home can also show
+  // "Sign in again" (ADR 0007) with a read-only Email beside Start Game, so one match is awaited, and only an editable Email signs in
+  await email.or(athleteName).or(startGame).first().waitFor();
+  if (!(await email.isVisible()) || !(await email.isEditable())) return;
   await email.fill('casey@example.com');
   await page.getByRole('button', { name: 'Send code' }).click();
   await page.getByLabel('Code').fill('123456');

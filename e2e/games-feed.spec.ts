@@ -63,7 +63,7 @@ test('a softball Game shows its batting line in Game Complete, its Games feed ro
 
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
   await expect(page.getByText('Casey 3 – Opponent 1')).toBeVisible();
-  await expect(page.getByText('H/AB 1/1 · 2 RBI', { exact: true })).toBeVisible();
+  await expect(page.getByText('H/AB 1/1 · 2 RBI · 0 R · 0 SB', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Game Complete' })).not.toContainText('Plus/Minus');
   await page.getByRole('button', { name: 'Done' }).click();
 
@@ -72,11 +72,11 @@ test('a softball Game shows its batting line in Game Complete, its Games feed ro
   await expect(season.locator('dl > div', { hasText: 'OBP' })).toContainText('1.000');
   await expect(season.locator('dl > div', { hasText: 'SLG' })).toContainText('2.000');
   await page.getByRole('button', { name: 'Games', exact: true }).click();
-  await expect(page.getByRole('button', { name: /H\/AB 1\/1 · 2 RBI/ })).toContainText('H/AB 1/1 · 2 RBI');
+  await expect(page.getByRole('button', { name: /H\/AB 1\/1 · 2 RBI/ })).toContainText('H/AB 1/1 · 2 RBI · 0 R · 0 SB');
 
   // the summary shows the batting line only: no Plus/Minus, Playing Share or basketball tiles
   await page.getByRole('button', { name: /H\/AB 1\/1 · 2 RBI/ }).click();
-  await expect(page.getByText('H/AB 1/1 · 2 RBI', { exact: true })).toBeVisible();
+  await expect(page.getByText('H/AB 1/1 · 2 RBI · 0 R · 0 SB', { exact: true })).toBeVisible();
   await expect(page.getByText('Plus/Minus')).toHaveCount(0);
   await expect(page.getByText('Playing Share')).toHaveCount(0);
   await expect(page.getByText('STL')).toHaveCount(0);
@@ -97,12 +97,12 @@ test('a baseball Game shows its batting line in Game Complete and its Games feed
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
 
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
-  await expect(page.getByText('H/AB 1/1 · 1 RBI', { exact: true })).toBeVisible();
+  await expect(page.getByText('H/AB 1/1 · 1 RBI · 0 R · 0 SB', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Game Complete' })).not.toContainText('Plus/Minus');
   await page.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
-  await expect(page.getByRole('button', { name: /H\/AB 1\/1 · 1 RBI/ })).toContainText('H/AB 1/1 · 1 RBI');
+  await expect(page.getByRole('button', { name: /H\/AB 1\/1 · 1 RBI/ })).toContainText('H/AB 1/1 · 1 RBI · 0 R · 0 SB');
 });
 
 test('the Games tab chips filter its feed and season tiles, with one basketball and one softball Game', async ({ page }) => {
@@ -122,12 +122,15 @@ test('the Games tab chips filter its feed and season tiles, with one basketball 
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
-  // the softball Game from the second test: a double with 2 RBI
+  // the softball Game from the second test: a double with 2 RBI, a steal to 3rd and a Scored move
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByLabel('Sport').selectOption('Softball');
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await page.getByRole('button', { name: '2 RBI' }).click();
+  await page.getByRole('button', { name: 'Stole', exact: true }).click();
+  await page.getByRole('group', { name: 'Base' }).getByRole('button', { name: '3rd', exact: true }).click();
+  await page.getByRole('group', { name: 'Base' }).getByRole('button', { name: 'Scored', exact: true }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('3');
   await page.getByLabel('Opponent final').fill('1');
@@ -159,6 +162,8 @@ test('the Games tab chips filter its feed and season tiles, with one basketball 
   await expect(season.locator('dl > div', { hasText: 'SLG' })).toContainText('2.000');
   await expect(season.locator('dl > div', { hasText: 'H/AB' })).toContainText('1/1');
   await expect(season.locator('dl > div', { hasText: 'RBI' })).toContainText('2');
+  await expect(season.locator('dl > div', { hasText: 'Runs' })).toContainText('1');
+  await expect(season.locator('dl > div', { hasText: 'Stolen bases' })).toContainText('1');
   await expect(season.locator('dl > div', { hasText: 'Games' })).toContainText('1');
 
   // All again: both rows back, and no tiles

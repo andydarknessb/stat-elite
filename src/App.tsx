@@ -942,7 +942,7 @@ function SeasonAndRecent({ core, athleteId, onOpen }: { core: AppCore; athleteId
   );
 }
 
-/** A sport's season tiles on the Games tab: basketball's six totals, or softball and baseball's six batting numbers and Games count. */
+/** A sport's season tiles on the Games tab: basketball's six totals, or softball and baseball's batting, runs, stolen bases and Games count. */
 function SeasonTiles({ season, games }: { season: Season; games: number }) {
   const stats: [string, string][] =
     season.sport === 'basketball'
@@ -960,6 +960,8 @@ function SeasonTiles({ season, games }: { season: Season; games: number }) {
           ['SLG', rateText(season.batting.slg)],
           ['H/AB', `${season.batting.hits}/${season.batting.atBats}`],
           ['RBI', String(season.batting.rbi)],
+          ['Runs', String(season.baserunning.runs)],
+          ['Stolen bases', String(season.baserunning.stolenBases)],
           ['Games', String(games)],
         ];
   return (

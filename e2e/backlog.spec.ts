@@ -65,14 +65,14 @@ test('a softball Game added, then edited, shows the new batting line, and its Sp
   expect(await fitsWidth(page)).toBe(true);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Casey 5 – Opponent 3')).toBeVisible();
-  await expect(page.getByText('H/AB 1/1 · 1 RBI', { exact: true })).toBeVisible();
+  await expect(page.getByText('H/AB 1/1 · 1 RBI · 0 R · 0 SB', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Edit past Game' })).toBeVisible();
   await expect(page.getByLabel('Sport')).toBeDisabled();
   await page.getByLabel('RBI', { exact: true }).fill('2');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByText('H/AB 1/1 · 2 RBI', { exact: true })).toBeVisible();
+  await expect(page.getByText('H/AB 1/1 · 2 RBI · 0 R · 0 SB', { exact: true })).toBeVisible();
 
   // reopened, the form holds the saved numbers and Sport is still fixed
   await page.getByRole('button', { name: 'Edit', exact: true }).click();

@@ -3,7 +3,7 @@ import Dexie, { liveQuery } from 'dexie';
 import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
 import { readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
-import { arcPreset, backlogProblem, createAppCore, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
+import { arcPreset, backlogProblem, createAppCore, gameLineText, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
 import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
 import { openStore, OUTCOMES, type Outcome, type Pitch, type Store } from './store';
 
@@ -2134,7 +2134,7 @@ test('the season line totals finished basketball Games, and the Games feed lists
       sport: 'basketball',
       line: { points: 4, fg: { made: 1, attempted: 2 }, ft: { made: 2, attempted: 3 }, rebounds: 2, assists: 1, plusMinus: 3 },
     },
-    { sport: 'softball', batting: expect.objectContaining({ atBats: 0, hits: 0 }) },
+    { sport: 'softball', batting: expect.objectContaining({ atBats: 0, hits: 0 }), baserunning: { runs: 0, stolenBases: 0 } },
   ]);
   expect(feed.games.map((g) => g.id)).toEqual([second, first, softball]);
 });
@@ -2367,9 +2367,9 @@ test("a softball Game's copy text and share card carry its batting line and Fina
   await core.endGame(gameId, { teamScore: 4, opponentScore: 2 });
 
   expect(await core.gameCopyText(gameId)).toBe(
-    ['Casey vs Hawks: 4–2 final', 'Casey: H/AB 2/3 · 3 RBI', '#softball'].join('\n'),
+    ['Casey vs Hawks: 4–2 final', 'Casey: H/AB 2/3 · 3 RBI · 0 R · 0 SB', '#softball'].join('\n'),
   );
-  expect(await core.gameCard(gameId)).toMatchObject({ final: { team: 4, opponent: 2 }, line: 'H/AB 2/3 · 3 RBI' });
+  expect(await core.gameCard(gameId)).toMatchObject({ final: { team: 4, opponent: 2 }, line: 'H/AB 2/3 · 3 RBI · 0 R · 0 SB' });
 });
 
 test("a softball season sums its Games' batting counts, and its rates come from the totals, not an average of Games", async () => {
@@ -2389,7 +2389,69 @@ test("a softball season sums its Games' batting counts, and its rates come from 
   // AB 3 (the walk, the hit by pitch and the sac fly are not), H 2, RBI 3, total bases 5, BB 1, HBP 1, SF 1; AVG 2/3, SLG 5/3
   // OBP is summed: (2 + 1 + 1) / (3 + 1 + 1 + 1) = 4/6. A mean of the Games' OBPs (1 and 2/4) would be 0.75.
   expect((await core.gameFeed(athleteId)).seasons).toEqual([
-    { sport: 'softball', batting: { atBats: 3, hits: 2, rbi: 3, bases: 5, walks: 1, hitByPitch: 1, sacFlies: 1, avg: 2 / 3, obp: 4 / 6, slg: 5 / 3 } },
+    // the home run is a run: 1 R, and no stolen base
+    { sport: 'softball', batting: { atBats: 3, hits: 2, rbi: 3, bases: 5, walks: 1, hitByPitch: 1, sacFlies: 1, avg: 2 / 3, obp: 4 / 6, slg: 5 / 3 }, baserunning: { runs: 1, stolenBases: 0 } },
+  ]);
+});
+
+test('a softball Game with a double, a stolen third and a Scored move reads its runs and stolen bases in the copy text and share card', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(gameId, { outcome: 'double', rbi: 0 });
+  await core.recordBaserunning(gameId, { base: 'third', stolen: true });
+  await core.recordBaserunning(gameId, { base: 'home', stolen: false });
+  await core.endGame(gameId, { teamScore: 1, opponentScore: 0 });
+
+  expect(await core.gameCopyText(gameId)).toContain('Casey: H/AB 1/1 · 0 RBI · 1 R · 1 SB');
+  expect(await core.gameCard(gameId)).toMatchObject({ line: 'H/AB 1/1 · 0 RBI · 1 R · 1 SB' });
+});
+
+test('an Undo of the Scored move before End Game leaves the finished Game with no run', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(gameId, { outcome: 'double', rbi: 0 });
+  await core.recordBaserunning(gameId, { base: 'third', stolen: true });
+  await core.recordBaserunning(gameId, { base: 'home', stolen: false });
+  await core.undo(gameId); // retracts the Scored move
+  await core.endGame(gameId, { teamScore: 0, opponentScore: 0 });
+
+  expect(await core.gameCard(gameId)).toMatchObject({ line: 'H/AB 1/1 · 0 RBI · 0 R · 1 SB' });
+});
+
+test('a Backlogged softball Game reads its Totals runs and stolen bases in its summary line', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.backlogGame(backlogEntry(athleteId, { sport: 'softball', totals: { ...SOFTBALL_TOTALS, runs: 3, steals: 2 } }));
+
+  // AB 5, H 3, RBI 4; the home run is one of the 3 runs, and the other 2 are moves home
+  expect(gameLineText((await core.gameSummary(gameId))!)).toBe('H/AB 3/5 · 4 RBI · 3 R · 2 SB');
+});
+
+test("a softball season sums its Games' runs and stolen bases, and a baseball Game's stay out of it", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const first = await core.startGame({ athleteId, ...GAME_SETUP, gameDate: '2026-10-27', sport: 'softball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(first, { outcome: 'double', rbi: 0 });
+  await core.recordBaserunning(first, { base: 'third', stolen: true }); // 1 SB
+  await core.recordBaserunning(first, { base: 'home', stolen: false }); // 1 R
+  await core.endGame(first, { teamScore: 1, opponentScore: 0 });
+  const second = await core.startGame({ athleteId, ...GAME_SETUP, gameDate: '2026-10-28', sport: 'softball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(second, { outcome: 'single', rbi: 0 });
+  await core.recordBaserunning(second, { base: 'second', stolen: true }); // 1 SB
+  await core.recordBaserunning(second, { base: 'third', stolen: true }); // 1 SB
+  await core.recordBaserunning(second, { base: 'home', stolen: false }); // 1 R
+  await core.endGame(second, { teamScore: 1, opponentScore: 0 });
+  const baseball = await core.startGame({ athleteId, ...GAME_SETUP, gameDate: '2026-10-29', sport: 'baseball', periodFormat: 'innings' });
+  await core.recordPlateAppearance(baseball, { outcome: 'double', rbi: 0 });
+  await core.recordBaserunning(baseball, { base: 'third', stolen: true });
+  await core.recordBaserunning(baseball, { base: 'home', stolen: false });
+  await core.endGame(baseball, { teamScore: 1, opponentScore: 0 });
+
+  expect((await core.gameFeed(athleteId)).seasons).toEqual([
+    expect.objectContaining({ sport: 'softball', baserunning: { runs: 2, stolenBases: 3 } }),
+    expect.objectContaining({ sport: 'baseball', baserunning: { runs: 1, stolenBases: 1 } }),
   ]);
 });
 
