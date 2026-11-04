@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 // shortcut: real PostgREST and Supabase Auth are not exercised (no HTTP, no JWT, sign-in takes any six digits and makes the account), upgrade when a bug escapes through them.
 
@@ -15,13 +15,18 @@ create function auth.uid() returns uuid language sql stable
 grant usage on schema auth to authenticated;
 `;
 
-const SCHEMA = new URL('../../docs/schema.sql', import.meta.url);
+const MIGRATIONS = new URL('../../supabase/migrations/', import.meta.url);
 
-/** A fresh database holding the schema as Supabase holds it: the stand-ins, docs/schema.sql, then the grants the self-check gives. */
+/** A fresh database holding the schema as Supabase holds it: the stand-ins, the migrations in order, then the grants the self-check gives. */
 export async function schemaDatabase(): Promise<PGlite> {
   const db = await PGlite.create();
   await db.exec(AUTH_STUBS);
-  await db.exec(readFileSync(SCHEMA, 'utf8'));
+  await db.exec(
+    readdirSync(MIGRATIONS)
+      .sort()
+      .map((file) => readFileSync(new URL(file, MIGRATIONS), 'utf8'))
+      .join(''),
+  );
   await db.exec('grant select, insert, update, delete on athletes, games, events to authenticated;');
   return db;
 }

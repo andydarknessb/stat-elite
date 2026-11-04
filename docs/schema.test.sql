@@ -1,5 +1,4 @@
--- Self-check for docs/schema.sql against a plain Postgres 15+.
--- Run: psql -v ON_ERROR_STOP=1 -f docs/schema.test.sql   (on a throwaway database)
+-- Self-check for the migrations in supabase/migrations/, run on PGlite by docs/schema.test.ts.
 -- Any failed expectation raises an exception and stops the run.
 
 -- Minimal stand-in for the parts of Supabase the schema uses.
@@ -11,7 +10,7 @@ create function auth.uid() returns uuid language sql stable
   as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 grant usage on schema auth to authenticated;
 
-\ir schema.sql
+-- The migrations, in order, go here: docs/schema.test.ts puts supabase/migrations/ in place of this line.
 
 grant select, insert, update, delete on athletes, games, events to authenticated;
 

@@ -1,7 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { SyncedTable } from './server';
 
-// Rows use docs/schema.sql column names so the outbox (#9) can upload them as they are.
+// Rows use the column names the migrations in supabase/migrations/ give, so the outbox (#9) can upload them as they are.
 // They have no owner_id until sign-in makes the account their Owner.
 
 export interface AthleteRow {
@@ -52,7 +52,7 @@ export interface GameRow {
 export const TILE_EVENT_TYPES = ['reb_off', 'reb_def', 'assist', 'steal', 'block', 'turnover', 'foul'] as const;
 export type TileEventType = (typeof TILE_EVENT_TYPES)[number];
 
-/** How a Plate Appearance ended (GLOSSARY: Outcome). Matches docs/schema.sql's outcome check. */
+/** How a Plate Appearance ended (GLOSSARY: Outcome). Matches the outcome check in the migrations. */
 export const OUTCOMES = [
   'single',
   'double',
@@ -71,11 +71,11 @@ export const OUTCOMES = [
 ] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
-/** One Pitch thrown during a Plate Appearance (GLOSSARY: Pitch). Matches docs/schema.sql's pitch check. */
+/** One Pitch thrown during a Plate Appearance (GLOSSARY: Pitch). Matches the pitch check in the migrations. */
 export const PITCHES = ['ball', 'called_strike', 'swinging_strike', 'foul'] as const;
 export type Pitch = (typeof PITCHES)[number];
 
-/** Where the Athlete on base moves: 2nd, 3rd, Scored (home) or Out (GLOSSARY: Baserunning). Matches docs/schema.sql's base check. */
+/** Where the Athlete on base moves: 2nd, 3rd, Scored (home) or Out (GLOSSARY: Baserunning). Matches the base check in the migrations. */
 export const BASES = ['second', 'third', 'home', 'out'] as const;
 export type BaseMove = (typeof BASES)[number];
 
