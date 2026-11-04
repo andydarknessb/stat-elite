@@ -3733,7 +3733,7 @@ test("a rename changes the name a finished Game's read models carry, and with th
   expect(await core.gameSummary(gameId)).toMatchObject({ athleteName: 'Athlete' });
 });
 
-// Live read models: a screen subscribes through useReadModel, and a liveQuery stops observing at an await that is not Dexie's, so a read model reads only through Dexie
+// Live read models: a screen subscribes through useLive, and a liveQuery stops observing at an await that is not Dexie's, so a read model reads only through Dexie
 
 const FINAL = { teamScore: 5, opponentScore: 3 };
 
@@ -3756,7 +3756,7 @@ test("a liveQuery past an await that is not Dexie's stops observing, with no err
   subscription.unsubscribe();
 });
 
-// subscribes as useReadModel does, makes the write, and waits for the subscription to deliver the value that shows it landed
+// subscribes as useLive does, makes the write, and waits for the subscription to deliver the value that shows it landed
 async function followsWrite<T>(read: () => Promise<T>, write: () => Promise<unknown>, landed: (value: T) => boolean) {
   const seen: T[] = [];
   const subscription = liveQuery(read).subscribe((value) => seen.push(value));
