@@ -25,10 +25,10 @@ export async function addFirstAthlete(page: Page, athlete: Athlete = {}) {
 }
 
 type StartOptions = {
-  sport?: 'basketball' | 'softball';
+  sport?: 'basketball' | 'softball' | 'baseball';
   periodFormat?: 'Quarters' | 'Halves' | '8 Periods';
-  /** Softball's Button Size, set in Settings before the Game starts. */
-  buttonSize?: 'Compact' | 'Standard' | 'Bleacher';
+  /** The Button Size, set in Settings before the Game starts. */
+  buttonSize?: 'Compact' | 'Bleacher';
 };
 
 /** Starts a Game from Home, basketball unless a sport is given, and waits for its live screen. */
@@ -39,11 +39,11 @@ export async function startGame(page: Page, { sport = 'basketball', periodFormat
     await page.getByRole('button', { name: 'Done', exact: true }).click();
   }
   await page.getByRole('button', { name: 'Start Game' }).click();
-  if (sport === 'softball') await page.getByLabel('Sport').selectOption('Softball');
+  if (sport !== 'basketball') await page.getByLabel('Sport').selectOption(sport);
   if (periodFormat) await page.getByLabel('Period format').selectOption(periodFormat);
   await page.getByRole('button', { name: 'Start', exact: true }).click();
-  if (sport === 'softball') await expect(page.getByText('Inn 1', { exact: true })).toBeVisible();
-  else await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();
+  if (sport === 'basketball') await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();
+  else await expect(page.getByText('Inn 1', { exact: true })).toBeVisible();
 }
 
 /** Taps the half court at a spot, given as 0–100 on each axis. */
@@ -58,9 +58,9 @@ export async function tapCourt(page: Page, x: number, y: number) {
  * Confirms the End Game form, which the caller has open from the live screen: fills the Final Score when one
  * is given, then waits for Game Complete. Without a Final Score the form keeps the Game's own score.
  */
-export async function endGame(page: Page, final?: { team: string; teamScore: string; opponentScore: string }) {
+export async function endGame(page: Page, final?: { teamLabel: string; teamScore: string; opponentScore: string }) {
   if (final) {
-    await page.getByLabel(`${final.team} final`).fill(final.teamScore);
+    await page.getByLabel(`${final.teamLabel} final`).fill(final.teamScore);
     await page.getByLabel('Opponent final').fill(final.opponentScore);
   }
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
@@ -87,8 +87,7 @@ export async function openSummary(page: Page) {
 export async function recordBasketballGame(page: Page) {
   await startGame(page);
   await page.getByRole('button', { name: 'Sub In' }).click();
-  const court = await page.getByRole('img', { name: 'Half court' }).boundingBox();
-  await page.mouse.click(court!.x + court!.width / 2, court!.y + court!.height * 0.11);
+  await tapCourt(page, 50, 11);
   await page.getByRole('group', { name: 'Shot result' }).getByRole('button', { name: 'MAKE' }).click();
   await page.getByRole('group', { name: 'Free Throw' }).getByRole('button', { name: 'MAKE' }).click();
   await page.getByRole('button', { name: /^OREB \d+$/ }).click();
@@ -106,7 +105,7 @@ export async function recordSoftballGame(page: Page, athlete = 'Casey') {
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await page.getByRole('button', { name: '2 RBI' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await endGame(page, { team: athlete, teamScore: '3', opponentScore: '1' });
+  await endGame(page, { teamLabel: athlete, teamScore: '3', opponentScore: '1' });
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
 }

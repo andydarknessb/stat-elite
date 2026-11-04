@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { addFirstAthlete, startGame } from './recorder';
+import { addFirstAthlete, startGame, tapCourt } from './recorder';
 
 test('Home shows the season line, and the Games tab lists the finished Game, whose row opens its summary', async ({ page }) => {
   await addFirstAthlete(page);
@@ -7,8 +7,7 @@ test('Home shows the season line, and the Games tab lists the finished Game, who
 
   // on court for a made 2 at the basket, a made Free Throw, an offensive rebound and an assist
   await page.getByRole('button', { name: 'Sub In' }).click();
-  const court = await page.getByRole('img', { name: 'Half court' }).boundingBox();
-  await page.mouse.click(court!.x + court!.width / 2, court!.y + court!.height * 0.11);
+  await tapCourt(page, 50, 11);
   await page.getByRole('group', { name: 'Shot result' }).getByRole('button', { name: 'MAKE' }).click();
   await page.getByRole('group', { name: 'Free Throw' }).getByRole('button', { name: 'MAKE' }).click();
   await page.getByRole('button', { name: /^OREB \d+$/ }).click();
@@ -42,9 +41,7 @@ test('Home shows the season line, and the Games tab lists the finished Game, who
 
 test('a softball Game shows its batting line in Game Complete, its Games feed row and its own Home season line', async ({ page }) => {
   await addFirstAthlete(page);
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByLabel('Sport').selectOption('Softball');
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await startGame(page, { sport: 'softball' });
 
   // a double with 2 RBI: one At-Bat, one hit
   await page.getByRole('button', { name: '2B', exact: true }).click();
@@ -77,9 +74,7 @@ test('a softball Game shows its batting line in Game Complete, its Games feed ro
 
 test('a baseball Game shows its batting line in Game Complete and its Games feed row, with no Plus/Minus', async ({ page }) => {
   await addFirstAthlete(page);
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByLabel('Sport').selectOption('Baseball');
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await startGame(page, { sport: 'baseball' });
 
   // a double with 1 RBI: one At-Bat, one hit
   await page.getByRole('button', { name: '2B', exact: true }).click();
@@ -103,8 +98,7 @@ test('the Games tab chips filter its feed and season tiles, with one basketball 
   // the basketball Game from the first test: a made 2, a made Free Throw, an offensive rebound and an assist
   await startGame(page);
   await page.getByRole('button', { name: 'Sub In' }).click();
-  const court = await page.getByRole('img', { name: 'Half court' }).boundingBox();
-  await page.mouse.click(court!.x + court!.width / 2, court!.y + court!.height * 0.11);
+  await tapCourt(page, 50, 11);
   await page.getByRole('group', { name: 'Shot result' }).getByRole('button', { name: 'MAKE' }).click();
   await page.getByRole('group', { name: 'Free Throw' }).getByRole('button', { name: 'MAKE' }).click();
   await page.getByRole('button', { name: /^OREB \d+$/ }).click();
@@ -115,9 +109,7 @@ test('the Games tab chips filter its feed and season tiles, with one basketball 
   await page.getByRole('button', { name: 'Done' }).click();
 
   // the softball Game from the second test: a double with 2 RBI, a steal to 3rd and a Scored move
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByLabel('Sport').selectOption('Softball');
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await page.getByRole('button', { name: '2 RBI' }).click();
   await page.getByRole('button', { name: 'Stole', exact: true }).click();

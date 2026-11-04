@@ -113,9 +113,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: 'Done' }).click();
 
   // the softball live screen at Standard, with an Outcome armed; then the Game ends and Game Complete shows
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByLabel('Sport').selectOption('Softball');
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await expect(page.getByRole('button', { name: '2B', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await check('softball live screen, Outcome armed');
