@@ -2,9 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 import { addFirstAthlete, endGame, recordBasketballGame, startGame } from './recorder';
 
 // Makes every read of the phone's store throw, as a refused IndexedDB read does; writes still work.
-// It runs in the page, so it is passed to evaluate or addInitScript.
+// Each refused read counts in window.refusedReads. It runs in the page, so it is passed to evaluate or addInitScript.
 function refuseReads() {
+  const counted = window as unknown as { refusedReads: number };
+  counted.refusedReads = 0;
   const refuse = () => {
+    counted.refusedReads += 1;
     throw new DOMException('the store refused the read', 'UnknownError');
   };
   for (const proto of [IDBObjectStore.prototype, IDBIndex.prototype]) {
@@ -107,6 +110,10 @@ test('a double tap on Start makes one Game', async ({ page }) => {
   expect(await gameCount(page)).toBe(1);
 });
 
+/** How many reads refuseReads has refused in the page. */
+const refusedReads = (page: Page) =>
+  page.evaluate(() => (window as unknown as { refusedReads: number }).refusedReads);
+
 test('a read that fails with a Game on screen keeps the score strip and shows no alert', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page);
@@ -114,6 +121,7 @@ test('a read that fails with a Game on screen keeps the score strip and shows no
   // the live screen re-reads each second, so a second has to pass for a read to fail on screen
   await page.waitForTimeout(1500);
 
+  expect(await refusedReads(page)).toBeGreaterThan(0);
   await expect(page.locator('.strip')).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
