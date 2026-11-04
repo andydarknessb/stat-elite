@@ -1,8 +1,8 @@
 import 'fake-indexeddb/auto';
 import Dexie, { liveQuery } from 'dexie';
 import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
-import { readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
+import type { CommandCore, LiveReads } from '../screenSeam';
 import { arcPreset, backlogProblem, createAppCore, gameLineText, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
 import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
 import { openStore, OUTCOMES, type Outcome, type Pitch, type Store } from './store';
@@ -3769,7 +3769,7 @@ async function followsWrite<T>(read: () => Promise<T>, write: () => Promise<unkn
 }
 
 // each read model a screen subscribes to, keyed by its name on App Core
-const LIVE_READ_MODELS: Record<string, () => Promise<void>> = {
+const LIVE_READ_MODELS: Record<keyof LiveReads, () => Promise<void>> = {
   home: async () => {
     const { core } = setup();
     const casey = await core.addAthlete({ name: 'Casey' });
@@ -3873,10 +3873,10 @@ const LIVE_READ_MODELS: Record<string, () => Promise<void>> = {
   },
 };
 
-test.each(Object.keys(LIVE_READ_MODELS))('a live %s follows the write behind it', (name) => LIVE_READ_MODELS[name]());
+test.each(Object.keys(LIVE_READ_MODELS) as (keyof LiveReads)[])('a live %s follows the write behind it', (name) => LIVE_READ_MODELS[name]());
 
-test('every read model a screen subscribes to is in LIVE_READ_MODELS', () => {
-  const screens = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
-  const subscribed = [...screens.matchAll(/useReadModel\([^;]*?core\.(\w+)\(/g)].map(([, name]) => name);
-  expect([...new Set(subscribed)].sort()).toEqual(Object.keys(LIVE_READ_MODELS).sort());
-});
+// a live read is never a command, and a command never subscribes: the seam's two types keep them apart
+// @ts-expect-error members is a server read, not a live one
+export type LiveMembers = LiveReads['members'];
+// @ts-expect-error home is a live read, so a command does not see it
+export type CommandHome = CommandCore['home'];

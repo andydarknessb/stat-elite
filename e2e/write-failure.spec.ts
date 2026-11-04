@@ -1,30 +1,49 @@
 import { expect, test, type Page } from '@playwright/test';
-import { addFirstAthlete, startGame, tapCourt } from './recorder';
+import { addFirstAthlete, recordBasketballGame, startGame, tapCourt } from './recorder';
 
 const NOT_SAVED = 'Not saved. Try again.';
 
 // Makes every write to the phone's store fail, as a refused IndexedDB write does; reads still work.
-// The real add and put stay on window so restoreWrites can put them back.
+// Dexie's update writes through a cursor, so the cursor's update is refused too. The real methods stay on window
+// so restoreWrites can put them back.
 async function failWrites(page: Page) {
   await page.evaluate(() => {
     const refuse = () => {
       throw new DOMException('the store refused the write', 'UnknownError');
     };
-    const kept = window as unknown as { realAdd: typeof IDBObjectStore.prototype.add; realPut: typeof IDBObjectStore.prototype.put };
+    const kept = window as unknown as {
+      realAdd: typeof IDBObjectStore.prototype.add;
+      realPut: typeof IDBObjectStore.prototype.put;
+      realUpdate: typeof IDBCursor.prototype.update;
+    };
     kept.realAdd = IDBObjectStore.prototype.add;
     kept.realPut = IDBObjectStore.prototype.put;
+    kept.realUpdate = IDBCursor.prototype.update;
     IDBObjectStore.prototype.add = refuse;
     IDBObjectStore.prototype.put = refuse;
+    IDBCursor.prototype.update = refuse;
   });
 }
 
-// Puts the real add and put back, so a retry lands.
+// Puts the real add, put and update back, so a retry lands.
 async function restoreWrites(page: Page) {
   await page.evaluate(() => {
-    const kept = window as unknown as { realAdd: typeof IDBObjectStore.prototype.add; realPut: typeof IDBObjectStore.prototype.put };
+    const kept = window as unknown as {
+      realAdd: typeof IDBObjectStore.prototype.add;
+      realPut: typeof IDBObjectStore.prototype.put;
+      realUpdate: typeof IDBCursor.prototype.update;
+    };
     IDBObjectStore.prototype.add = kept.realAdd;
     IDBObjectStore.prototype.put = kept.realPut;
+    IDBCursor.prototype.update = kept.realUpdate;
   });
+}
+
+/** A local calendar date, the given number of days from today (negative is back), as a date input reads it. */
+function localDate(daysFromToday: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromToday);
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
 }
 
 // An uncaught rejection surfaces as a pageerror: a refused write has to be caught, not dropped.
@@ -324,6 +343,41 @@ test('Next period: a refused period keeps the Outcome armed and the inning, and 
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '2 RBI' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Add past Game: a refused save keeps the form open with the score typed', async ({ page }) => {
+  const errors = collectPageErrors(page);
+  await addFirstAthlete(page);
+  await page.getByRole('button', { name: 'Add past Game' }).click();
+  await page.getByLabel('Opponent', { exact: true }).fill('Lions');
+  await page.getByLabel('Date', { exact: true }).fill(localDate(-10));
+  await page.getByLabel('Casey score').fill('40');
+  await page.getByLabel('Opponent score').fill('32');
+  await failWrites(page);
+
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+  await expectNotSaved(page);
+  await expect(page.getByRole('heading', { name: 'Add past Game' })).toBeVisible();
+  await expect(page.getByLabel('Casey score')).toHaveValue('40');
+  expect(errors).toEqual([]);
+});
+
+test('Remove: a refused save keeps the summary open with the alert in view', async ({ page }) => {
+  const errors = collectPageErrors(page);
+  await addFirstAthlete(page);
+  await recordBasketballGame(page);
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await page.getByRole('button', { name: /Opponent/ }).click();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await failWrites(page);
+
+  await page.getByRole('button', { name: 'Yes, remove' }).click();
+
+  await expectNotSaved(page);
+  await expect(page.getByRole('heading', { name: 'Opponent' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Yes, remove' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
