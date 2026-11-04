@@ -11,6 +11,7 @@ M1 in progress. The app is scaffolded on React + TypeScript + Vite, vite-plugin-
 ## Where things live
 
 - `GLOSSARY.md`: the domain terms. This repo has no CONTEXT.md; the glossary is GLOSSARY.md.
+- `src/core/supabaseDouble.ts`: the test double of the Supabase client, over PGlite and the real schema (`docs/schema.sql`). `src/core/server.contract.test.ts` runs one contract suite on it and on the stand-in; `src/core/appCore.supabase.test.ts` drives App Core through it.
 - `docs/adr/`: the accepted decisions (0001 to 0008 so far).
 - `docs/plan.md`: v1 screens, interaction rules, stats, milestones and what is cut.
 - `docs/schema.sql` and `docs/schema.test.sql`: the planned Supabase schema and its SQL self-check (`docs/schema.test.ts` runs it).
