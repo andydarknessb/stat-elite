@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { openApp } from './openApp';
+import { startGame } from './recorder';
 
 // Recording with the network off after one online sign-in. The stand-in is in-memory and runs only on localhost, so this stays out of the deployed check (ADR 0007).
 test('after sign-in online, the app opens and records with the network off', async ({ page, context }) => {
@@ -17,8 +18,7 @@ test('after sign-in online, the app opens and records with the network off', asy
 
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await startGame(page);
 
   const steal = page.getByRole('button', { name: /^STL/ });
   await steal.click();

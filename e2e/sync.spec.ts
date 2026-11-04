@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { openApp } from './openApp';
+import { addFirstAthlete, startGame } from './recorder';
 
 // A Game recorded with the network off uploads once the connection returns, and the badge reaches 0.
 // The smoke runs with no Supabase URL or key, so no request may reach supabase.co (#9).
@@ -17,8 +18,7 @@ test('a Game recorded offline uploads once the connection returns, and the badge
   await context.setOffline(true);
   await page.getByLabel('Athlete name').fill('Casey');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await startGame(page);
   await page.getByRole('button', { name: /^STL/ }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
@@ -58,11 +58,8 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
     if (request.url().includes('supabase.co')) supabaseRequests.push(request.url());
   });
 
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await addFirstAthlete(page);
+  await startGame(page);
   await page.getByRole('button', { name: /^STL/ }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
@@ -70,8 +67,7 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
   await page.getByRole('button', { name: 'Done' }).click();
 
   await context.setOffline(true);
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await startGame(page);
   await expect(page.getByText(/^[1-9][0-9]* not synced$/)).toBeVisible();
 
   await context.setOffline(false);

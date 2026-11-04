@@ -1,12 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { openApp } from './openApp';
+import { addFirstAthlete, startGame } from './recorder';
 
 test('a Recorder adjusts the strip, reloads and still sees the score, then ends the Game with a Final Score', async ({ page }) => {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await addFirstAthlete(page);
+  await startGame(page);
 
   await page.getByRole('button', { name: 'Casey +1' }).click();
   await page.getByRole('button', { name: 'Casey +1' }).click();
@@ -35,11 +32,8 @@ test('a Recorder adjusts the strip, reloads and still sees the score, then ends 
 });
 
 test('End Game opens the Finish game form inline, and Keep playing closes it with the Game still live', async ({ page }) => {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await addFirstAthlete(page);
+  await startGame(page);
 
   await page.getByRole('button', { name: 'End Game' }).click();
   await expect(page.getByText('Finish game?')).toBeVisible();

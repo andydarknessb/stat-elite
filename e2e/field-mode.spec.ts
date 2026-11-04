@@ -1,16 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openApp } from './openApp';
-
-async function addAthlete(page: Page) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-}
-
-async function startGame(page: Page) {
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-}
+import { addFirstAthlete, startGame } from './recorder';
 
 /** What the head holds once parsed, before any module script runs (#121). */
 type Head = { field: boolean; colorScheme: string | null; themeColors: string[]; cleared: boolean };
@@ -49,7 +38,7 @@ const themeColors = (page: Page) =>
 
 test('Field mode in Settings paints the light theme over a dark phone, and stays on across a reload', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   const field = page.getByRole('button', { name: 'Field mode', exact: true });
   await expect(field).toHaveAttribute('aria-pressed', 'false');
@@ -69,7 +58,7 @@ test('Field mode in Settings paints the light theme over a dark phone, and stays
 
 test('the live screen sun button turns Field mode on at Standard without scrolling', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await startGame(page);
   const sun = page.getByRole('button', { name: 'Field mode', exact: true });
   await expect(sun).toHaveAttribute('aria-pressed', 'false');
@@ -84,7 +73,7 @@ test('the live screen sun button turns Field mode on at Standard without scrolli
 test('a cold load with Field mode on marks the root before the app reads its setting', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await recordHead(page);
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Field mode', exact: true }).click();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -97,7 +86,7 @@ test('a cold load with Field mode on marks the root before the app reads its set
 
 test('the theme-color follows Field mode live, without a reload', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   const field = page.getByRole('button', { name: 'Field mode', exact: true });
 
@@ -110,7 +99,7 @@ test('the theme-color follows Field mode live, without a reload', async ({ page 
 test('Field mode turned off stays off across a cold load', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await recordHead(page);
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   const field = page.getByRole('button', { name: 'Field mode', exact: true });
   await field.click();
@@ -126,7 +115,7 @@ test('Field mode turned off stays off across a cold load', async ({ page }) => {
 
 test('with Field mode on, the Free Throw and the pressed Home label keep their light colours', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Field mode', exact: true }).click();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -141,7 +130,7 @@ test('with Field mode on, the Free Throw and the pressed Home label keep their l
 
 test('turning Field mode off after a cold load with it on leaves the meta navy', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Field mode', exact: true }).click();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -158,7 +147,7 @@ test('turning Field mode off after a cold load with it on leaves the meta navy',
 
 test('on a light phone the page is navy with Field mode off, white with it on, and navy again off', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
   await page.getByRole('button', { name: 'Settings' }).click();
   const field = page.getByRole('button', { name: 'Field mode', exact: true });
@@ -171,7 +160,7 @@ test('on a light phone the page is navy with Field mode off, white with it on, a
 test('deleting the account clears Field mode on the next cold load', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await recordHead(page);
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Field mode', exact: true }).click();
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');

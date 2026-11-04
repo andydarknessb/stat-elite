@@ -1,31 +1,9 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { openApp } from './openApp';
-
-async function addAthlete(page: Page, name: string) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill(name);
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-}
-
-async function startGame(page: Page) {
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-}
-
-async function endGame(page: Page, name: string) {
-  await page.getByLabel(`${name} final`).fill('9');
-  await page.getByLabel('Opponent final').fill('7');
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
-}
-
-async function openSummary(page: Page) {
-  await page.getByRole('button', { name: 'Done' }).click();
-  await page.getByRole('button', { name: 'Games', exact: true }).click();
-  await page.getByRole('button', { name: /Opponent/ }).click();
-}
+import { addFirstAthlete, startGame, endGame, openSummary } from './recorder';
 
 test('the strip, the End Game form, Game Complete and the summary label the Team with the Athlete', async ({ page }) => {
-  await addAthlete(page, 'Casey Smith');
+  await addFirstAthlete(page, { name: 'Casey Smith' });
   await startGame(page);
 
   const team = page.getByRole('group', { name: 'Casey Smith', exact: true });
@@ -38,7 +16,7 @@ test('the strip, the End Game form, Game Complete and the summary label the Team
   await expect(page.getByRole('group', { name: 'Opponent', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'End Game' }).click();
-  await endGame(page, 'Casey Smith');
+  await endGame(page, { team: 'Casey Smith', teamScore: '9', opponentScore: '7' });
   await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();
   await expect(page.getByText('Casey Smith 9 – Opponent 7')).toBeVisible();
 
@@ -48,7 +26,7 @@ test('the strip, the End Game form, Game Complete and the summary label the Team
 });
 
 test('the Add past Game form labels the Team score with the Athlete, and its summary reads the same', async ({ page }) => {
-  await addAthlete(page, 'Casey Smith');
+  await addFirstAthlete(page, { name: 'Casey Smith' });
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
   await page.getByLabel('Date', { exact: true }).fill('2026-01-15');
@@ -60,7 +38,7 @@ test('the Add past Game form labels the Team score with the Athlete, and its sum
 });
 
 test("Edit past Game labels the score with the Game's Athlete, after another tab selects another Athlete", async ({ page, context }) => {
-  await addAthlete(page, 'Casey Smith');
+  await addFirstAthlete(page, { name: 'Casey Smith' });
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
   await page.getByLabel('Date', { exact: true }).fill('2026-01-15');
@@ -83,10 +61,10 @@ test("Edit past Game labels the score with the Game's Athlete, after another tab
 });
 
 test("a result row's Final Score keeps its own width, leaving the row to the Opponent and the line", async ({ page }) => {
-  await addAthlete(page, 'Casey Smith');
+  await addFirstAthlete(page, { name: 'Casey Smith' });
   await startGame(page);
   await page.getByRole('button', { name: 'End Game' }).click();
-  await endGame(page, 'Casey Smith');
+  await endGame(page, { team: 'Casey Smith', teamScore: '9', opponentScore: '7' });
   await page.getByRole('button', { name: 'Done' }).click();
 
   const row = page.locator('.result-row');
@@ -102,10 +80,10 @@ test('"Casey Smith" fits whole beside a 9–7 score on Game Complete and the sum
     const { scrollWidth, clientWidth } = await name.evaluate((element) => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
     expect(scrollWidth).toBe(clientWidth);
   };
-  await addAthlete(page, 'Casey Smith');
+  await addFirstAthlete(page, { name: 'Casey Smith' });
   await startGame(page);
   await page.getByRole('button', { name: 'End Game' }).click();
-  await endGame(page, 'Casey Smith');
+  await endGame(page, { team: 'Casey Smith', teamScore: '9', opponentScore: '7' });
 
   await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();
   await expectWhole(page.locator('.result-head').getByText('Casey Smith', { exact: true }));
@@ -144,7 +122,7 @@ test.describe('a 40-character name', () => {
   }
 
   test('is cut with "…" on all five screens, and only the name is cut', async ({ page }) => {
-    await addAthlete(page, NAME);
+    await addFirstAthlete(page, { name: NAME });
     await startGame(page);
 
     // Live strip
@@ -160,7 +138,7 @@ test.describe('a 40-character name', () => {
     const final = page.locator('label', { hasText: `${NAME} final` });
     await expectNameCut(page, final);
     await expectFullyVisible(final.getByText('final', { exact: true }));
-    await endGame(page, NAME);
+    await endGame(page, { team: NAME, teamScore: '9', opponentScore: '7' });
 
     // Game Complete
     await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { openApp } from './openApp';
+import { addAthlete } from './recorder';
 
 // The Invite screen signs the phone in with the emailed code; the refused link then leaves it on Continue, signed in, with no reload.
 async function signInOnThisPhone(page: Page, email: string) {
@@ -10,11 +11,6 @@ async function signInOnThisPhone(page: Page, email: string) {
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('This invite link is not valid.')).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
-}
-
-async function addAthlete(page: Page) {
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
 }
 
 test('Settings names the signed-in address, Sign out warns, Cancel changes nothing, and confirming clears the phone', async ({ page }) => {

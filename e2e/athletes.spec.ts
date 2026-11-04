@@ -1,5 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { openApp } from './openApp';
+import { addFirstAthlete } from './recorder';
 
 // A 1x1 PNG, enough for the photo to render.
 const PHOTO = {
@@ -11,16 +12,8 @@ const PHOTO = {
   ),
 };
 
-async function firstRunAdd(page: Page, name: string, number?: string) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill(name);
-  if (number) await page.getByLabel('Number').fill(number);
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
-}
-
 test('first run asks for an Athlete, then leads to Home and stays there after a reload', async ({ page }) => {
-  await firstRunAdd(page, 'Casey', '12');
+  await addFirstAthlete(page, { name: 'Casey', number: '12' });
 
   await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
   await expect(page.getByText('#12')).toBeVisible();
@@ -31,20 +24,20 @@ test('first run asks for an Athlete, then leads to Home and stays there after a 
 });
 
 test('an Athlete with no photo shows its initial in place of one', async ({ page }) => {
-  await firstRunAdd(page, 'Casey', '12');
+  await addFirstAthlete(page, { name: 'Casey', number: '12' });
 
   await expect(page.locator('.photo-placeholder')).toHaveText('C');
   await expect(page.locator('.photo img')).toBeHidden();
 });
 
 test('an Athlete with no photo shows the initials of its first two names', async ({ page }) => {
-  await firstRunAdd(page, 'Casey Jones');
+  await addFirstAthlete(page, { name: 'Casey Jones' });
 
   await expect(page.locator('.photo-placeholder')).toHaveText('CJ');
 });
 
 test('initials come from the first two names, upper-cased, whatever the rest', async ({ page }) => {
-  await firstRunAdd(page, 'casey ann jones');
+  await addFirstAthlete(page, { name: 'casey ann jones' });
 
   await expect(page.locator('.photo-placeholder')).toHaveText('CA');
 });
@@ -65,7 +58,7 @@ test('the photo shows on Home and nothing is uploaded', async ({ page }) => {
 });
 
 test('editing an Athlete changes name and number on Home and keeps them after a reload', async ({ page }) => {
-  await firstRunAdd(page, 'Casey', '12');
+  await addFirstAthlete(page, { name: 'Casey', number: '12' });
 
   await page.getByRole('button', { name: 'Edit' }).click();
   await page.getByLabel('Athlete name').fill('Casey Jones');
@@ -86,7 +79,7 @@ test('an Athlete added with no photo takes one in Edit Athlete, and nothing is u
     if (request.method() !== 'GET') writes.push(request.url());
   });
 
-  await firstRunAdd(page, 'Casey', '12');
+  await addFirstAthlete(page, { name: 'Casey', number: '12' });
   await page.getByRole('button', { name: 'Edit' }).click();
   await page.getByLabel('Photo (optional)').setInputFiles(PHOTO);
   await page.getByRole('button', { name: 'Save' }).click();
@@ -97,7 +90,7 @@ test('an Athlete added with no photo takes one in Edit Athlete, and nothing is u
 });
 
 test('with two Athletes, Add Athlete from Home shows the new one, tapping the photo switches, and Start Game records the one shown', async ({ page }) => {
-  await firstRunAdd(page, 'Casey');
+  await addFirstAthlete(page, { name: 'Casey' });
 
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByLabel('Athlete name').fill('Sam');

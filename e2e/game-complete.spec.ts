@@ -1,14 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { openApp } from './openApp';
+import { addFirstAthlete, startGame } from './recorder';
 
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
 test('ending a Game opens Game Complete with the Final Score, the line and Plus/Minus, and Copy text copies the summary', async ({ page }) => {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await addFirstAthlete(page);
+  await startGame(page);
 
   // on court for a made 2 at the basket, a made Free Throw, an offensive rebound and an assist
   await page.getByRole('button', { name: 'Sub In' }).click();

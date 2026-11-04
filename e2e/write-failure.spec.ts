@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openApp } from './openApp';
+import { addFirstAthlete, startGame, tapCourt } from './recorder';
 
 const NOT_SAVED = 'Not saved. Try again.';
 
@@ -42,40 +42,12 @@ async function expectNotSaved(page: Page) {
   await expect(alert).toBeInViewport({ ratio: 1 });
 }
 
-async function caseyFirstRun(page: Page) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
-}
-
-async function startGame(page: Page) {
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-  await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();
-}
-
-async function startSoftballGame(page: Page) {
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByLabel('Sport').selectOption('Softball');
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-  await expect(page.getByText('Inn 1', { exact: true })).toBeVisible();
-}
-
-/** Taps the half court at a spot, given as 0–100 on each axis. */
-async function tapCourt(page: Page, x: number, y: number) {
-  const court = page.getByRole('img', { name: 'Half court' });
-  const box = await court.boundingBox();
-  if (!box) throw new Error('the half court is not on screen');
-  await court.click({ position: { x: (box.width * x) / 100, y: (box.height * y) / 100 } });
-}
-
 const shotResult = (page: Page) => page.getByRole('group', { name: 'Shot result' });
 const freeThrow = (page: Page) => page.getByRole('group', { name: 'Free Throw' });
 
 test('Add Athlete from Home: a refused save keeps the form open with the name typed', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByLabel('Athlete name').fill('Sam');
   await failWrites(page);
@@ -89,7 +61,7 @@ test('Add Athlete from Home: a refused save keeps the form open with the name ty
 
 test('Edit Athlete with the name Sam: a refused save keeps the form open with Sam in it', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Edit' }).click();
   await page.getByLabel('Athlete name').fill('Sam');
   await failWrites(page);
@@ -103,7 +75,7 @@ test('Edit Athlete with the name Sam: a refused save keeps the form open with Sa
 
 test('the Athlete switch: a refused save leaves the Athlete shown before the tap', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Add Athlete' }).click();
   await page.getByLabel('Athlete name').fill('Sam');
   await page.getByRole('button', { name: 'Add Athlete' }).click();
@@ -119,7 +91,7 @@ test('the Athlete switch: a refused save leaves the Athlete shown before the tap
 
 test("Game setup's Start: a refused save enables Start again", async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Start Game' }).click();
   await failWrites(page);
 
@@ -132,7 +104,7 @@ test("Game setup's Start: a refused save enables Start again", async ({ page }) 
 
 test('the STL tile: a refused save leaves STL at 0 and shows no toast', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await failWrites(page);
 
@@ -146,7 +118,7 @@ test('the STL tile: a refused save leaves STL at 0 and shows no toast', async ({
 
 test("the strip's Team +1: a refused save leaves Team at 0 and shows no toast", async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await failWrites(page);
 
@@ -160,7 +132,7 @@ test("the strip's Team +1: a refused save leaves Team at 0 and shows no toast", 
 
 test('Undo: a refused save leaves STL at 1', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await page.getByRole('button', { name: /^STL/ }).click();
   await expect(page.getByRole('button', { name: /^STL/ })).toHaveText('STL 1');
@@ -175,7 +147,7 @@ test('Undo: a refused save leaves STL at 1', async ({ page }) => {
 
 test('End Game: a refused save leaves the Game live with its STL tile shown', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await page.getByRole('button', { name: 'End Game' }).click();
   await failWrites(page);
@@ -189,7 +161,7 @@ test('End Game: a refused save leaves the Game live with its STL tile shown', as
 
 test('Button Size: a refused save leaves Compact unpicked, and a retry that lands picks it', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   const compact = page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Compact', exact: true });
   await failWrites(page);
@@ -209,7 +181,7 @@ test('Button Size: a refused save leaves Compact unpicked, and a retry that land
 
 test('Shot: a refused MAKE keeps the spot armed, and a retry that lands records the Shot', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await tapCourt(page, 50, 40);
   await failWrites(page);
@@ -230,7 +202,7 @@ test('Shot: a refused MAKE keeps the spot armed, and a retry that lands records 
 
 test('Free Throw: a refused MAKE shows no toast and no count, and a retry that lands counts it', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await failWrites(page);
 
@@ -249,8 +221,8 @@ test('Free Throw: a refused MAKE shows no toast and no count, and a retry that l
 
 test('Pitch: a refused Ball shows no count and no toast, and a retry that lands starts the count', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
-  await startSoftballGame(page);
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
   await failWrites(page);
 
   await page.getByRole('button', { name: 'Ball', exact: true }).click();
@@ -268,8 +240,8 @@ test('Pitch: a refused Ball shows no count and no toast, and a retry that lands 
 
 test('Plate Appearance: a refused RBI keeps the Outcome armed with no toast, and a retry that lands shows the batting line', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
-  await startSoftballGame(page);
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await failWrites(page);
 
@@ -289,8 +261,8 @@ test('Plate Appearance: a refused RBI keeps the Outcome armed with no toast, and
 
 test('Baserunning: a refused move keeps Stole armed with no toast, and a retry that lands moves the runner', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
-  await startSoftballGame(page);
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '1B', exact: true }).click();
   await page.getByRole('button', { name: '0 RBI' }).click();
   await expect(page.getByRole('img', { name: 'On first' })).toBeVisible();
@@ -314,7 +286,7 @@ test('Baserunning: a refused move keeps Stole armed with no toast, and a retry t
 
 test('Sub In: a refused sub shows no toast and no pulse, and a retry that lands shows Sub Out', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await failWrites(page);
 
@@ -335,8 +307,8 @@ test('Sub In: a refused sub shows no toast and no pulse, and a retry that lands 
 
 test('Next period: a refused period keeps the Outcome armed and the inning, and a retry that lands moves on', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
-  await startSoftballGame(page);
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await failWrites(page);
 
@@ -357,7 +329,7 @@ test('Next period: a refused period keeps the Outcome armed and the inning, and 
 
 test('a refused STL tile, then a Free Throw that lands: the alert clears', async ({ page }) => {
   const errors = collectPageErrors(page);
-  await caseyFirstRun(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await failWrites(page);
   await page.getByRole('button', { name: /^STL/ }).click();

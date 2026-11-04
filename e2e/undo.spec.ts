@@ -1,13 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { openApp } from './openApp';
-
-async function startGame(page: import('@playwright/test').Page) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-}
+import { addFirstAthlete, startGame } from './recorder';
 
 // The toast runs 3 seconds from the last tap. Count from the tap, not from when the page has re-read,
 // so the checks hold whatever the re-render costs.
@@ -18,6 +10,7 @@ async function expectToastRunsFromTap(page: Page, toast: Locator, tappedAt: numb
 }
 
 test('a tap shows a toast naming it, and Undo from the toast steps the count back', async ({ page }) => {
+  await addFirstAthlete(page);
   await startGame(page);
   const steal = page.getByRole('button', { name: /^STL/ });
   const toast = page.getByRole('status');
@@ -38,6 +31,7 @@ test('a tap shows a toast naming it, and Undo from the toast steps the count bac
 });
 
 test('a single tap keeps the toast up for 3 seconds, then clears it', async ({ page }) => {
+  await addFirstAthlete(page);
   await startGame(page);
   const steal = page.getByRole('button', { name: /^STL/ });
 
@@ -48,6 +42,7 @@ test('a single tap keeps the toast up for 3 seconds, then clears it', async ({ p
 });
 
 test('a repeated tap on the same tile restarts the 3 seconds', async ({ page }) => {
+  await addFirstAthlete(page);
   await startGame(page);
   const steal = page.getByRole('button', { name: /^STL/ });
 
@@ -61,6 +56,7 @@ test('a repeated tap on the same tile restarts the 3 seconds', async ({ page }) 
 });
 
 test('a repeated Team +1 restarts the 3 seconds', async ({ page }) => {
+  await addFirstAthlete(page);
   await startGame(page);
   const teamUp = page.getByRole('button', { name: 'Casey +1' });
 

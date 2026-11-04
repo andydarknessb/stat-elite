@@ -1,30 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openApp } from './openApp';
-
-async function addAthlete(page: Page) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-}
-
-async function startGame(page: Page) {
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-}
-
-/** Taps the half court at a spot, given as 0–100 on each axis. */
-async function tapCourt(page: Page, x: number, y: number) {
-  const court = page.getByRole('img', { name: 'Half court' });
-  const box = await court.boundingBox();
-  if (!box) throw new Error('the half court is not on screen');
-  await court.click({ position: { x: (box.width * x) / 100, y: (box.height * y) / 100 } });
-}
+import { addFirstAthlete, startGame, tapCourt } from './recorder';
 
 const result = (page: Page) => page.getByRole('group', { name: 'Shot result' });
 const teamCount = (page: Page) => page.getByRole('group', { name: 'Casey' }).locator('.count');
 
 test('a Shot is saved only at MAKE or MISS, and a made Shot adds its points to the strip', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await startGame(page);
 
   // a spot in the key is a 2: nothing is saved until the result tap
@@ -39,7 +20,7 @@ test('a Shot is saved only at MAKE or MISS, and a made Shot adds its points to t
 });
 
 test('a spot beyond the arc presets 3PT, and the Recorder can flip it before the result', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await startGame(page);
   const threePt = page.getByRole('button', { name: '3PT' });
   await expect(threePt).toBeDisabled();
@@ -54,7 +35,7 @@ test('a spot beyond the arc presets 3PT, and the Recorder can flip it before the
 });
 
 test('a made Shot is on the strip after a reload, and a spot with no result yet is not kept', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await tapCourt(page, 50, 65);
   await result(page).getByRole('button', { name: 'MAKE' }).click();

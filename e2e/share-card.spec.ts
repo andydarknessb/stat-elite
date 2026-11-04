@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { openApp } from './openApp';
 import { expect, test, type Page } from '@playwright/test';
+import { addFirstAthlete, startGame, endGame } from './recorder';
 
 // A 1x1 PNG, enough for the photo to render (as athletes.spec.ts uses it).
 const PHOTO = {
@@ -16,18 +16,6 @@ const PHOTO = {
 const BAD_PHOTO = { name: 'bad.png', mimeType: 'image/png', buffer: Buffer.from('not an image') };
 
 type Photo = { name: string; mimeType: string; buffer: Buffer };
-
-async function endAGame(page: Page, photo?: Photo) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  if (photo) await page.getByLabel('Photo (optional)').setInputFiles(photo);
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
-}
 
 // stands in for the phone's share sheet: keeps the files it is given
 async function keepSharedFiles(page: Page) {
@@ -92,14 +80,20 @@ async function tapShareCard(page: Page) {
 
 test('Share card hands the Recorder a 1200×1200 image through the share sheet', async ({ page }) => {
   await keepSharedFiles(page);
-  await endAGame(page, PHOTO);
+  await addFirstAthlete(page, { photo: PHOTO });
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
   const card = await tapShareCard(page);
   expect(card).toMatchObject({ type: 'image/png', width: 1200, height: 1200 });
 });
 
 test('a photo the browser cannot decode still shares a 1200×1200 card', async ({ page }) => {
   await keepSharedFiles(page);
-  await endAGame(page, BAD_PHOTO);
+  await addFirstAthlete(page, { photo: BAD_PHOTO });
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
   await expect(page.getByRole('button', { name: 'Share card' })).toBeEnabled();
   const card = await tapShareCard(page);
   expect(card).toMatchObject({ type: 'image/png', width: 1200, height: 1200 });
@@ -116,7 +110,10 @@ test('a card the worker cannot draw says so, and Share card stays disabled', asy
       terminate() {}
     } as unknown as typeof Worker;
   });
-  await endAGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
   await expect(page.getByText('Share card could not be drawn')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Share card' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Copy text' })).toBeEnabled();
@@ -131,7 +128,10 @@ test('a share sheet that refuses the card downloads it instead', async ({ page }
       },
     });
   });
-  await endAGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Share card' }).click();
 
@@ -150,7 +150,10 @@ test('a share sheet the Recorder cancels downloads nothing', async ({ page }) =>
       },
     });
   });
-  await endAGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
   const downloaded = page.waitForEvent('download', { timeout: 1000 }).then(
     () => true,
     () => false,
@@ -161,7 +164,10 @@ test('a share sheet the Recorder cancels downloads nothing', async ({ page }) =>
 
 test('the card draws the photo, cropped from its middle', async ({ page }) => {
   await keepSharedFiles(page);
-  await endAGame(page, await stripedPhoto(page));
+  await addFirstAthlete(page, { photo: await stripedPhoto(page) });
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
   const card = await tapShareCard(page);
   // a stretched photo would put blue at x 180; a middle crop keeps red there
   expect(near(card.center, [255, 0, 0])).toBe(true);
@@ -170,7 +176,10 @@ test('the card draws the photo, cropped from its middle', async ({ page }) => {
 
 test('the card with no photo draws the background and the Final Score', async ({ page }) => {
   await keepSharedFiles(page);
-  await endAGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
   const card = await tapShareCard(page);
   expect(near(card.center, [0x0f, 0x12, 0x16])).toBe(true);
   expect(card.brightInScoreRows).toBeGreaterThan(1000);
@@ -181,7 +190,10 @@ test('where file sharing is unsupported, Share card downloads the 1200×1200 ima
     Object.assign(navigator, { share: undefined, canShare: undefined });
   });
 
-  await endAGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Share card' }).click();
 
