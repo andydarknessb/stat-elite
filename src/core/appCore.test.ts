@@ -748,7 +748,7 @@ test('a softball Game names its inning on the live Game, and Next period advance
   expect((await core.liveGame(gameId))?.periodLabel).toBe('Inn 2');
 });
 
-test('the live Game splits its stats by Period, and the whole Game still sums them', async () => {
+test('the live Game sums its stats over every Period', async () => {
   const { core } = setup();
   const gameId = await basketballGame(core);
   await core.recordTile(gameId, 'steal'); // Period 1
@@ -757,13 +757,6 @@ test('the live Game splits its stats by Period, and the whole Game still sums th
   await core.recordFreeThrow(gameId, false); // Period 2
 
   const game = await core.liveGame(gameId);
-  expect(game?.byPeriod[1]).toMatchObject({ tiles: { steal: 1 }, points: 0, freeThrows: { made: 0, attempted: 0 } });
-  expect(game?.byPeriod[2]).toMatchObject({
-    tiles: { steal: 0 },
-    shots: { 3: { made: 1, attempted: 1 } },
-    points: 3,
-    freeThrows: { made: 0, attempted: 1 },
-  });
   expect(game).toMatchObject({ tiles: { steal: 1 }, points: 3, freeThrows: { made: 0, attempted: 1 } });
 });
 
@@ -3751,6 +3744,21 @@ test('a Backlogged Game takes no Events: a tile, End Game and Undo each refuse i
 
   expect(await t.inspect.events.count()).toBe(0);
   expect(await t.inspect.outbox.count()).toBe(queued);
+});
+
+test('a closed Game refuses before a command decides: a baserunning move on a Backlogged or ended Game and a score below zero on an ended Game reject and write nothing', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  const backlogged = await t.core.backlogGame(backlogEntry(athleteId));
+  const gameId = await basketballGame(t.core);
+  await t.core.endGame(gameId, { teamScore: 0, opponentScore: 0 });
+  const before = [await t.inspect.events.count(), await t.inspect.outbox.count()];
+
+  await expect(t.core.recordBaserunning(backlogged, { base: 'out', stolen: false })).rejects.toThrow('A Backlogged Game has no Events');
+  await expect(t.core.recordBaserunning(gameId, { base: 'out', stolen: false })).rejects.toThrow('This Game has ended');
+  await expect(t.core.adjustScore(gameId, 'team', -1)).rejects.toThrow('This Game has ended');
+
+  expect([await t.inspect.events.count(), await t.inspect.outbox.count()]).toEqual(before);
 });
 
 test('a Backlogged Game is dated on a real day from 1900 on: 2026-02-31, 0000-00-00 and 1899-12-31 are refused, and 2024-02-29 is accepted', async () => {

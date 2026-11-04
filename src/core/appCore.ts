@@ -17,8 +17,10 @@ import {
 } from './store';
 import type { MemberRow, Server, SyncedTable, UploadRow } from './server';
 import { createPhoneAccount } from './phoneAccount';
+import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type Shift, type Undoable } from './eventLog';
 
 export type { TileEventType };
+export type { Base, Batting, Baserunning, Counts, PitchCount, Scores, Shift, StrikeKind, UndoableType } from './eventLog';
 
 export type GameFormat =
   | { sport: 'basketball'; periodFormat: 'halves' | 'quarters' | 'eighths' }
@@ -42,12 +44,6 @@ export interface BacklogEntry {
   totals: GameTotals;
 }
 
-/** A Score Snapshot's Team and Opponent scores. */
-export interface Scores {
-  team: number;
-  opponent: number;
-}
-
 export interface Home {
   athlete?: { id: string; name: string; jerseyNumber: string | null; photo?: Blob };
   /** The Athlete a tap on the photo switches to; present only when there is more than one. */
@@ -67,66 +63,6 @@ const SHARED = 'shared:';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
 /** What Sign out says when the phone is not cleared: rows still queued, or the server refuses or cannot be reached. */
 export const SIGN_OUT_REFUSED = 'Could not sign out. Wait for everything to sync and check the connection, then try again.';
-/** Every Event type Undo can retract: all but a Retraction itself. */
-export type UndoableType = Exclude<EventRow['type'], 'retraction'>;
-
-/** A Shift: one stretch on court, from a Sub In to the Sub Out that ends it (GLOSSARY: Shift). */
-export interface Shift {
-  /** Milliseconds on court: to its Sub Out, or while on court, to now (or to the End Game). */
-  ms: number;
-  /** Team points minus Opponent points between its Score Snapshots (ADR 0002). */
-  plusMinus: number;
-}
-
-/** The stats a set of Events counts: none of them retracted, and no Retraction among them. */
-export interface Counts {
-  tiles: Record<TileEventType, number>;
-  /** Free Throws not retracted: how many went in, of how many were attempted. */
-  freeThrows: { made: number; attempted: number };
-  /** Shots not retracted, by value: how many went in, of how many were attempted. */
-  shots: Record<2 | 3, { made: number; attempted: number }>;
-  /** The Athlete's points: made Shots and Free Throws not retracted. */
-  points: number;
-}
-
-/** How a strikeout is marked: looking or swinging (GLOSSARY: Strikeout looking, Strikeout swinging). */
-export type StrikeKind = 'looking' | 'swinging';
-
-/** A Plate Appearance's count from its Pitches: balls and strikes, and how a strikeout would be marked now (GLOSSARY: Count). */
-export interface PitchCount {
-  balls: number;
-  strikes: number;
-  /** Undefined without a called or swinging strike: a strikeout then stays unmarked. */
-  strikeout?: StrikeKind;
-}
-
-/** A softball or baseball Game's batting: its At-Bats, hits and RBI, and AVG, OBP and SLG (plan: Stats; GLOSSARY: At-Bat). The counts are kept so a season sums them. */
-export interface Batting {
-  atBats: number;
-  hits: number;
-  rbi: number;
-  /** Total bases: 1 per single, 2 per double, 3 per triple, 4 per home run. */
-  bases: number;
-  walks: number;
-  hitByPitch: number;
-  sacFlies: number;
-  /** H / AB, undefined before the first At-Bat. */
-  avg?: number;
-  /** (H + BB + HBP) / (AB + BB + HBP + SF), undefined while the denominator is zero. */
-  obp?: number;
-  /** Total bases / AB, undefined before the first At-Bat. */
-  slg?: number;
-}
-
-/** The Athlete's runs and stolen bases in a Game: a run is a Scored move or a home run, a stolen base a move marked as a steal (GLOSSARY: Baserunning). */
-export interface Baserunning {
-  runs: number;
-  stolenBases: number;
-}
-
-/** A base the Athlete holds once on base: the one their Outcome reached, then where they have moved (GLOSSARY: Baserunning). */
-export type Base = 'first' | 'second' | 'third';
-
 export interface LiveGame extends Counts {
   id: string;
   sport: GameRow['sport'];
@@ -134,14 +70,12 @@ export interface LiveGame extends Counts {
   athleteName: string;
   /** The current Period's label in the Game's format (H1, Q3, OT1, Inn 4). */
   periodLabel: string;
-  /** The same stats split by Period: every Period up to the current one, a Period with no Events at zero. */
-  byPeriod: Record<number, Counts>;
   /** The latest Score Snapshot not retracted; 0–0 before the first one. */
   score: Scores;
   /** The Final Score, once End Game has closed the Game. */
   final?: Scores;
   /** The Event the next Undo retracts: the newest one not already retracted. Made is set on a Shot or Free Throw, value on a Shot, pitch on a Pitch; strikeout on a strikeout Plate Appearance; base and stolen on a baserunning move. */
-  undoable?: { id: string; type: UndoableType; made?: boolean; value?: 2 | 3; outcome?: Outcome; strikeout?: StrikeKind; pitch?: Pitch; base?: BaseMove; stolen?: boolean };
+  undoable?: Undoable;
   /** The base the Athlete holds, while they are on base; undefined off base, once they are out or scored (the Athlete-only diamond). */
   onBase?: Base;
   /** The Game's runs and stolen bases, not retracted (softball and baseball). */
@@ -205,11 +139,11 @@ export interface GameFeed {
 export const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
 /** The totals a season or a Game shows, in words. */
-export const lineText = (line: Line) =>
+const lineText = (line: Line) =>
   `${line.points} PTS · FG ${line.fg.made}/${line.fg.attempted} · FT ${line.ft.made}/${line.ft.attempted} · ${line.rebounds} REB · ${line.assists} AST`;
 
 /** A batting line in words: hits over At-Bats, and RBI. */
-export const battingText = (batting: Batting) => `H/AB ${batting.hits}/${batting.atBats} · ${batting.rbi} RBI`;
+const battingText = (batting: Batting) => `H/AB ${batting.hits}/${batting.atBats} · ${batting.rbi} RBI`;
 
 /** A Game's stat line in words: the basketball line, or on softball and baseball the batting line with its runs and stolen bases. */
 export const gameLineText = (game: Pick<FeedGame, 'sport' | 'line' | 'batting' | 'baserunning'>) =>
@@ -219,26 +153,6 @@ export const gameLineText = (game: Pick<FeedGame, 'sport' | 'line' | 'batting' |
 
 /** The hashtag a Game's copy text ends with, by sport (GLOSSARY: Game). */
 const SPORT_TAG: Record<GameRow['sport'], string> = { basketball: '#basketball', softball: '#softball', baseball: '#baseball' };
-
-/** IDs of the Events that a Retraction in this list undoes. */
-const retractedIds = (events: EventRow[]) => new Set(events.flatMap((e) => (e.retracts_id ? [e.retracts_id] : [])));
-
-const snapshotOf = (event: EventRow): Scores | undefined =>
-  event.team_score !== null && event.opponent_score !== null
-    ? { team: event.team_score, opponent: event.opponent_score }
-    : undefined;
-
-// a Sub In or Sub Out always carries its Score Snapshot (the schema's per-type CHECK), so the zero fallback never applies
-const scoresOf = (event: EventRow): Scores => ({ team: event.team_score ?? 0, opponent: event.opponent_score ?? 0 });
-
-// a Shift from its Sub In to an end (its Sub Out, or now while on court): Plus/Minus is the change in each side between the two Score Snapshots (ADR 0002)
-const shiftBetween = (start: EventRow, end: { at: string; scores: Scores }): Shift => {
-  const from = scoresOf(start);
-  return {
-    ms: Date.parse(end.at) - Date.parse(start.client_ts),
-    plusMinus: end.scores.team - from.team - (end.scores.opponent - from.opponent),
-  };
-};
 
 /** A Score Snapshot takes whole, non-negative scores. */
 const isScore = (n: number) => Number.isInteger(n) && n >= 0;
@@ -271,29 +185,6 @@ const isSpot = (n: number) => Number.isFinite(n) && n >= 0 && n <= 100;
 /** Rounds to the 2 decimal places the schema keeps (numeric(5,2)), so the phone's copy matches the server's. */
 const spot = (n: number) => Math.round(n * 100) / 100;
 
-/** The points an Event adds to the Athlete's total: a made Shot's value, a made Free Throw's one. */
-const pointsOf = (event: EventRow): number => {
-  if (!event.made) return 0;
-  if (event.type === 'shot') return event.shot_value ?? 0;
-  return event.type === 'free_throw' ? 1 : 0;
-};
-
-// the Athlete is on court when the newest Sub Event not retracted is a Sub In
-const onCourtOf = (events: EventRow[]) => {
-  const retracted = retractedIds(events);
-  const subs = events.filter((e) => (e.type === 'sub_in' || e.type === 'sub_out') && !retracted.has(e.id));
-  return subs.at(-1)?.type === 'sub_in';
-};
-
-const isTile = (type: EventRow['type']): type is TileEventType =>
-  (TILE_EVENT_TYPES as readonly string[]).includes(type);
-
-// the Period a new Event falls in: the newest Period start not retracted, else the first Period
-const currentPeriod = (events: EventRow[]) => {
-  const retracted = retractedIds(events);
-  return events.filter((e) => e.type === 'period_start' && !retracted.has(e.id)).at(-1)?.period ?? 1;
-};
-
 // the Periods a regulation Game has: 2 halves, 8 eighths, else 4 quarters (innings are not counted here)
 const regulationOf = (periodFormat: GameRow['period_format']) => (periodFormat === 'halves' ? 2 : periodFormat === 'eighths' ? 8 : 4);
 
@@ -306,125 +197,9 @@ export function periodLabel(periodFormat: GameRow['period_format'], period: numb
   return `${prefix}${period}`;
 }
 
-// the stats a list of live Events counts, each Event once
-const countOf = (live: EventRow[]): Counts => {
-  const counts: Counts = {
-    tiles: Object.fromEntries(TILE_EVENT_TYPES.map((type) => [type, 0])) as Record<TileEventType, number>,
-    freeThrows: { made: 0, attempted: 0 },
-    shots: { 2: { made: 0, attempted: 0 }, 3: { made: 0, attempted: 0 } },
-    points: 0,
-  };
-  for (const event of live) {
-    if (isTile(event.type)) counts.tiles[event.type]++;
-    if (event.type === 'free_throw') {
-      counts.freeThrows.attempted++;
-      if (event.made) counts.freeThrows.made++;
-    }
-    if (event.type === 'shot' && event.shot_value) {
-      counts.shots[event.shot_value].attempted++;
-      if (event.made) counts.shots[event.shot_value].made++;
-    }
-    counts.points += pointsOf(event);
-  }
-  return counts;
-};
-
-type BattingCounts = Omit<Batting, 'avg' | 'obp' | 'slg'>;
-
-// a batting line from its counts; a rate is undefined over a zero denominator (plan: Stats)
-const battingRates = (counts: BattingCounts): Batting => {
-  const { atBats, hits, bases, walks, hitByPitch, sacFlies } = counts;
-  const rate = (top: number, bottom: number) => (bottom > 0 ? top / bottom : undefined);
-  return {
-    ...counts,
-    avg: rate(hits, atBats),
-    obp: rate(hits + walks + hitByPitch, atBats + walks + hitByPitch + sacFlies),
-    slg: rate(bases, atBats),
-  };
-};
-
-// the batting line a list of live Events makes: each Plate Appearance counts once (plan: Stats)
-const battingOf = (live: EventRow[]): Batting => {
-  const outcomes = live.flatMap((e) => (e.type === 'plate_appearance' && e.outcome ? [e.outcome] : []));
-  const n = (...of: Outcome[]) => outcomes.filter((o) => of.includes(o)).length;
-  return battingRates({
-    atBats: outcomes.length - n('walk', 'hit_by_pitch', 'sac_fly', 'sac_bunt'),
-    hits: n('single', 'double', 'triple', 'home_run'),
-    rbi: live.reduce((sum, e) => sum + (e.type === 'plate_appearance' ? (e.rbi ?? 0) : 0), 0),
-    bases: n('single') + 2 * n('double') + 3 * n('triple') + 4 * n('home_run'),
-    walks: n('walk'),
-    hitByPitch: n('hit_by_pitch'),
-    sacFlies: n('sac_fly'),
-  });
-};
-
-// the Outcomes that leave the Athlete on base, and the base each reaches; a home run scores the Athlete and holds no base
-const REACHED: Partial<Record<Outcome, Base>> = {
-  single: 'first',
-  double: 'second',
-  triple: 'third',
-  walk: 'first',
-  hit_by_pitch: 'first',
-  reached_on_error: 'first',
-  fielders_choice: 'first',
-};
-
-// the Athlete's base: the one the newest Plate Appearance reached, then each baserunning move after it; undefined once they are out or scored
-const onBaseOf = (live: EventRow[]): Base | undefined => {
-  let base: Base | undefined;
-  for (const event of live) {
-    if (event.type === 'plate_appearance') base = event.outcome ? REACHED[event.outcome] : undefined;
-    if (event.type === 'baserunning') base = event.base === 'second' || event.base === 'third' ? event.base : undefined;
-  }
-  return base;
-};
-
 const ORDER: Record<Base | 'home', number> = { first: 1, second: 2, third: 3, home: 4 };
 /** Where the Athlete on a base can move next: each base ahead of it, and Out (GLOSSARY: Baserunning). */
 export const movesFrom = (base: Base): BaseMove[] => BASES.filter((to) => to === 'out' || ORDER[to] > ORDER[base]);
-
-// the stats a list of live Events makes: a run is a Scored move or a home run; a stolen base is a steal that advances, never an Out (a caught stealing)
-const baserunningOf = (live: EventRow[]): Baserunning => ({
-  runs: live.filter((e) => (e.type === 'baserunning' && e.base === 'home') || (e.type === 'plate_appearance' && e.outcome === 'home_run')).length,
-  stolenBases: live.filter((e) => e.type === 'baserunning' && e.stolen && e.base !== 'out').length,
-});
-
-// the Events the stats count: none a Retraction and none retracted
-const liveOf = (events: EventRow[]) => {
-  const retracted = retractedIds(events);
-  return events.filter((e): e is EventRow & { type: UndoableType } => e.type !== 'retraction' && !retracted.has(e.id));
-};
-
-// the count Pitches make: a foul is a strike only while the count has fewer than two (GLOSSARY: Pitch)
-const pitchCountOf = (pitches: Pitch[]): PitchCount => {
-  let balls = 0;
-  let strikes = 0;
-  for (const pitch of pitches) {
-    if (pitch === 'ball') balls++;
-    else if (pitch === 'foul') {
-      if (strikes < 2) strikes++;
-    } else strikes++;
-  }
-  // fouls never mark a strikeout: only the last called or swinging strike does (GLOSSARY: Strikeout looking, Strikeout swinging)
-  const last = pitches.filter((pitch) => pitch === 'called_strike' || pitch === 'swinging_strike').at(-1);
-  if (last === undefined) return { balls, strikes };
-  return { balls, strikes, strikeout: last === 'called_strike' ? 'looking' : 'swinging' };
-};
-
-// each Plate Appearance's strikeout mark (undefined for every other Outcome), and the Pitches logged since the newest Plate Appearance or Period
-const pitchesOf = (live: EventRow[]) => {
-  const strikeouts = new Map<string, StrikeKind | undefined>();
-  let pitches: Pitch[] = [];
-  for (const event of live) {
-    if (event.type === 'pitch' && event.pitch) pitches.push(event.pitch);
-    if (event.type === 'period_start') pitches = [];
-    if (event.type === 'plate_appearance') {
-      if (event.outcome === 'strikeout') strikeouts.set(event.id, pitchCountOf(pitches).strikeout);
-      pitches = [];
-    }
-  }
-  return { strikeouts, current: pitches };
-};
 
 /** The phone's local calendar date, not UTC, as YYYY-MM-DD. */
 const localDate = (date: Date) =>
@@ -722,7 +497,7 @@ const eventsFromTotals = (game: GameRow): EventRow[] => {
     // one Plate Appearance per Outcome counted, all the RBI on the first
     const counted = OUTCOMES.flatMap((outcome) => Array.from({ length: readCount(outcomes?.[outcome]) }, () => outcome));
     counted.forEach((outcome, i) => add({ type: 'plate_appearance', outcome, rbi: i === 0 ? readCount(rbi) : 0 }));
-    // baserunningOf already counts each home run as a run, so only the other runs are moves home
+    // the fold already counts each home run as a run, so only the other runs are moves home
     times(readCount(runs) - readCount(outcomes?.home_run), () => add({ type: 'baserunning', base: 'home', stolen: false }));
     times(readCount(steals), () => add({ type: 'baserunning', base: 'second', stolen: true }));
   }
@@ -732,6 +507,9 @@ const eventsFromTotals = (game: GameRow): EventRow[] => {
 
 // the account that recorded a Game: a Game stored before Recorders were is the Owner's, and one waiting on sign-in has none yet, so this phone recorded it
 const recorderOf = (game: GameRow, owner: string | undefined) => (game.recorded_by === undefined ? owner : game.recorded_by);
+
+/** The fields a command sets on its Event: its type, and whichever others that type carries. */
+type Fields = Pick<EventRow, 'type'> & Partial<EventRow>;
 
 export function createAppCore({ clock, store, server }: { clock: () => Date; store: Store; server: Server }) {
   const now = () => clock().toISOString();
@@ -744,64 +522,40 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       .filter((g) => !g.removed)
       .reverse()
       .sort((a, b) => b.game_date.localeCompare(a.game_date));
-  // the strip: the latest Score Snapshot not retracted, plus the points of the made Shots and Free Throws after it (ADR 0002); 0–0 before the first one
-  const latestScores = (events: EventRow[]): Scores => {
-    const retracted = retractedIds(events);
-    let base: Scores = { team: 0, opponent: 0 };
-    let added = 0;
-    for (const event of events) {
-      if (retracted.has(event.id)) continue;
-      const snapshot = snapshotOf(event);
-      if (snapshot) {
-        base = snapshot;
-        added = 0;
-      } else added += pointsOf(event);
-    }
-    return { team: base.team + added, opponent: base.opponent };
-  };
-  // a Backlogged Game takes no Events: its Totals are its record (ADR 0005)
-  const noBacklog = async (gameId: string) => {
-    if ((await store.games.get(gameId))?.totals) throw new Error('A Backlogged Game has no Events');
-  };
-  // the next Event in a Game, appended to its log
-  const nextEvent = async (
-    gameId: string,
-    fields: Pick<EventRow, 'type' | 'retracts_id'> &
-      Partial<Pick<EventRow, 'period' | 'made' | 'team_score' | 'opponent_score' | 'court_x' | 'court_y' | 'shot_value' | 'outcome' | 'rbi' | 'pitch' | 'base' | 'stolen'>>,
-  ): Promise<EventRow> => {
-    await noBacklog(gameId);
-    const events = await gameEvents(gameId).toArray();
-    const last = events.at(-1);
-    // End Game is always the last Event of a Game, so nothing is appended after it
-    if (last?.type === 'game_end') throw new Error('This Game has ended');
-    return {
-      id: crypto.randomUUID(),
-      game_id: gameId,
-      seq: (last?.seq ?? 0) + 1,
-      client_ts: now(),
-      period: currentPeriod(events),
-      court_x: null,
-      court_y: null,
-      shot_value: null,
-      made: null,
-      team_score: null,
-      opponent_score: null,
-      outcome: null,
-      rbi: null,
-      pitch: null,
-      base: null,
-      stolen: null,
-      ...fields,
-    };
-  };
-
-  // Every write queues its row for upload in the same transaction (ADR 0001), then tries to upload. The Game table is always in scope, since nextEvent reads the Game (ADR 0005).
+  // Every write queues its row for upload in the same transaction (ADR 0001), then tries to upload. The Game table is always in scope, since append reads the Game (ADR 0005).
   const write = async <T>(tables: Table[], scope: () => Promise<T>): Promise<T> => {
     const result = await store.transaction('rw', [...new Set([...tables, store.games, store.outbox])], scope);
     void flush();
     return result;
   };
   const queue = (table: SyncedTable, id: string) => store.outbox.add({ table, id });
+  // The Event log's one append: the Game's Events are read once, a Backlogged or ended Game is refused before the command's decision
+  // (ADR 0005, and End Game is always the last Event), and the Event and its Outbox row are written in one transaction. A decision of
+  // none writes nothing. One rw transaction at a time per store, so taps in quick succession still get distinct seqs.
+  function append(gameId: string, decide: (log: Fold) => Fields): Promise<EventRow>;
+  function append(gameId: string, decide: (log: Fold) => Fields | undefined): Promise<EventRow | undefined>;
+  function append(gameId: string, decide: (log: Fold) => Fields | undefined): Promise<EventRow | undefined> {
+    return write([store.events], async () => {
+      if ((await store.games.get(gameId))?.totals) throw new Error('A Backlogged Game has no Events');
+      const events = await gameEvents(gameId).toArray();
+      const log = fold(events, now());
+      if (log.ended) throw new Error('This Game has ended');
+      const fields = decide(log);
+      if (!fields) return undefined;
+      const event: EventRow = {
+        ...NO_FIELDS,
+        id: crypto.randomUUID(),
+        game_id: gameId,
+        seq: (events.at(-1)?.seq ?? 0) + 1,
+        client_ts: now(),
+        period: log.period,
+        ...fields,
+      };
+      await store.events.add(event);
+      await queue('events', event.id);
+      return event;
+    });
+  }
 
   // the row an outbox entry names, as it is now, and the id of its Athlete: a Game names its Athlete, an Event its Game
   const loadRow = async ({ table, id }: OutboxRow): Promise<{ row: UploadRow; athleteId?: string } | undefined> => {
@@ -967,58 +721,26 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     if (!game) return undefined;
     // a Backlogged Game's Events are its Totals, built here and never stored (ADR 0005)
     const events = game.totals ? eventsFromTotals(game) : await gameEvents(gameId).toArray();
-    const live = liveOf(events);
-    const shifts: Shift[] = [];
-    let onCourtSince: EventRow | undefined;
-    for (const event of live) {
-      if (event.type === 'sub_in') onCourtSince ??= event;
-      if (event.type === 'sub_out' && onCourtSince) {
-        shifts.push(shiftBetween(onCourtSince, { at: event.client_ts, scores: scoresOf(event) }));
-        onCourtSince = undefined;
-      }
-    }
-    // End Game is always the last Event, so a finished Game ends on its game_end
-    const last = events.at(-1);
-    const period = currentPeriod(events);
-    const byPeriod: Record<number, Counts> = {};
-    for (let p = 1; p <= period; p++) byPeriod[p] = countOf(live.filter((e) => e.period === p));
-    const latest = live.at(-1);
-    const pitches = pitchesOf(live);
-    const score = latestScores(events);
-    // the Shift still on court runs to the strip's latest scores, and to the End Game once the Game is over
-    const endAt = last?.type === 'game_end' ? last.client_ts : now();
-    if (onCourtSince) shifts.push(shiftBetween(onCourtSince, { at: endAt, scores: score }));
-    const total = shifts.reduce((sum, shift) => sum + shift.ms, 0);
+    const log = fold(events, now());
     // the Game's elapsed time runs from its start (startGame's created_at), so a late first Sub In reads its true share
-    const elapsed = Date.parse(endAt) - Date.parse(game.created_at);
+    const elapsed = Date.parse(log.endAt) - Date.parse(game.created_at);
     return {
-      ...countOf(live),
+      ...log.counts,
       id: game.id,
       sport: game.sport,
       athleteName: (await store.athletes.get(game.athlete_id))?.name ?? 'Athlete',
-      periodLabel: periodLabel(game.period_format, period),
-      byPeriod,
-      score,
-      final: last?.type === 'game_end' ? snapshotOf(last) : undefined,
-      undoable: latest && {
-        id: latest.id,
-        type: latest.type,
-        made: latest.made ?? undefined,
-        value: latest.shot_value ?? undefined,
-        outcome: latest.outcome ?? undefined,
-        strikeout: pitches.strikeouts.get(latest.id),
-        pitch: latest.pitch ?? undefined,
-        base: latest.base ?? undefined,
-        stolen: latest.stolen ?? undefined,
-      },
-      count: pitches.current.length > 0 ? pitchCountOf(pitches.current) : undefined,
-      onCourt: onCourtSince !== undefined,
-      shifts,
-      plusMinus: shifts.reduce((sum, shift) => sum + shift.plusMinus, 0),
-      batting: battingOf(live),
-      onBase: onBaseOf(live),
-      baserunning: baserunningOf(live),
-      playingShare: elapsed > 0 ? Math.min(1, Math.max(0, total / elapsed)) : 0,
+      periodLabel: periodLabel(game.period_format, log.period),
+      score: log.score,
+      final: log.final,
+      undoable: log.undoable,
+      count: log.count,
+      onCourt: log.onCourt,
+      shifts: log.shifts,
+      plusMinus: log.plusMinus,
+      batting: log.batting,
+      onBase: log.onBase,
+      baserunning: log.baserunning,
+      playingShare: elapsed > 0 ? Math.min(1, Math.max(0, log.shiftMs / elapsed)) : 0,
     };
   };
 
@@ -1189,13 +911,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
     /** Writes the Event to the store before resolving (ADR 0001). */
     recordTile(gameId: string, type: TileEventType): Promise<EventRow> {
-      // One rw transaction at a time per store, so taps in quick succession still get distinct seqs.
-      return write([store.events], async () => {
-        const event = await nextEvent(gameId, { type, retracts_id: null });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
-      });
+      return append(gameId, () => ({ type }));
     },
 
     /** A Shot: its spot, value and result, written together when the Recorder taps MAKE or MISS (GLOSSARY: Shot). */
@@ -1203,40 +919,18 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       if (!isSpot(shot.x) || !isSpot(shot.y) || (shot.value !== 2 && shot.value !== 3)) {
         throw new Error('A Shot needs a spot on the court and a value of 2 or 3');
       }
-      return write([store.events], async () => {
-        const event = await nextEvent(gameId, {
-          type: 'shot',
-          retracts_id: null,
-          court_x: spot(shot.x),
-          court_y: spot(shot.y),
-          shot_value: shot.value,
-          made: shot.made,
-        });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
-      });
+      return append(gameId, () => ({ type: 'shot', court_x: spot(shot.x), court_y: spot(shot.y), shot_value: shot.value, made: shot.made }));
     },
 
     /** A Free Throw: its result, and no spot (GLOSSARY: Free Throw). */
     recordFreeThrow(gameId: string, made: boolean): Promise<EventRow> {
-      return write([store.events], async () => {
-        const event = await nextEvent(gameId, { type: 'free_throw', retracts_id: null, made });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
-      });
+      return append(gameId, () => ({ type: 'free_throw', made }));
     },
 
     /** A Pitch: one ball, strike or foul in the Plate Appearance in progress; Pitches are optional (GLOSSARY: Pitch, Count). */
     async recordPitch(gameId: string, pitch: Pitch): Promise<EventRow> {
       if (!PITCHES.includes(pitch)) throw new Error('A Pitch is a ball, a called or swinging strike, or a foul');
-      return write([store.events], async () => {
-        const event = await nextEvent(gameId, { type: 'pitch', retracts_id: null, pitch });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
-      });
+      return append(gameId, () => ({ type: 'pitch', pitch }));
     },
 
     /** A Plate Appearance: its Outcome and RBI count, written together once the Recorder picks the RBI chip (GLOSSARY: Plate Appearance). */
@@ -1244,98 +938,52 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       if (!OUTCOMES.includes(outcome) || !Number.isInteger(rbi) || rbi < 0 || rbi > 4) {
         throw new Error('A Plate Appearance needs an Outcome and an RBI count of 0 to 4');
       }
-      return write([store.events], async () => {
-        const event = await nextEvent(gameId, { type: 'plate_appearance', retracts_id: null, outcome, rbi });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
-      });
+      return append(gameId, () => ({ type: 'plate_appearance', outcome, rbi }));
     },
 
     /** A baserunning move: where the Athlete on base goes, and whether it was a steal; the Athlete only, never a teammate (GLOSSARY: Baserunning). */
     async recordBaserunning(gameId: string, { base, stolen }: { base: BaseMove; stolen: boolean }): Promise<EventRow> {
       if (!BASES.includes(base) || typeof stolen !== 'boolean') throw new Error('A baserunning move needs a base and whether it was a steal');
-      return write([store.events], async () => {
-        const runner = onBaseOf(liveOf(await gameEvents(gameId).toArray()));
-        if (!runner) throw new Error('Only an Athlete on base can move');
-        if (!movesFrom(runner).includes(base)) throw new Error(`An Athlete on ${runner} cannot move to ${base}`);
-        const event = await nextEvent(gameId, { type: 'baserunning', retracts_id: null, base, stolen });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
+      return append(gameId, (log) => {
+        if (!log.onBase) throw new Error('Only an Athlete on base can move');
+        if (!movesFrom(log.onBase).includes(base)) throw new Error(`An Athlete on ${log.onBase} cannot move to ${base}`);
+        return { type: 'baserunning', base, stolen };
       });
     },
 
     /** Next period: a period_start Event that opens the Period after the current one, and carries it (GLOSSARY: Period). */
     nextPeriod(gameId: string): Promise<EventRow> {
-      return write([store.events], async () => {
-        const period = currentPeriod(await gameEvents(gameId).toArray()) + 1;
-        const event = await nextEvent(gameId, { type: 'period_start', retracts_id: null, period });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
-      });
+      return append(gameId, (log) => ({ type: 'period_start', period: log.period + 1 }));
     },
 
     /** Moves one side of the strip one point and records the new absolute scores as a Score Snapshot (ADR 0002). */
     adjustScore(gameId: string, side: 'team' | 'opponent', delta: 1 | -1): Promise<EventRow | undefined> {
-      return write([store.events], async () => {
-        const scores = latestScores(await gameEvents(gameId).toArray());
-        const team = scores.team + (side === 'team' ? delta : 0);
-        const opponent = scores.opponent + (side === 'opponent' ? delta : 0);
+      return append(gameId, ({ score }) => {
+        const team = score.team + (side === 'team' ? delta : 0);
+        const opponent = score.opponent + (side === 'opponent' ? delta : 0);
         if (!isScore(team) || !isScore(opponent)) return undefined;
-        const event = await nextEvent(gameId, { type: 'score', retracts_id: null, team_score: team, opponent_score: opponent });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
+        return { type: 'score', team_score: team, opponent_score: opponent };
       });
     },
 
     /** Sub In when the Athlete is off court, else Sub Out; each records the strip's Score Snapshot (GLOSSARY: Sub In / Sub Out). */
     toggleSub(gameId: string): Promise<EventRow> {
-      return write([store.events], async () => {
-        const events = await gameEvents(gameId).toArray();
-        const scores = latestScores(events);
-        const event = await nextEvent(gameId, {
-          type: onCourtOf(events) ? 'sub_out' : 'sub_in',
-          retracts_id: null,
-          team_score: scores.team,
-          opponent_score: scores.opponent,
-        });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
-      });
+      return append(gameId, ({ onCourt, score }) => ({
+        type: onCourt ? 'sub_out' : 'sub_in',
+        team_score: score.team,
+        opponent_score: score.opponent,
+      }));
     },
 
     /** End Game: the Final Score, recorded as a game_end Event, closes the Game. Refused without whole scores. */
     async endGame(gameId: string, final: { teamScore: number; opponentScore: number }): Promise<EventRow> {
       if (!isScore(final.teamScore) || !isScore(final.opponentScore)) throw new Error('End Game needs a Final Score');
-      return write([store.events], async () => {
-        const event = await nextEvent(gameId, {
-          type: 'game_end',
-          retracts_id: null,
-          team_score: final.teamScore,
-          opponent_score: final.opponentScore,
-        });
-        await store.events.add(event);
-        await queue('events', event.id);
-        return event;
-      });
+      return append(gameId, () => ({ type: 'game_end', team_score: final.teamScore, opponent_score: final.opponentScore }));
     },
 
     /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. */
     undo(gameId: string): Promise<EventRow | undefined> {
-      return write([store.events], async () => {
-        // checked first: a Backlogged Game has no Event to undo, so nextEvent would not be reached
-        await noBacklog(gameId);
-        const target = liveOf(await gameEvents(gameId).toArray()).at(-1);
-        if (!target) return undefined;
-        const retraction = await nextEvent(gameId, { type: 'retraction', retracts_id: target.id });
-        await store.events.add(retraction);
-        await queue('events', retraction.id);
-        return retraction;
-      });
+      return append(gameId, ({ undoable }) => undoable && { type: 'retraction', retracts_id: undoable.id });
     },
 
     gameSetup,
@@ -1454,7 +1102,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         const events = await gameEvents(game.id).toArray();
         // End Game is always a finished Game's last Event
         if (events.at(-1)?.type !== 'game_end') continue;
-        games.push({ periodFormat: game.period_format, events: liveOf(events) });
+        games.push({ periodFormat: game.period_format, events: fold(events, now()).live });
       }
       return practiceFocusOf(games);
     },
