@@ -1,8 +1,8 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { addFirstAthlete } from './recorder';
 
-/** Adds Casey and a past Game against Lions, and waits on the summary Save opens. */
-async function addPastGame(page: Page) {
+/** Adds Casey and a Backlogged Game against Lions, and waits on the summary Save opens. */
+async function addBackloggedGame(page: Page) {
   await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
@@ -16,7 +16,7 @@ async function addPastGame(page: Page) {
 /** A second tab shares this phone's store, so its removal arrives here as a download would. */
 async function removeFromOtherTab(context: BrowserContext) {
   const other = await context.newPage();
-  // not openApp: the stand-in holds no session for this tab, so it can show a read-only Email beside Start Game, which openApp's one strict locator refuses
+  // goto, not openApp: this tab shares the first tab's store and its remembered account, so it has no sign-in to drive
   await other.goto('/');
   await other.getByRole('button', { name: 'Games', exact: true }).click();
   await other.getByRole('button', { name: /Lions/ }).click();
@@ -26,7 +26,7 @@ async function removeFromOtherTab(context: BrowserContext) {
 }
 
 test('a removal arriving on a summary opened from Games returns to the Games tab, with the Game gone', async ({ page, context }) => {
-  await addPastGame(page);
+  await addBackloggedGame(page);
   await page.getByRole('button', { name: 'Back' }).click();
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await page.getByRole('button', { name: /Lions/ }).click();
@@ -40,7 +40,7 @@ test('a removal arriving on a summary opened from Games returns to the Games tab
 });
 
 test('a removal arriving on a summary opened from Home returns to Home', async ({ page, context }) => {
-  await addPastGame(page);
+  await addBackloggedGame(page);
 
   await removeFromOtherTab(context);
 
@@ -49,7 +49,7 @@ test('a removal arriving on a summary opened from Home returns to Home', async (
 });
 
 test('a removal arriving on an open Edit form keeps its entry, and Cancel then leaves the summary', async ({ page, context }) => {
-  await addPastGame(page);
+  await addBackloggedGame(page);
   await page.getByRole('button', { name: 'Edit' }).click();
   await expect(page.getByRole('heading', { name: 'Edit past Game' })).toBeVisible();
 
