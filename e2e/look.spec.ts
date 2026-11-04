@@ -1,11 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openApp } from './openApp';
-
-async function addAthlete(page: Page) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-}
+import { addFirstAthlete, startGame } from './recorder';
 
 // runs in the page: one line per failing text element (contrast) or tap target (size)
 function auditScreen(screen: string): string[] {
@@ -108,8 +102,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: 'Done' }).click();
 
   // the basketball live screen at Standard, with the End Game form open
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await startGame(page);
   await expect(page.getByRole('button', { name: 'End Game' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^OREB \d+$/ })).toBeVisible();
   await check('basketball live screen, Standard');
@@ -161,7 +154,7 @@ test.describe('dark', () => {
   test.use({ colorScheme: 'dark' });
 
   test('every screen meets contrast and 44px target size under the dark theme', async ({ page }) => {
-    await addAthlete(page);
+    await addFirstAthlete(page);
     const failures = await visitEveryScreen(page, 'dark');
     expect(failures, failures.join('\n')).toEqual([]);
   });
@@ -176,7 +169,7 @@ test.describe('light phone', () => {
   test.use({ colorScheme: 'light' });
 
   test('every screen meets contrast and 44px target size on a light phone, which stays navy', async ({ page }) => {
-    await addAthlete(page);
+    await addFirstAthlete(page);
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
     const failures = await visitEveryScreen(page, 'light');
     expect(failures, failures.join('\n')).toEqual([]);
@@ -192,7 +185,7 @@ test.describe('Field mode', () => {
   test.use({ colorScheme: 'dark' });
 
   test('every screen meets contrast and 44px target size in Field mode on a dark phone', async ({ page }) => {
-    await addAthlete(page);
+    await addFirstAthlete(page);
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.getByRole('button', { name: 'Field mode', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Field mode', exact: true })).toHaveAttribute('aria-pressed', 'true');

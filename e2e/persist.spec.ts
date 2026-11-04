@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { openApp } from './openApp';
+import { addFirstAthlete } from './recorder';
 
 type PersistWindow = { persistCalls: number };
 
@@ -31,9 +32,7 @@ test('every launch asks the browser to keep storage permanently, once an Athlete
     };
   });
 
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await addFirstAthlete(page);
   await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
 
   // the init script resets the counter on every load, so this counts the reloaded page alone

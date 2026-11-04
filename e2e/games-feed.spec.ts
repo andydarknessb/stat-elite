@@ -1,16 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
-import { openApp } from './openApp';
-
-async function addAthlete(page: Page) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-}
+import { expect, test } from '@playwright/test';
+import { addFirstAthlete, startGame } from './recorder';
 
 test('Home shows the season line, and the Games tab lists the finished Game, whose row opens its summary', async ({ page }) => {
-  await addAthlete(page);
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await addFirstAthlete(page);
+  await startGame(page);
 
   // on court for a made 2 at the basket, a made Free Throw, an offensive rebound and an assist
   await page.getByRole('button', { name: 'Sub In' }).click();
@@ -48,7 +41,7 @@ test('Home shows the season line, and the Games tab lists the finished Game, who
 });
 
 test('a softball Game shows its batting line in Game Complete, its Games feed row and its own Home season line', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByLabel('Sport').selectOption('Softball');
   await page.getByRole('button', { name: 'Start', exact: true }).click();
@@ -83,7 +76,7 @@ test('a softball Game shows its batting line in Game Complete, its Games feed ro
 });
 
 test('a baseball Game shows its batting line in Game Complete and its Games feed row, with no Plus/Minus', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByLabel('Sport').selectOption('Baseball');
   await page.getByRole('button', { name: 'Start', exact: true }).click();
@@ -106,10 +99,9 @@ test('a baseball Game shows its batting line in Game Complete and its Games feed
 });
 
 test('the Games tab chips filter its feed and season tiles, with one basketball and one softball Game', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   // the basketball Game from the first test: a made 2, a made Free Throw, an offensive rebound and an assist
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await startGame(page);
   await page.getByRole('button', { name: 'Sub In' }).click();
   const court = await page.getByRole('img', { name: 'Half court' }).boundingBox();
   await page.mouse.click(court!.x + court!.width / 2, court!.y + court!.height * 0.11);

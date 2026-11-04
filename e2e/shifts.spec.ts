@@ -1,16 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
-import { openApp } from './openApp';
-
-async function startBasketballGame(page: Page) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-}
+import { expect, test } from '@playwright/test';
+import { addFirstAthlete, startGame } from './recorder';
 
 test('Sub In puts the Athlete on court and Sub Out takes her off, with the Shift on the bar', async ({ page }) => {
-  await startBasketballGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
 
   await page.getByRole('button', { name: 'Sub In' }).click();
   await expect(page.getByRole('button', { name: 'Sub Out' })).toBeVisible();
@@ -22,7 +15,8 @@ test('Sub In puts the Athlete on court and Sub Out takes her off, with the Shift
 });
 
 test('tapping the Game line lists each closed Shift with its time and Plus/Minus, and the screen still fits 390×844', async ({ page }) => {
-  await startBasketballGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
 
   await page.getByRole('button', { name: 'Sub In' }).click();
   await page.getByRole('button', { name: 'Casey +1' }).click();
@@ -58,14 +52,11 @@ test('tapping the Game line lists each closed Shift with its time and Plus/Minus
 
 for (const size of ['Compact', 'Bleacher']) {
   test(`at ${size} the Shifts list opens in the Shift bar and does not widen the page`, async ({ page }) => {
-    await openApp(page);
-    await page.getByLabel('Athlete name').fill('Casey');
-    await page.getByRole('button', { name: 'Add Athlete' }).click();
+    await addFirstAthlete(page);
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.getByRole('button', { name: size, exact: true }).click();
     await page.getByRole('button', { name: 'Done' }).click();
-    await page.getByRole('button', { name: 'Start Game' }).click();
-    await page.getByRole('button', { name: 'Start', exact: true }).click();
+    await startGame(page);
 
     await page.getByRole('button', { name: 'Sub In' }).click();
     await page.getByRole('button', { name: 'Casey +1' }).click();
@@ -78,7 +69,8 @@ for (const size of ['Compact', 'Bleacher']) {
 }
 
 test('a long Shifts list scrolls inside its line and does not widen the page', async ({ page }) => {
-  await startBasketballGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
   for (let i = 0; i < 4; i++) {
     await page.getByRole('button', { name: 'Sub In' }).click();
     await page.getByRole('button', { name: 'Casey +1' }).click();
@@ -93,7 +85,8 @@ test('a long Shifts list scrolls inside its line and does not widen the page', a
 });
 
 test('the Game line is a button at least 44px tall, and tapping it flips aria-expanded', async ({ page }) => {
-  await startBasketballGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
 
   const gameLine = page.locator('.shift .game');
   await expect(gameLine).toHaveAttribute('aria-expanded', 'false');
@@ -105,7 +98,8 @@ test('the Game line is a button at least 44px tall, and tapping it flips aria-ex
 });
 
 test('the Shift on court stays off the Shifts list', async ({ page }) => {
-  await startBasketballGame(page);
+  await addFirstAthlete(page);
+  await startGame(page);
 
   await page.getByRole('button', { name: 'Sub In' }).click();
   await page.getByRole('button', { name: 'Casey +1' }).click();

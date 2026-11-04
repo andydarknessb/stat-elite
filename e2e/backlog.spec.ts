@@ -1,11 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openApp } from './openApp';
-
-async function addAthlete(page: Page) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-}
+import { addFirstAthlete, startGame } from './recorder';
 
 /** A local calendar date, the given number of days from today (negative is back), as a date input reads it. */
 function localDate(daysFromToday: number) {
@@ -18,7 +12,7 @@ const fitsWidth = (page: Page) => page.evaluate(() => document.documentElement.s
 
 test('a basketball Game added from Home opens its summary with no Game Complete, and the Games tab lists it under its date', async ({ page }) => {
   const played = localDate(-10);
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await expect(page.getByRole('heading', { name: 'Add past Game' })).toBeVisible();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
@@ -52,7 +46,7 @@ test('a basketball Game added from Home opens its summary with no Game Complete,
 
 test('a softball Game added, then edited, shows the new batting line, and its Sport stays fixed on edit', async ({ page }) => {
   const played = localDate(-10);
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await page.getByLabel('Sport').selectOption('Softball');
   await page.getByLabel('Opponent', { exact: true }).fill('Hawks');
@@ -82,7 +76,7 @@ test('a softball Game added, then edited, shows the new batting line, and its Sp
 
 test('a 2PT made above 2PT attempted disables Save with an alert, and the date input refuses days after today', async ({ page }) => {
   const today = localDate(0);
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
   await page.getByLabel('Date', { exact: true }).fill(today);
@@ -111,9 +105,8 @@ test('a 2PT made above 2PT attempted disables Save with an alert, and the date i
 });
 
 test('a live Game has no Remove button, and a finished Game recorded here has Remove and no Edit', async ({ page }) => {
-  await addAthlete(page);
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await addFirstAthlete(page);
+  await startGame(page);
   await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
@@ -127,9 +120,8 @@ test('a live Game has no Remove button, and a finished Game recorded here has Re
 });
 
 test('a finished Game recorded here is removed from its summary after confirming, and leaves the Games feed', async ({ page }) => {
-  await addAthlete(page);
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await addFirstAthlete(page);
+  await startGame(page);
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
@@ -147,7 +139,7 @@ test('a finished Game recorded here is removed from its summary after confirming
 
 test('a Backlogged Game removed from its summary after confirming lands on Home, and leaves the Games feed', async ({ page }) => {
   const played = localDate(-10);
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
   await page.getByLabel('Date', { exact: true }).fill(played);

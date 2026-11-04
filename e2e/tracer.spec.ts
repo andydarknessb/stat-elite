@@ -1,12 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { openApp } from './openApp';
+import { addFirstAthlete, startGame } from './recorder';
 
 test('a Recorder adds an Athlete, taps STL, and still sees the count after a reload', async ({ page }) => {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await addFirstAthlete(page);
+  await startGame(page);
 
   const steal = page.getByRole('button', { name: /^STL/ });
   await expect(steal).toHaveText('STL 0');

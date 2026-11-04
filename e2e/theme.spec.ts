@@ -1,19 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { openApp } from './openApp';
-
-async function addAthlete(page: Page) {
-  await openApp(page);
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-}
-
-async function startGame(page: Page) {
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-}
+import { addFirstAthlete, startGame } from './recorder';
 
 test("the page is navy whatever the phone's setting is", async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   for (const colorScheme of ['dark', 'light'] as const) {
     await page.emulateMedia({ colorScheme });
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
@@ -22,7 +12,7 @@ test("the page is navy whatever the phone's setting is", async ({ page }) => {
 });
 
 test('Start Game is the gold button with navy text on either phone setting', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   const start = page.getByRole('button', { name: 'Start Game' });
   for (const colorScheme of ['dark', 'light'] as const) {
     await page.emulateMedia({ colorScheme });
@@ -32,7 +22,7 @@ test('Start Game is the gold button with navy text on either phone setting', asy
 });
 
 test('Home headline is Barlow Condensed, body text is Barlow, and the Barlow face is loaded', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await expect(page.getByRole('heading', { level: 1 })).toHaveCSS('font-family', /^"Barlow Condensed"/);
   await expect(page.locator('body')).toHaveCSS('font-family', /^Barlow/);
   const loaded = await page.evaluate(async () => {
@@ -43,7 +33,7 @@ test('Home headline is Barlow Condensed, body text is Barlow, and the Barlow fac
 });
 
 test('in dark, the free-throw MAKE and MISS keep their green and red', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await startGame(page);
   await page.emulateMedia({ colorScheme: 'dark' });
   const row = page.getByRole('group', { name: 'Free Throw' });
