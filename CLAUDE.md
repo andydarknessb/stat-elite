@@ -6,7 +6,7 @@ A phone web app a parent uses on the sideline to record one child's games (baske
 
 M1 in progress. The app is scaffolded on React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7) and Dexie 4; supabase-js is in: it signs the Recorder in and uploads the outbox (`docs/plan.md:79`).
 
-`npm test` runs everything: typecheck, Vitest (App Core tests and the schema self-check on PGlite), then Playwright at 390×844. GitHub Actions runs it on every pull request into `integration` and `main`, on Chromium and WebKit. In a fleet worktree, run `npm run typecheck` and `npx vitest run` instead and leave Playwright to CI: outside CI it reuses any server already on port 4173, so concurrent ICs would test each other's builds. Netlify deploys `integration` to https://stat-elite.netlify.app; `BASE_URL=https://stat-elite.netlify.app npx playwright test e2e/install.spec.ts e2e/offline.spec.ts` checks the deployed app.
+`npm test` runs everything: typecheck, Vitest (App Core tests and the schema self-check on PGlite), then Playwright at 390×844. GitHub Actions runs it on every pull request into `integration` and `main`, on Chromium and WebKit. In a fleet worktree, run `npm run typecheck` and `npx vitest run` instead and leave Playwright to CI: outside CI it reuses any server already on port 4173, so concurrent ICs would test each other's builds. Netlify deploys `integration` to https://stat-elite.netlify.app; `BASE_URL=https://stat-elite.netlify.app npx playwright test --project=chromium e2e/install.spec.ts e2e/offline.spec.ts` checks the deployed app.
 
 ## Where things live
 
