@@ -42,7 +42,7 @@ export type Run = <T>(command: (core: CommandCore) => Promise<T>, options?: RunO
 
 const Seam = createContext<AppCore | undefined>(undefined);
 
-/** Screens reach App Core only through here. A read that fails with nothing on screen reaches the boundary below. */
+/** Screens reach App Core only through here. A required read that fails with nothing on screen reaches the boundary below. */
 export function SeamProvider({ core, children }: { core: AppCore; children: ReactNode }) {
   return (
     <Seam.Provider value={core}>
@@ -57,8 +57,16 @@ function useCore(): AppCore {
   return core;
 }
 
-/** Re-renders whenever the store data behind a live read changes. undefined while loading, null when the read found nothing. A failed read keeps what the screen had. */
-export function useLive<T>(read: (live: LiveReads) => Promise<T>, deps: unknown[]): NonNullable<T> | null | undefined {
+/**
+ * Re-renders whenever the store data behind a live read changes. undefined while loading, null when the read found nothing.
+ * A failed read is logged and keeps what the screen had. With nothing yet, it reaches the root boundary, unless the read is
+ * `optional`: a read that feeds one control on a screen that renders without it returns undefined and leaves the screen up.
+ */
+export function useLive<T>(
+  read: (live: LiveReads) => Promise<T>,
+  deps: unknown[],
+  { optional = false }: { optional?: boolean } = {},
+): NonNullable<T> | null | undefined {
   const core = useCore();
   const [state, setState] = useState<{ value: NonNullable<T> | null }>();
   const [failure, setFailure] = useState<{ error: unknown }>();
@@ -68,11 +76,14 @@ export function useLive<T>(read: (live: LiveReads) => Promise<T>, deps: unknown[
         setState({ value: value ?? null });
         setFailure(undefined);
       },
-      error: (error: unknown) => setFailure({ error }),
+      error: (error: unknown) => {
+        console.error(error);
+        setFailure({ error });
+      },
     });
     return () => subscription.unsubscribe();
   }, deps);
-  if (failure && !state) throw failure.error;
+  if (failure && !state && !optional) throw failure.error;
   return state?.value;
 }
 

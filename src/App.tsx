@@ -1453,7 +1453,7 @@ function EndGameForm({
 function GameComplete({ gameId, onDone }: { gameId: string; onDone: () => void }) {
   const game = useLive((live) => live.gameSummary(gameId), [gameId]);
   // the text is read before the tap, so the click reaches the clipboard with no await in between (iOS drops the gesture across one)
-  const text = useLive((live) => live.gameCopyText(gameId), [gameId]);
+  const text = useLive((live) => live.gameCopyText(gameId), [gameId], { optional: true });
   // the outcome shows for 2 seconds in place, no modal; a new object per tap restarts the timer
   const [copied, setCopied] = useState<{ label: string }>();
   useEffect(() => {
@@ -1462,7 +1462,7 @@ function GameComplete({ gameId, onDone }: { gameId: string; onDone: () => void }
     return () => clearTimeout(timer);
   }, [copied]);
   // the card is drawn as the sheet opens, so a tap on Share card reaches the share sheet with no await in between (iOS drops the gesture across one)
-  const card = useLive((live) => live.gameCard(gameId), [gameId]);
+  const card = useLive((live) => live.gameCard(gameId), [gameId], { optional: true });
   const [image, setImage] = useState<File>();
   const [drawFailed, setDrawFailed] = useState(false);
   useEffect(() => {
