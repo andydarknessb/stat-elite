@@ -104,3 +104,36 @@ test('a signed-in phone with no download recorded shows the retry screen with th
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
   await expect(page.getByLabel('Athlete name')).toHaveCount(0);
 });
+
+test('Retry shows Getting your Athletes… while its attempt runs, and no Retry button is up then', async ({ page, context }) => {
+  await openApp(page);
+  // the service worker precaches the app shell while it installs; a reload hands the page to it
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await editPhone(page, [{ store: 'settings', delete: 'downloadedOnce' }]);
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.getByText('Could not get your Athletes. Check the connection and try again.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+  // from here on, record whether the progress text shows and whether a Retry button is up while it does
+  await page.evaluate(() => {
+    const record = { gettingSeen: false, retryWhileGetting: false };
+    Object.assign(window, { retryRecord: record });
+    const observe = () => {
+      if (!document.body.textContent?.includes('Getting your Athletes…')) return;
+      record.gettingSeen = true;
+      if (Array.from(document.querySelectorAll('button')).some((button) => button.textContent === 'Retry')) record.retryWhileGetting = true;
+    };
+    new MutationObserver(observe).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  await page.getByRole('button', { name: 'Retry' }).click();
+  // the failure message comes back only after the attempt has failed, which is after the progress text showed
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { retryRecord: { gettingSeen: boolean } }).retryRecord.gettingSeen))
+    .toBe(true);
+  await expect(page.getByText('Could not get your Athletes. Check the connection and try again.')).toBeVisible();
+  const record = await page.evaluate(() => (window as unknown as { retryRecord: { gettingSeen: boolean; retryWhileGetting: boolean } }).retryRecord);
+  expect(record.gettingSeen).toBe(true);
+  expect(record.retryWhileGetting).toBe(false);
+});
