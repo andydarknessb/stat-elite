@@ -4,32 +4,49 @@ import {
   HALF_COURT,
   arcPreset,
   backlogProblem,
+  BASE_LABELS,
+  baseLabel,
+  clockOf,
+  countFields,
+  EVENT_LABELS,
+  fateLine,
+  freeThrowLabel,
   gameLineText,
+  initials,
   movesFrom,
+  notWhole,
+  OUTCOME_LABELS,
+  outcomeLabel,
+  PITCH_LABELS,
+  rateText,
+  resultOf,
   SIGN_OUT_REFUSED,
+  shotLabel,
   signed,
+  TILE_LABELS,
+  textOf,
+  totalsOf,
+  undoLabel,
   type AppCore,
   type BacklogEntry,
   type Base,
   type ButtonSize,
+  type CountField,
   type GameFormat,
   type GameSetup,
   type FeedGame,
   type GameFeed,
   type Home,
   type LiveGame,
-  type AthleteFate,
   type DeletionSummary,
   type Member,
   type Scores,
   type Season,
-  type StrikeKind,
   type TileEventType,
-  type UndoableType,
 } from './core/appCore';
 import { CodeTooSoon, InviteRefused } from './core/server';
 import { renderShareCard } from './core/shareCard';
-import { OUTCOMES, PITCHES, type BaseMove, type GameTotals, type Outcome, type Pitch } from './core/store';
+import { OUTCOMES, PITCHES, type BaseMove, type Outcome, type Pitch } from './core/store';
 import { InstallPrompt } from './InstallPrompt';
 import { SeamProvider, useCommand, useLive, type Run } from './screenSeam';
 
@@ -446,10 +463,6 @@ function AthletePhoto({ photo }: { photo: Blob }) {
   return url ? <img src={url} alt="" /> : null;
 }
 
-/** The first letter of each of the first two names, upper-cased: "Casey Jones" is CJ. */
-const initials = (name: string) =>
-  name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => [...word][0].toUpperCase()).join('');
-
 /** Game setup: the Athlete's last Game prefills it, so starting is usually one tap. */
 function GameSetupForm({ athleteId, onCancel }: { athleteId: string; onCancel: () => void }) {
   const setup = useLive((live) => live.gameSetup(athleteId), [athleteId]);
@@ -635,87 +648,6 @@ function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['nex
   );
 }
 
-const TILE_LABELS: Record<TileEventType, string> = {
-  reb_off: 'OREB',
-  reb_def: 'DREB',
-  assist: 'AST',
-  steal: 'STL',
-  block: 'BLK',
-  turnover: 'TO',
-  foul: 'FOUL',
-};
-
-/** Labels for every Event Undo can retract, except a Free Throw or Shot, which name their result (see undoLabel). */
-const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw' | 'shot'>, string> = {
-  ...TILE_LABELS,
-  sub_in: 'Sub In',
-  sub_out: 'Sub Out',
-  score: 'Score',
-  game_end: 'End Game',
-  period_start: 'Next period',
-  plate_appearance: 'Plate Appearance',
-  pitch: 'Pitch',
-  baserunning: 'Base',
-};
-
-/** Pitch button labels, in the order the plan lists them (plan: optional Pitches). */
-const PITCH_LABELS: Record<Pitch, string> = {
-  ball: 'Ball',
-  called_strike: 'Called strike',
-  swinging_strike: 'Swinging strike',
-  foul: 'Foul',
-};
-
-/** Outcome button labels, as the plan's Outcome grid names them (plan: softball/baseball Outcomes). */
-const OUTCOME_LABELS: Record<Outcome, string> = {
-  single: '1B',
-  double: '2B',
-  triple: '3B',
-  home_run: 'HR',
-  walk: 'Walk',
-  hit_by_pitch: 'Hit by pitch',
-  reached_on_error: 'Error',
-  fielders_choice: "Fielder's choice",
-  strikeout: 'Strikeout',
-  ground_out: 'Ground out',
-  fly_out: 'Fly out',
-  line_out: 'Line out',
-  sac_fly: 'Sac fly',
-  sac_bunt: 'Sac bunt',
-};
-
-/** A batting rate as a scorebook prints it: .333, 1.000; a dash while its denominator is zero. */
-const rateText = (rate?: number) => (rate === undefined ? '—' : rate.toFixed(3).replace(/^0/, ''));
-
-/** An Outcome's label; a strikeout names how it was marked (GLOSSARY: Strikeout looking, Strikeout swinging). */
-const outcomeLabel = (outcome: Outcome, strikeout?: StrikeKind) =>
-  outcome === 'strikeout' && strikeout ? `Strikeout ${strikeout}` : OUTCOME_LABELS[outcome];
-
-/** Where the Athlete on base goes, as the diamond names it; a steal says so (GLOSSARY: Baserunning). */
-const BASE_LABELS: Record<BaseMove, string> = { second: '2nd', third: '3rd', home: 'Scored', out: 'Out' };
-const baseLabel = (base: BaseMove, stolen?: boolean) => `${BASE_LABELS[base]}${stolen ? ' (Stole)' : ''}`;
-
-const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
-const shotLabel = (value: 2 | 3 | undefined, made?: boolean) => `${made ? 'Made' : 'Missed'} ${value}PT`;
-/** A Shift's time as m:ss. */
-const clockOf = (ms: number) => {
-  const seconds = Math.floor(ms / 1000);
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-};
-
-const undoLabel = (undoable: NonNullable<LiveGame['undoable']>) =>
-  undoable.type === 'free_throw'
-    ? freeThrowLabel(undoable.made)
-    : undoable.type === 'shot'
-      ? shotLabel(undoable.value, undoable.made)
-      : undoable.base
-        ? baseLabel(undoable.base, undoable.stolen)
-        : undoable.pitch
-          ? PITCH_LABELS[undoable.pitch]
-          : undoable.outcome
-            ? outcomeLabel(undoable.outcome, undoable.strikeout)
-            : EVENT_LABELS[undoable.type];
-
 const SIZE_LABELS: Record<ButtonSize, string> = { compact: 'Compact', standard: 'Standard', bleacher: 'Bleacher' };
 
 type Tab = 'home' | 'games' | 'insights';
@@ -858,10 +790,6 @@ function SeasonCard({ feed }: { feed: GameFeed }) {
     </section>
   );
 }
-
-/** A Game's result: the letter its badge shows and the word it reads (W Won, L Lost, T Tied). */
-const resultOf = ({ team, opponent }: { team: number; opponent: number }) =>
-  team > opponent ? { letter: 'W', name: 'Won' } : team < opponent ? { letter: 'L', name: 'Lost' } : { letter: 'T', name: 'Tied' };
 
 /** A finished Game as a result row: its W, L or T, Opponent, date and line, Plus/Minus on basketball, and the Final Score. Opens the Game's summary (plan: Result rows). */
 function ResultRow({ game, onOpen }: { game: FeedGame; onOpen: (gameId: string) => void }) {
@@ -1051,74 +979,6 @@ function GameSummary({ gameId, onBack, onEdit, onRemoved }: { gameId: string; on
   );
 }
 
-/** A count field's key in the form's text and its visible label. The scores come first in every form. */
-type CountField = [key: string, label: string];
-const BASKETBALL_FIELDS: CountField[] = [
-  ['shot2Made', '2PT made'],
-  ['shot2Attempted', '2PT attempted'],
-  ['shot3Made', '3PT made'],
-  ['shot3Attempted', '3PT attempted'],
-  ['freeThrowMade', 'FT made'],
-  ['freeThrowAttempted', 'FT attempted'],
-  ...(Object.keys(TILE_LABELS) as TileEventType[]).map((type): CountField => [`tile:${type}`, TILE_LABELS[type]]),
-];
-const BATTING_FIELDS: CountField[] = [
-  ...OUTCOMES.map((outcome): CountField => [`outcome:${outcome}`, OUTCOME_LABELS[outcome]]),
-  ['rbi', 'RBI'],
-  ['runs', 'Runs'],
-  ['steals', 'Stolen bases'],
-];
-
-/** Every Game count as the form's text, a 0 included, so an Edit prefills and saves the same numbers. */
-function textOf(totals: GameTotals): Record<string, string> {
-  const common = { teamScore: String(totals.team), opponentScore: String(totals.opponent) };
-  if ('shots' in totals) {
-    return {
-      ...common,
-      shot2Made: String(totals.shots[2].made),
-      shot2Attempted: String(totals.shots[2].attempted),
-      shot3Made: String(totals.shots[3].made),
-      shot3Attempted: String(totals.shots[3].attempted),
-      freeThrowMade: String(totals.freeThrows.made),
-      freeThrowAttempted: String(totals.freeThrows.attempted),
-      ...Object.fromEntries((Object.keys(totals.tiles) as TileEventType[]).map((type) => [`tile:${type}`, String(totals.tiles[type])])),
-    };
-  }
-  return {
-    ...common,
-    ...Object.fromEntries(OUTCOMES.map((outcome) => [`outcome:${outcome}`, String(totals.outcomes[outcome])])),
-    rbi: String(totals.rbi),
-    runs: String(totals.runs),
-    steals: String(totals.steals),
-  };
-}
-
-/** The Totals the form's text holds. Blank is 0 (Number('') is 0); only digits reach here, see BacklogFields. */
-function totalsOf(sport: BacklogEntry['sport'], text: Record<string, string>): GameTotals {
-  const n = (key: string) => Number((text[key] ?? '').trim());
-  const team = n('teamScore');
-  const opponent = n('opponentScore');
-  if (sport === 'basketball') {
-    const tiles = Object.fromEntries((Object.keys(TILE_LABELS) as TileEventType[]).map((type) => [type, n(`tile:${type}`)]));
-    return {
-      team,
-      opponent,
-      shots: { 2: { made: n('shot2Made'), attempted: n('shot2Attempted') }, 3: { made: n('shot3Made'), attempted: n('shot3Attempted') } },
-      freeThrows: { made: n('freeThrowMade'), attempted: n('freeThrowAttempted') },
-      tiles: tiles as Record<TileEventType, number>,
-    };
-  }
-  const outcomes = Object.fromEntries(OUTCOMES.map((outcome) => [outcome, n(`outcome:${outcome}`)]));
-  return {
-    team,
-    opponent,
-    outcomes: outcomes as Record<Outcome, number>,
-    rbi: n('rbi'),
-    runs: n('runs'),
-    steals: n('steals'),
-  };
-}
-
 /** Add past Game (no gameId) or Edit past Game: a Backlogged Game, entered from its Totals (ADR 0005). Loads its prefill before the fields, as GameSetupForm does. */
 function BacklogForm({
   athleteId,
@@ -1179,13 +1039,13 @@ function BacklogFields({
   const fields: CountField[] = [
     ['teamScore', `${athleteName} score`],
     ['opponentScore', 'Opponent score'],
-    ...(sport === 'basketball' ? BASKETBALL_FIELDS : BATTING_FIELDS),
+    ...countFields(sport),
   ];
   // a count is a whole number or the form says which one is not: no coercion, no rounding
-  const notWhole = fields.find(([key]) => !/^\s*\d*\s*$/.test(typed(key)));
+  const notWholeField = notWhole(fields, text);
   const ready = opponent.trim() !== '' && gameDate !== '' && typed('teamScore').trim() !== '' && typed('opponentScore').trim() !== '';
-  const draft = ready && !notWhole ? { sport, opponentName: opponent.trim(), gameDate, totals: totalsOf(sport, text) } : undefined;
-  const problem = notWhole ? `${notWhole[1]} must be a whole number.` : draft && backlogProblem(draft, setup.gameDate);
+  const draft = ready && !notWholeField ? { sport, opponentName: opponent.trim(), gameDate, totals: totalsOf(sport, text) } : undefined;
+  const problem = notWholeField ? `${notWholeField[1]} must be a whole number.` : draft && backlogProblem(draft, setup.gameDate);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!draft || problem) return;
@@ -1288,15 +1148,6 @@ function SettingsScreen({ onDone }: { onDone: () => void }) {
       </button>
     </main>
   );
-}
-
-/** What deleting does to one Athlete, in the words the Recorder reads before it confirms (ADR 0004). */
-function fateLine(athlete: AthleteFate): string {
-  if (athlete.fate === 'passes') return `${athlete.name}: passes to ${athlete.to}, with its Games and Events.`;
-  if (athlete.fate === 'deleted') {
-    return `${athlete.name}: deleted with ${athlete.games} ${athlete.games === 1 ? 'Game' : 'Games'} and their Events.`;
-  }
-  return `${athlete.name}: you leave it; the Games you recorded stay with it.`;
 }
 
 /** Names what happens to each Athlete, then deletes: the account on the server, and everything on this phone. */
