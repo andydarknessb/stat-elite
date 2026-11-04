@@ -1034,12 +1034,19 @@ function ScoreLabel({ name, children }: { name: string; children: ReactNode }) {
 
 /** A finished Game's summary, a result card: its badge and Final Score, the Opponent, date and the Athlete's line; basketball adds Plus/Minus, Playing Share and the tiles. */
 function GameSummary({ core, gameId, onBack, onEdit, onRemoved }: { core: AppCore; gameId: string; onBack: () => void; onEdit: () => void; onRemoved: () => void }) {
-  const game = useReadModel(() => core.gameSummary(gameId), [core, gameId]);
+  // wrapped so a resolved undefined, a Game removed, differs from a read still loading
+  const read = useReadModel(async () => ({ game: await core.gameSummary(gameId) }), [core, gameId]);
+  const game = read?.game;
   // only a Backlogged Game its Recorder entered has an entry to edit (ADR 0005); its Recorder can remove any finished Game (ADR 0008)
   const backlog = useReadModel(() => core.backlogEntry(gameId), [core, gameId]);
   const removable = useReadModel(() => core.canRemoveGame(gameId), [core, gameId]);
   // Remove asks first, and the confirm step says only what leaves the app: the Game is hidden, not erased (ADR 0006)
   const [confirming, setConfirming] = useState(false);
+  // a removal can download with this summary open, and its Back button is below the return (#164)
+  const gone = read && !game;
+  useEffect(() => {
+    if (gone) onBack();
+  }, [gone]);
   if (!game) return null;
   const { letter, name } = resultOf(game.final);
   return (
