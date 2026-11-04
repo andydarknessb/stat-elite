@@ -64,3 +64,23 @@ test('a phone that never signed in opens on the sign-in screen, with no Signed i
   await expect(page.getByText('Signed in as')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
 });
+
+// Makes count reads of the athletePhotos store throw and leaves every other store alone.
+function refuseAthletePhotoCounts() {
+  const count = IDBObjectStore.prototype.count;
+  IDBObjectStore.prototype.count = function (this: IDBObjectStore, query?: IDBValidKey | IDBKeyRange) {
+    if (this.name === 'athletePhotos') throw new DOMException('the store refused the read', 'UnknownError');
+    return count.call(this, query);
+  };
+}
+
+test('Sign out with the photo count unreadable shows the alert and Reload, not a blank screen', async ({ page }) => {
+  await signInOnThisPhone(page, 'casey@example.com');
+  await addAthlete(page);
+  await page.evaluate(refuseAthletePhotoCounts);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+
+  await expect(page.getByRole('alert')).toHaveText("Could not read this phone's data.");
+  await expect(page.getByRole('button', { name: 'Reload' })).toBeVisible();
+});

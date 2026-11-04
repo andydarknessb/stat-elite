@@ -67,7 +67,7 @@ function Screens() {
   // an Invite link opens its own screen until the invitee is done with it
   const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get('invite') ?? undefined);
   // Field mode marks the root, and theme.css gives it the light tokens over the dark default
-  const fieldMode = useLive((live) => live.fieldMode(), []);
+  const fieldMode = useLive((live) => live.fieldMode(), [], { optional: true });
   useEffect(() => {
     // before the first read, index.html has already marked the root from the copy below: leave it alone
     if (fieldMode === undefined) return;
@@ -166,7 +166,7 @@ function refusalMessage(error: unknown): string {
 
 /** Home's notice when the server ended this phone's session: recording still works, and the remembered address's code syncs it again (ADR 0007). */
 function SignInAgain() {
-  const phone = useLive((live) => live.phoneAccount(), []);
+  const phone = useLive((live) => live.phoneAccount(), [], { optional: true });
   if (phone?.state !== 'session-ended') return null;
   return (
     <section className="card" aria-label="Sign in again">
@@ -179,7 +179,7 @@ function SignInAgain() {
 
 /** Invite co-parent, for the Owner of a signed-in Athlete: makes an Invite, then offers its link to the share sheet (ADR 0004). */
 function InviteCoParent({ athleteId }: { athleteId: string }) {
-  const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId]);
+  const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId], { optional: true });
   const [link, setLink] = useState<string>();
   const { run, alert } = useCommand();
   if (!canInvite) return null;
@@ -212,8 +212,8 @@ function InviteCoParent({ athleteId }: { athleteId: string }) {
 
 /** The Members of a shared Athlete: the Owner sees them and removes one; a Member leaves (ADR 0004). */
 function Members({ athleteId }: { athleteId: string }) {
-  const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId]);
-  const owner = useLive((live) => live.isOwner(athleteId), [athleteId]);
+  const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId], { optional: true });
+  const owner = useLive((live) => live.isOwner(athleteId), [athleteId], { optional: true });
   const [members, setMembers] = useState<Member[]>();
   const { run, alert } = useCommand();
   const load = () =>
@@ -262,7 +262,7 @@ function Members({ athleteId }: { athleteId: string }) {
 
 /** The "N not synced" badge: the rows that still live only on the phone. */
 function NotSynced() {
-  const sync = useLive((live) => live.sync(), []);
+  const sync = useLive((live) => live.sync(), [], { optional: true });
   if (!sync) return null;
   return <p className="sync">{sync.notSynced} not synced</p>;
 }
@@ -388,7 +388,7 @@ function SignInForm({ remembered }: { remembered?: string }) {
 
 /** No Athlete yet: Add Athlete, with the signed-in address and Sign out (ADR 0007), then the install card. */
 function FirstRun() {
-  const phone = useLive((live) => live.phoneAccount(), []);
+  const phone = useLive((live) => live.phoneAccount(), [], { optional: true });
   const [signingOut, setSigningOut] = useState(false);
   if (signingOut) return <SignOut onCancel={() => setSigningOut(false)} />;
   return (
@@ -927,8 +927,8 @@ function ScoreLabel({ name, children }: { name: string; children: ReactNode }) {
 function GameSummary({ gameId, onBack, onEdit, onRemoved }: { gameId: string; onBack: () => void; onEdit: () => void; onRemoved: () => void }) {
   const game = useLive((live) => live.gameSummary(gameId), [gameId]);
   // only a Backlogged Game its Recorder entered has an entry to edit (ADR 0005); its Recorder can remove any finished Game (ADR 0008)
-  const backlog = useLive((live) => live.backlogEntry(gameId), [gameId]);
-  const removable = useLive((live) => live.canRemoveGame(gameId), [gameId]);
+  const backlog = useLive((live) => live.backlogEntry(gameId), [gameId], { optional: true });
+  const removable = useLive((live) => live.canRemoveGame(gameId), [gameId], { optional: true });
   // Remove asks first, and the confirm step says only what leaves the app: the Game is hidden, not erased (ADR 0006)
   const [confirming, setConfirming] = useState(false);
   const { run, alert, clear } = useCommand();
@@ -1104,7 +1104,7 @@ function SettingsScreen({ onDone }: { onDone: () => void }) {
   const size = useLive((live) => live.buttonSize(), []);
   const [deleting, setDeleting] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const phone = useLive((live) => live.phoneAccount(), []);
+  const phone = useLive((live) => live.phoneAccount(), [], { optional: true });
   const field = useLive((live) => live.fieldMode(), []);
   // a setting the store refused: the alert shows until a setting lands
   const { run, alert } = useCommand();
@@ -1509,8 +1509,8 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
     return () => clearInterval(timer);
   }, []);
   const game = useLive((live) => live.liveGame(gameId), [gameId, second]);
-  const size = useLive((live) => live.buttonSize(), []) ?? 'standard';
-  const field = useLive((live) => live.fieldMode(), []) ?? false;
+  const size = useLive((live) => live.buttonSize(), [], { optional: true }) ?? 'standard';
+  const field = useLive((live) => live.fieldMode(), [], { optional: true }) ?? false;
   // the toast for the last tap, shown 3 seconds; each call sets a new object, so a repeated label still restarts the timer
   const [toast, setToast] = useState<{ label: string }>();
   // a write the store refused: the alert shows until the next write lands
