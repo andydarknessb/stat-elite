@@ -13,7 +13,11 @@ const PHOTO = {
 };
 
 test('first run asks for an Athlete, then leads to Home and stays there after a reload', async ({ page }) => {
-  await addFirstAthlete(page, { name: 'Casey', number: '12' });
+  await openApp(page);
+  await page.getByLabel('Athlete name').fill('Casey');
+  await page.getByLabel('Number').fill('12');
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
 
   await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
   await expect(page.getByText('#12')).toBeVisible();

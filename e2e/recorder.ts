@@ -67,6 +67,14 @@ export async function endGame(page: Page, final?: { team: string; teamScore: str
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
 }
 
+/** A Game for the share card: an Athlete, with an optional photo, a basketball Game ended to Game Complete. */
+export async function endGameForShareCard(page: Page, photo?: Photo) {
+  await addFirstAthlete(page, { photo });
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+}
+
 /** From Game Complete: Done, then the Games tab, then the Game against the Opponent. Waits for its summary. */
 export async function openSummary(page: Page) {
   await page.getByRole('button', { name: 'Done' }).click();
