@@ -12,6 +12,14 @@ _Avoid_: player, kid, profile, child
 The verified email a person signs in with. It can own Athletes and be a Member of others.
 _Avoid_: user, profile, login
 
+**Session**:
+A phone's sign-in as an Account, held with the server, until Sign out or until the server ends it.
+_Avoid_: login, auth state
+
+**Remembered Account**:
+The Account a phone last signed in with, kept on the phone so it keeps recording when its Session cannot be read.
+_Avoid_: current user, cached account
+
 **Owner**:
 The Account an Athlete belongs to, with sole say over its Members and its deletion.
 _Avoid_: admin, creator
