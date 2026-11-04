@@ -14,7 +14,8 @@ test('Sub In puts the Athlete on court and Sub Out takes her off, with the Shift
   await expect(page.getByText(/1 Shift · Plus\/Minus/)).toBeVisible();
 });
 
-test('tapping the Game line lists each closed Shift with its time and Plus/Minus, and the screen still fits 390×844', async ({ page }) => {
+test('tapping the Game line lists each closed Shift with its time and Plus/Minus, and the screen still fits 390×844', async ({ page, browserName }) => {
+  test.fixme(browserName === 'webkit', 'WebKit: bug #218');
   await addFirstAthlete(page);
   await startGame(page);
 

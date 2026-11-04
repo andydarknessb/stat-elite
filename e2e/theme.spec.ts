@@ -23,7 +23,8 @@ test('Start Game is the gold button with navy text on either phone setting', asy
 
 test('Home headline is Barlow Condensed, body text is Barlow, and the Barlow face is loaded', async ({ page }) => {
   await addFirstAthlete(page);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveCSS('font-family', /^"Barlow Condensed"/);
+  // WebKit quotes the whole font stack, Chromium only the family name
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCSS('font-family', /^"?Barlow Condensed"?/);
   await expect(page.locator('body')).toHaveCSS('font-family', /^Barlow/);
   const loaded = await page.evaluate(async () => {
     await document.fonts.ready;
