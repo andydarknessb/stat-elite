@@ -1137,10 +1137,10 @@ function BacklogForm({
   const entry = useLive((live) => (gameId ? live.backlogEntry(gameId) : Promise.resolve(undefined)), [gameId]);
   // an Edit labels the Game's own Athlete: another tab can change the selected one while this form is open
   const summary = useLive((live) => (gameId ? live.gameSummary(gameId) : Promise.resolve(undefined)), [gameId]);
-  // the Game was removed on another phone or tab: the form returns, and its summary leaves too (#164)
+  // the Game left this phone with its Athlete: the form returns, and its summary leaves too. A removal keeps the entry, so the form stays until Cancel or Save (#164)
   useEffect(() => {
-    if (gameId && (entry === null || summary === null)) onDone();
-  }, [entry, summary]);
+    if (gameId && entry === null) onDone();
+  }, [entry]);
   if (!setup || (gameId && !entry)) return null;
   return (
     <BacklogFields
