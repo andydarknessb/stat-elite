@@ -128,6 +128,19 @@ test('Next period disarms an Outcome: its RBI chips go down, and the next inning
   await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
 });
 
+test('Next period takes the Athlete off base: the Base group goes, and Undo brings it back', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Base', exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Next period' }).click();
+  await expect(page.getByRole('group', { name: 'Base', exact: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Undo (last Event): Next period' }).click();
+  await expect(page.getByRole('group', { name: 'Base', exact: true })).toBeVisible();
+});
+
 // the armed Outcome is gold with ink text on either phone setting: the tokens hold under dark as well as light
 for (const colorScheme of ['dark', 'light'] as const) {
   test(`an armed Outcome is gold with ink text on either phone setting, ${colorScheme}`, async ({ page }) => {
