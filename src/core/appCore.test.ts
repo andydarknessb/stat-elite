@@ -3847,6 +3847,11 @@ const LIVE_READ_MODELS: Record<string, () => Promise<void>> = {
       (entry) => entry?.opponentName === 'Owls',
     );
   },
+  canRemoveGame: async () => {
+    const { core } = setup();
+    const gameId = await basketballGame(core);
+    await followsWrite(() => core.canRemoveGame(gameId), () => core.endGame(gameId, FINAL), (can) => can);
+  },
   photoCount: async () => {
     const { core } = setup();
     await followsWrite(() => core.photoCount(), () => core.addAthlete({ name: 'Casey', photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) }), (count) => count === 1);
