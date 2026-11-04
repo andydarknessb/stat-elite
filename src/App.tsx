@@ -1005,7 +1005,7 @@ function GameSummary({ gameId, onBack, onEdit, onRemoved }: { gameId: string; on
   const removable = useLive((live) => live.canRemoveGame(gameId), [gameId]);
   // Remove asks first, and the confirm step says only what leaves the app: the Game is hidden, not erased (ADR 0006)
   const [confirming, setConfirming] = useState(false);
-  const { run, alert } = useCommand();
+  const { run, alert, clear } = useCommand();
   // the Game was removed on another phone or tab, so there is nothing to show: the summary leaves (#164)
   useEffect(() => {
     if (game === null) onBack();
@@ -1046,7 +1046,7 @@ function GameSummary({ gameId, onBack, onEdit, onRemoved }: { gameId: string; on
           <p>Remove this Game? It leaves the Games feed and the season line on every phone, and the app can't bring it back.</p>
           {alert && <p role="alert">{alert}</p>}
           <button onClick={() => run((core) => core.removeGame(gameId), { onDone: onRemoved })}>Yes, remove</button>
-          <button onClick={() => setConfirming(false)}>Cancel</button>
+          <button onClick={() => { clear(); setConfirming(false); }}>Cancel</button>
         </section>
       )}
     </main>
