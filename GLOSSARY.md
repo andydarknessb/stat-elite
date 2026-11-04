@@ -9,19 +9,23 @@ The child whose games are recorded. Every Game belongs to exactly one Athlete.
 _Avoid_: player, kid, profile, child
 
 **Account**:
-The verified email a person signs in with. It can own Athletes and be a Member of others.
+One person's record on the server, reached with a verified email. It can own Athletes and be a Member of others; signing in after deleting it makes a new Account.
 _Avoid_: user, profile, login
 
+**Phone**:
+One copy of the app's data on a device. Safari and the home-screen app on one iPhone are two Phones.
+_Avoid_: device, browser, client
+
 **Session**:
-A phone's sign-in as an Account, held with the server, until Sign out or until the server ends it.
+A Phone's sign-in as an Account, held with the server, until Sign out or until the server ends it.
 _Avoid_: login, auth state
 
 **Remembered Account**:
-The Account a phone last signed in with, kept on the phone so it keeps recording when its Session cannot be read.
+The Account a Phone last signed in with, kept on the Phone so it keeps recording when its Session cannot be read.
 _Avoid_: current user, cached account
 
 **Owner**:
-The Account an Athlete belongs to, with sole say over its Members and its deletion.
+The Account an Athlete belongs to, with sole say over its Members.
 _Avoid_: admin, creator
 
 **Member**:
@@ -33,8 +37,12 @@ A link that makes whoever accepts it a Member of one Athlete.
 _Avoid_: share link, invitation code
 
 **Recorder**:
-The person whose phone records a Game. Each Game has exactly one Recorder.
+The person whose Phone records a Game. Each Game has exactly one Recorder.
 _Avoid_: user, parent, scorekeeper, tracker
+
+**Recording Phone**:
+The one Phone that writes a Game's Events: the Phone that started the Game.
+_Avoid_: active phone, live phone, second device
 
 ## Games
 
@@ -67,8 +75,12 @@ The counts of what the Athlete did in a Backlogged Game, entered all at once.
 _Avoid_: box score, stat line, aggregates
 
 **Removed Game**:
-A finished Game its Recorder removed: every phone hides it, and its row stays on the server (ADR 0006, ADR 0008).
+A finished Game its Recorder removed: every Phone hides it, and its row stays on the server (ADR 0006, ADR 0008).
 _Avoid_: deleted game, erased game, trashed game
+
+**Season**:
+Every finished Game an Athlete has in one sport, whenever it was played; a Removed Game is left out.
+_Avoid_: career, all-time, year
 
 **Period**:
 One segment of a Game: a quarter, a half, one of eight periods, an overtime, or an inning.
@@ -151,7 +163,7 @@ A run that scored because of the Athlete's Plate Appearance, as counted by the R
 _Avoid_: runs batted in
 
 **Baserunning**:
-One move of the Athlete once on base: to 2nd, 3rd, Scored or Out, marked Stole or not. Scored counts a run; a move marked Stole counts a stolen base.
+One move of the Athlete once on base: to 2nd, 3rd, Scored or Out, marked Stole or not. Scored counts a run; a move marked Stole counts a stolen base. A new Period takes the Athlete off base.
 _Avoid_: runner, base event
 
 ## Insights
@@ -171,9 +183,13 @@ How large the live-game buttons are: Compact, Standard, or Bleacher.
 _Avoid_: Bleacher Mode, Oversized, target resizing
 
 **Field mode**:
-The light, high-contrast theme for bright sun, switched from Settings or the live screen. The app is dark otherwise, whatever the phone's setting.
+The light, high-contrast theme for bright sun, switched from Settings or the live screen. The app is dark otherwise, whatever the device's setting.
 _Avoid_: sun mode, outdoor mode, light mode
 
 **Outbox**:
-The rows on a phone waiting to upload, in the order they were written.
+The rows on a Phone waiting to upload, in the order they were written.
 _Avoid_: sync queue, upload list
+
+**Refused Row**:
+A row in the Outbox the server answered and will not take. No signal is not a refusal.
+_Avoid_: failed upload, stuck row, dead letter
