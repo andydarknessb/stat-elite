@@ -1,9 +1,8 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
-import { addFirstAthlete } from './recorder';
+import { addAthlete, addFirstAthlete } from './recorder';
 
-/** Adds Casey and a Backlogged Game against Lions, and waits on the summary Save opens. */
-async function addBackloggedGame(page: Page) {
-  await addFirstAthlete(page);
+/** Adds a Backlogged Game against Lions for the Athlete the phone shows, and waits on the summary Save opens. */
+async function addLionsGame(page: Page) {
   await page.getByRole('button', { name: 'Add past Game' }).click();
   await page.getByLabel('Opponent', { exact: true }).fill('Lions');
   await page.getByLabel('Date', { exact: true }).fill('2026-01-15');
@@ -11,6 +10,12 @@ async function addBackloggedGame(page: Page) {
   await page.getByLabel('Opponent score').fill('32');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Casey 40 – Opponent 32')).toBeVisible();
+}
+
+/** Adds Casey and a Backlogged Game against Lions, and waits on the summary Save opens. */
+async function addBackloggedGame(page: Page) {
+  await addFirstAthlete(page);
+  await addLionsGame(page);
 }
 
 /** A second tab shares this phone's store, so its removal arrives here as a download would. */
@@ -58,4 +63,47 @@ test('a removal arriving on an open Edit form keeps its entry, and Cancel then l
   await expect(page.getByLabel('Casey score')).toHaveValue('40');
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
+});
+
+test('Leave in another tab while an Edit form is open leaves the form, and the Games tab shows', async ({ page, context }) => {
+  await addFirstAthlete(page, { name: 'Sam' });
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await addAthlete(page, { name: 'Casey' });
+  await addLionsGame(page);
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Games', exact: true }).click();
+  await page.getByRole('button', { name: /Lions/ }).click();
+  await page.getByRole('button', { name: 'Edit' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit past Game' })).toBeVisible();
+
+  // goto, not openApp: this tab shares the store and the remembered account. Another account owns Casey's Athlete here, so Leave shows
+  const other = await context.newPage();
+  await other.goto('/');
+  await other.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('stat-elite');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction('athletes', 'readwrite');
+          const store = tx.objectStore('athletes');
+          const all = store.getAll();
+          all.onsuccess = () => {
+            const casey = all.result.find((row: { name: string }) => row.name === 'Casey');
+            store.put({ ...casey, owner_id: 'another-account' });
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+  );
+  await other.reload();
+  await other.getByRole('button', { name: 'Leave', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Games', level: 1 })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
