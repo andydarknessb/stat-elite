@@ -125,3 +125,30 @@ test('a read that fails with a Game on screen keeps the score strip and shows no
   await expect(page.locator('.strip')).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
+
+// Makes reads of the athletePhotos store throw and leaves every other store alone.
+function refuseAthletePhotoReads() {
+  const get = IDBObjectStore.prototype.get;
+  IDBObjectStore.prototype.get = function (this: IDBObjectStore, query: IDBValidKey | IDBKeyRange) {
+    if (this.name === 'athletePhotos') throw new DOMException('the store refused the read', 'UnknownError');
+    return get.call(this, query);
+  };
+}
+
+test('a photo read that fails as a Game ends keeps Game Complete and logs the refused read', async ({ page }) => {
+  // the logged error's text is read from its arguments: message.text() of an Error in the built app is not its message
+  const logged: string[] = [];
+  page.on('console', async (message) => {
+    if (message.type() !== 'error') return;
+    for (const arg of message.args()) logged.push(await arg.evaluate((value) => String((value as Error).message ?? value)));
+  });
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.evaluate(refuseAthletePhotoReads);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+
+  await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reload' })).toHaveCount(0);
+  await expect.poll(() => logged.some((text) => text.includes('the store refused the read'))).toBe(true);
+});
