@@ -265,8 +265,12 @@ function SignInScreen() {
 /** The first download of a sign-in: the Account's Athletes come down before the app opens, and Retry follows a failed one (ADR 0007). */
 function FirstDownload() {
   const phone = useLive((live) => live.phoneAccount(), []);
-  const { run, alert } = useCommand();
-  const download = () => run((core) => core.firstDownload(), { message: 'Could not get your Athletes. Check the connection and try again.' });
+  const { run, alert, clear } = useCommand();
+  // the failure goes first, so Retry gives way to the progress text while the attempt runs (#184)
+  const download = () => {
+    clear();
+    run((core) => core.firstDownload(), { block: true, message: 'Could not get your Athletes. Check the connection and try again.' });
+  };
   useEffect(() => download(), []);
   // retrying cannot work once the server ended the session, so the sign-in form replaces Retry
   if (phone?.state === 'session-ended') {
