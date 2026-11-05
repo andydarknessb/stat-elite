@@ -425,7 +425,7 @@ test('an Athlete row holds only its synced columns; the photo is stored apart fr
   const row = await inspect.athletes.get(athleteId);
   expect(Object.keys(row ?? {}).sort()).toEqual(['created_at', 'id', 'jersey_number', 'name', 'updated_at']);
   expect(row).toMatchObject({ name: 'Casey', jersey_number: '12' });
-  expect((await inspect.athletePhotos.get(athleteId))?.photo.size).toBe(photo.size);
+  expect((await inspect.athletePhotos.get(athleteId))?.bytes?.byteLength).toBe(photo.size);
 });
 
 test('editing an Athlete changes its name and number and stamps updated_at with the edit time', async () => {
@@ -455,13 +455,52 @@ test('editing an Athlete with a photo sets it on this phone; an edit with no pho
   const second = new Blob(['a larger jpeg'], { type: 'image/jpeg' });
 
   await core.editAthlete({ id: athleteId, name: 'Casey', jerseyNumber: '12', photo: first });
-  expect((await inspect.athletePhotos.get(athleteId))?.photo.size).toBe(first.size);
+  expect((await inspect.athletePhotos.get(athleteId))?.bytes?.byteLength).toBe(first.size);
 
   await core.editAthlete({ id: athleteId, name: 'Casey', jerseyNumber: '12', photo: second });
-  expect((await inspect.athletePhotos.get(athleteId))?.photo.size).toBe(second.size);
+  expect((await inspect.athletePhotos.get(athleteId))?.bytes?.byteLength).toBe(second.size);
 
   await core.editAthlete({ id: athleteId, name: 'Casey Jones', jerseyNumber: '7' });
-  expect((await inspect.athletePhotos.get(athleteId))?.photo.size).toBe(second.size);
+  expect((await inspect.athletePhotos.get(athleteId))?.bytes?.byteLength).toBe(second.size);
+});
+
+test('a photo is stored as its bytes, not a Blob (WebKit refuses a Blob in an ephemeral IndexedDB, #217), and reads back as a Blob of the same size and type', async () => {
+  const { core, inspect } = setup(new Date(2026, 9, 30, 12));
+  const expectPhoto = (read: Blob | undefined) => {
+    expect(read).toBeInstanceOf(Blob);
+    expect(read?.size).toBe('jpeg bytes'.length);
+    expect(read?.type).toBe('image/jpeg');
+  };
+  const noBlobIn = async (athleteId: string) => {
+    const stored = await inspect.athletePhotos.get(athleteId);
+    expect(Object.values(stored ?? {}).some((value) => value instanceof Blob)).toBe(false);
+  };
+
+  const athleteId = await core.addAthlete({ name: 'Casey', photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) });
+  await noBlobIn(athleteId);
+  expectPhoto((await core.home()).athlete?.photo);
+
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+  await core.endGame(gameId, { teamScore: 2, opponentScore: 0 });
+  expectPhoto((await core.gameCard(gameId))?.photo);
+
+  await core.editAthlete({ id: athleteId, name: 'Casey', jerseyNumber: '12', photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) });
+  await noBlobIn(athleteId);
+  expectPhoto((await core.home()).athlete?.photo);
+});
+
+test('a photo a Phone stored as a Blob before bytes still reads back as a Blob of its size and type, through Home and the share card', async () => {
+  const { core, inspect } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+  await core.endGame(gameId, { teamScore: 2, opponentScore: 0 });
+  await inspect.athletePhotos.put({ athlete_id: athleteId, photo: new Blob(['jpeg bytes'], { type: 'image/jpeg' }) });
+
+  for (const read of [(await core.home()).athlete?.photo, (await core.gameCard(gameId))?.photo]) {
+    expect(read).toBeInstanceOf(Blob);
+    expect(read?.size).toBe('jpeg bytes'.length);
+    expect(read?.type).toBe('image/jpeg');
+  }
 });
 
 test('switching Athletes changes whose Games Home shows and whom Start Game records; the choice survives a reload', async () => {

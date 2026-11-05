@@ -15,9 +15,12 @@ export interface AthleteRow {
 }
 
 /** A photo lives in its own table so the Athlete row the outbox uploads never carries it (plan: photos stay on the phone). */
+// Stored as bytes: WebKit refuses a Blob in an ephemeral IndexedDB (#217). A row a Phone stored before that holds the Blob in `photo`.
 export interface AthletePhotoRow {
   athlete_id: string;
-  photo: Blob;
+  bytes?: ArrayBuffer;
+  type?: string;
+  photo?: Blob;
 }
 
 /** Made of attempted for one kind of attempt: a Shot by value, or a Free Throw (GLOSSARY: Shot, Free Throw). */

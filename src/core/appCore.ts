@@ -3,6 +3,7 @@ import {
   BASES,
   OUTCOMES,
   PITCHES,
+  type AthletePhotoRow,
   type AthleteRow,
   type BaseMove,
   type EventRow,
@@ -78,6 +79,8 @@ export type ButtonSize = (typeof BUTTON_SIZES)[number];
 const SELECTED_ATHLETE = 'selectedAthleteId';
 const BUTTON_SIZE = 'buttonSize';
 const FIELD_MODE = 'fieldMode';
+// A photo is stored as its bytes (#217); a row a Phone stored before that holds the Blob itself
+const photoOf = (row?: AthletePhotoRow): Blob | undefined => row?.photo ?? (row?.bytes && new Blob([row.bytes], { type: row.type }));
 /** Settings key prefix, one per Athlete another account owns and shared with this phone (ADR 0004). */
 const SHARED = 'shared:';
 /** Settings key prefix, one per Game this phone first received by download: another phone records it (ADR 0009). */
@@ -702,21 +705,25 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     async addAthlete({ name, jerseyNumber, photo }: { name: string; jerseyNumber?: string; photo?: Blob }): Promise<string> {
       const id = crypto.randomUUID();
       const ts = now();
+      // read before the transaction: a non-Dexie await inside its scope ends it early
+      const row = photo && { athlete_id: id, bytes: await photo.arrayBuffer(), type: photo.type };
       await write([store.athletes, store.athletePhotos, store.settings], async () => {
         await store.athletes.add({ id, name, jersey_number: jerseyNumber?.trim() || null, created_at: ts, updated_at: ts });
         await queue('athletes', id);
-        if (photo) await store.athletePhotos.add({ athlete_id: id, photo });
+        if (row) await store.athletePhotos.add(row);
         await store.settings.put({ key: SELECTED_ATHLETE, value: id });
       });
       return id;
     },
 
     async editAthlete({ id, name, jerseyNumber, photo }: { id: string; name: string; jerseyNumber: string; photo?: Blob }): Promise<void> {
+      // read before the transaction, as in addAthlete
+      const row = photo && { athlete_id: id, bytes: await photo.arrayBuffer(), type: photo.type };
       await write([store.athletes, store.athletePhotos], async () => {
         await store.athletes.update(id, { name, jersey_number: jerseyNumber.trim() || null, updated_at: now() });
         await queue('athletes', id);
         // a photo picked here replaces this phone's; none picked keeps the stored one
-        if (photo) await store.athletePhotos.put({ athlete_id: id, photo });
+        if (row) await store.athletePhotos.put(row);
       });
     },
 
@@ -953,7 +960,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const received = await store.settings.bulkGet(unclosed.map((game) => RECEIVED + game.id));
       const liveGameId = unclosed.find((game, i) => !received[i] && recorderOf(game, athlete.owner_id) === session)?.id;
       return {
-        athlete: { id: athlete.id, name: athlete.name, jerseyNumber: athlete.jersey_number, photo: photo?.photo },
+        athlete: { id: athlete.id, name: athlete.name, jerseyNumber: athlete.jersey_number, photo: photoOf(photo) },
         next: athletes.length > 1 ? { id: next.id, name: next.name } : undefined,
         liveGameId,
       };
@@ -1036,7 +1043,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const photo = await store.athletePhotos.get(game.athlete_id);
       return {
         athlete: athlete?.name ?? 'Athlete',
-        photo: photo?.photo,
+        photo: photoOf(photo),
         opponent: summary.opponent,
         final: summary.final,
         line: gameLineText(summary),

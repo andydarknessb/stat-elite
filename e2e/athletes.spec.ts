@@ -46,8 +46,7 @@ test('initials come from the first two names, upper-cased, whatever the rest', a
   await expect(page.locator('.photo-placeholder')).toHaveText('CA');
 });
 
-test('the photo shows on Home and nothing is uploaded', async ({ page, browserName }) => {
-  test.fixme(browserName === 'webkit', 'WebKit: bug #217');
+test('the photo shows on Home and nothing is uploaded', async ({ page }) => {
   const writes: string[] = [];
   page.on('request', (request) => {
     if (request.method() !== 'GET') writes.push(request.url());
@@ -78,8 +77,7 @@ test('editing an Athlete changes name and number on Home and keeps them after a 
   await expect(page.getByText('#7')).toBeVisible();
 });
 
-test('an Athlete added with no photo takes one in Edit Athlete, and nothing is uploaded', async ({ page, browserName }) => {
-  test.fixme(browserName === 'webkit', 'WebKit: bug #217');
+test('an Athlete added with no photo takes one in Edit Athlete, and nothing is uploaded', async ({ page }) => {
   const writes: string[] = [];
   page.on('request', (request) => {
     if (request.method() !== 'GET') writes.push(request.url());
