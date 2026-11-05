@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { addFirstAthlete, startGame, tapCourt } from './recorder';
+import { addFirstAthlete, endGame, startGame, tapCourt } from './recorder';
 
 test('ending a Game opens Game Complete with the Final Score, the line and Plus/Minus, and Copy text copies the summary', async ({ page, browserName }) => {
   // Playwright grants clipboard permissions on Chromium only, so the copy is checked there
@@ -39,4 +39,19 @@ test('ending a Game opens Game Complete with the Final Score, the line and Plus/
 
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
+});
+
+test('Undo End Game on Game Complete reopens the Game on the live screen, and End Game closes it with the corrected Final Score', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page, { teamLabel: 'Casey', teamScore: '52', opponentScore: '48' });
+
+  await page.getByRole('button', { name: 'Undo End Game' }).click();
+  await expect(page.getByRole('region', { name: 'Game Complete' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'End Game' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page, { teamLabel: 'Casey', teamScore: '52', opponentScore: '46' });
+  await expect(page.getByText('Casey 52 – Opponent 46')).toBeVisible();
 });

@@ -1596,9 +1596,12 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   }, [game]);
   if (!game) return null;
   if (game.final) {
+    // Undo End Game until Done: it retracts the End Game, and the Game returns to the live screen (ADR 0001)
     return (
       <main>
         <GameComplete gameId={gameId} onDone={onDone} />
+        {alert && <p role="alert">{alert}</p>}
+        <button onClick={() => run((core) => core.undo(gameId))}>Undo End Game</button>
         <button onClick={onDone}>
           Done
         </button>

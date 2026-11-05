@@ -450,18 +450,18 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   };
   const queue = (table: SyncedTable, id: string) => store.outbox.add({ table, id });
   // The Event log's one append: the Game's Events are read once, a Backlogged or ended Game is refused before the command's decision
-  // (ADR 0005, and End Game is always the last Event), a Game another phone records is refused too (ADR 0009), and the Event and its
+  // (ADR 0005; a Game has ended while its last Event is a game_end), a Game another phone records is refused too (ADR 0009), and the Event and its
   // Outbox row are written in one transaction. A decision of none writes nothing. One rw transaction at a time per store, so taps in
-  // quick succession still get distinct seqs.
-  function append(gameId: string, decide: (log: Fold) => Fields): Promise<EventRow>;
-  function append(gameId: string, decide: (log: Fold) => Fields | undefined): Promise<EventRow | undefined>;
-  function append(gameId: string, decide: (log: Fold) => Fields | undefined): Promise<EventRow | undefined> {
+  // quick succession still get distinct seqs. Undo alone may write to an ended Game, and only to retract its game_end (Undo End Game).
+  function append(gameId: string, decide: (log: Fold) => Fields, options?: { undo?: boolean }): Promise<EventRow>;
+  function append(gameId: string, decide: (log: Fold) => Fields | undefined, options?: { undo?: boolean }): Promise<EventRow | undefined>;
+  function append(gameId: string, decide: (log: Fold) => Fields | undefined, { undo = false } = {}): Promise<EventRow | undefined> {
     return write([store.events, store.settings], async () => {
       if ((await store.games.get(gameId))?.totals) throw new Error('A Backlogged Game has no Events');
       if (await store.settings.get(RECEIVED + gameId)) throw new Error('This Game is recorded on another Phone');
       const events = await gameEvents(gameId).toArray();
       const log = fold(events, now());
-      if (log.ended) throw new Error('This Game has ended');
+      if (log.ended && !(undo && log.undoable?.type === 'game_end')) throw new Error('This Game has ended');
       const fields = decide(log);
       if (!fields) return undefined;
       const event: EventRow = {
@@ -916,9 +916,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       return append(gameId, () => ({ type: 'game_end', team_score: final.teamScore, opponent_score: final.opponentScore }));
     },
 
-    /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. */
+    /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. On an ended Game that is its End Game, this reopens it (Undo End Game). */
     undo(gameId: string): Promise<EventRow | undefined> {
-      return append(gameId, ({ undoable }) => undoable && { type: 'retraction', retracts_id: undoable.id });
+      return append(gameId, ({ undoable }) => undoable && { type: 'retraction', retracts_id: undoable.id }, { undo: true });
     },
 
     gameSetup,
@@ -1037,7 +1037,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         if (games.length === 5) break;
         if (game.sport !== 'basketball') continue;
         const events = await gameEvents(game.id).toArray();
-        // End Game is always a finished Game's last Event
+        // a Game has ended while its last Event is a game_end
         if (events.at(-1)?.type !== 'game_end') continue;
         games.push({ periodFormat: game.period_format, events: fold(events, now()).live });
       }

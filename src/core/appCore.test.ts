@@ -623,7 +623,7 @@ test('the strip stops at 999: a +1 there resolves to undefined and writes nothin
   expect(await inspect.outbox.count()).toBe(outbox);
 });
 
-test('a finished Game accepts no new Events, and Home stops showing it as the Game in progress', async () => {
+test('a finished Game refuses every command but Undo, and Home stops showing it as the Game in progress', async () => {
   const { core } = setup();
   const gameId = await basketballGame(core);
   await core.recordTile(gameId, 'steal');
@@ -631,7 +631,6 @@ test('a finished Game accepts no new Events, and Home stops showing it as the Ga
 
   await expect(core.recordTile(gameId, 'block')).rejects.toThrow();
   await expect(core.adjustScore(gameId, 'team', 1)).rejects.toThrow();
-  await expect(core.undo(gameId)).rejects.toThrow();
   await expect(core.endGame(gameId, { teamScore: 6, opponentScore: 3 })).rejects.toThrow();
   expect(await core.liveGame(gameId)).toMatchObject({ final: { team: 5, opponent: 3 }, tiles: { steal: 1 } });
   expect((await core.home()).liveGameId).toBeUndefined();
@@ -639,6 +638,31 @@ test('a finished Game accepts no new Events, and Home stops showing it as the Ga
   const athleteId = (await core.home()).athlete!.id;
   const nextGame = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   expect((await core.home()).liveGameId).toBe(nextGame);
+});
+
+test('Undo End Game reopens the Game: one Retraction is queued, the live screen is back, and a second End Game gives the new Final Score', async () => {
+  const { core, inspect, link } = setup();
+  const gameId = await basketballGame(core);
+  await core.recordTile(gameId, 'steal');
+  const end = await core.endGame(gameId, { teamScore: 52, opponentScore: 48 });
+  const athleteId = (await core.home()).athlete!.id;
+  // offline, so the queued rows stay in the Outbox for the count
+  link.up = false;
+  const queued = await inspect.outbox.count();
+
+  const retraction = await core.undo(gameId);
+
+  expect(retraction).toMatchObject({ type: 'retraction', retracts_id: end.id });
+  expect(await inspect.outbox.count()).toBe(queued + 1);
+  expect((await core.liveGame(gameId))?.final).toBeUndefined();
+  expect((await core.home()).liveGameId).toBe(gameId);
+  expect((await core.gameFeed(athleteId)).games).toEqual([]);
+  await core.recordTile(gameId, 'block');
+  expect((await core.liveGame(gameId))?.tiles.block).toBe(1);
+
+  await core.endGame(gameId, { teamScore: 52, opponentScore: 46 });
+  expect((await core.liveGame(gameId))?.final).toEqual({ team: 52, opponent: 46 });
+  expect((await core.gameFeed(athleteId)).games.map((g) => [g.id, g.final])).toEqual([[gameId, { team: 52, opponent: 46 }]]);
 });
 
 test('a live Home drops the Game once End Game closes it', async () => {
