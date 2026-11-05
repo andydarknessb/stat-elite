@@ -28,7 +28,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
 | Athlete sharing | Invite co-parent (link through the share sheet, labelled with the Athlete's name), Members list, Remove Member (Owner only), Leave (Members). Remove and Leave ask first, and a removed Member's phone says so once. The invitee sees the Athlete's name once joined; an old link says it has been used, and a connection failure offers Retry. Members also edit the Athlete's name and number, from Home's Edit | — |
 
-Navigation: bottom tabs Home · Games · Insights · Settings.
+Navigation: bottom tabs Home · Games · Insights. Settings sits behind the gear on Home.
 
 Interaction rules:
 
@@ -85,7 +85,8 @@ Interaction rules:
 
 ## Before the first family
 
-On production: a real sign-in from an address outside the Supabase team, and a by-hand iPhone pass (#149).
+- On production: a real sign-in from an address outside the Supabase team (#149), and a by-hand iPhone pass (#242).
+- Fixes from #241: the End Game form, sideways scroll on narrow screens, the floating tab bar, the toast over the Period row, and the safe areas.
 
 ## Promotion
 
