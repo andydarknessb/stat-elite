@@ -11,7 +11,7 @@ test('first run asks the browser to keep storage permanently', async ({ page }) 
   await page.addInitScript(() => {
     const w = window as unknown as PersistWindow;
     w.persistCalls = 0;
-    navigator.storage.persist = async () => {
+    StorageManager.prototype.persist = async () => {
       w.persistCalls += 1;
       return true;
     };
@@ -36,7 +36,7 @@ function everyLaunch(title: string, pressure: boolean): void {
         w.persistCalls += 1;
         return true;
       };
-      navigator.storage.persist = stub;
+      StorageManager.prototype.persist = stub;
       w.stubFn = stub;
       if (pressureOn) {
         document.addEventListener('readystatechange', () => {
