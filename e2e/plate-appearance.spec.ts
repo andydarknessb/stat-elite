@@ -132,6 +132,7 @@ test('Next period takes the Athlete off base: the Base group goes, and Undo brin
   await addFirstAthlete(page);
   await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '1B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Base', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Next period' }).click();
