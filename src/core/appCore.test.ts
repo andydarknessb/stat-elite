@@ -1178,7 +1178,7 @@ test('with the session ended, deleteAccount makes no server call and clears ever
   await reopened.refresh();
   const deleted = vi.spyOn(server, 'deleteAccount');
 
-  await expect(reopened.deletionSummary()).resolves.toMatchObject({ athletes: [{ name: 'Casey', fate: 'deleted' }] });
+  await expect(reopened.deletionSummary()).resolves.toMatchObject({ athletes: [{ name: 'Casey', fate: 'removed' }] });
   await reopened.deleteAccount();
   expect(deleted).not.toHaveBeenCalled();
   for (const table of inspect.tables) expect(await table.count()).toBe(0);
