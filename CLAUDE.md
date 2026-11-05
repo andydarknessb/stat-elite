@@ -11,10 +11,10 @@ M1 to M5 are built, and no family is on it yet. `docs/plan.md` lists what stands
 ## Where things live
 
 - `GLOSSARY.md`: the domain terms. This repo has no CONTEXT.md; the glossary is GLOSSARY.md.
-- `src/core/supabaseDouble.ts`: the test double of the Supabase client, over PGlite and the real schema (`docs/schema.sql`). `src/core/server.contract.test.ts` runs one contract suite on it and on the stand-in; `src/core/appCore.supabase.test.ts` drives App Core through it.
+- `src/core/supabaseDouble.ts`: the test double of the Supabase client, over PGlite and the real schema (`supabase/migrations/`). `src/core/server.contract.test.ts` runs one contract suite on it and on the stand-in; `src/core/appCore.supabase.test.ts` drives App Core through it.
 - `docs/adr/`: the accepted decisions (0001 to 0009 so far).
 - `docs/plan.md`: v1 screens, interaction rules, stats, milestones and what is cut.
-- `docs/schema.sql` and `docs/schema.test.sql`: the planned Supabase schema and its SQL self-check (`docs/schema.test.ts` runs it).
+- `docs/schema.test.sql`: the schema self-check's expectations; `docs/schema.test.ts` runs them on PGlite over `supabase/migrations/`.
 - `src/core/`: App Core, the headless commands and read models every screen uses, and its tests. `src/screenSeam.tsx`: the one module a screen reaches App Core through (`useLive` for the live read models, `useCommand` for commands); a screen reaches App Core only through it. `src/App.tsx`: the screens. `e2e/`: Playwright smoke tests. `e2e/openApp.ts` opens the app; `e2e/recorder.ts` holds the Recorder's common flows (add an Athlete, start and end a Game, record a whole Game, open a summary, tap the court) that the specs call to get ready.
 - `src/core/eventLog.ts`: the Event log's pure fold, a Game's Events in and the stats, Shifts, Count and Undo target out; `src/core/eventLog.test.ts` folds hand-built Events. App Core appends to the log through its one `append`.
 - `src/core/totals.ts`: a Backlogged Game's Totals: each sport's count fields, the form's text round trip and whole-number rule, `backlogProblem`, and the Totals as Events (`eventsFromTotals`); `src/core/totals.test.ts` tests them.

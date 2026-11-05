@@ -1,6 +1,6 @@
 # StatElite v1 plan
 
-Revises `statelite_engineering_specification.md` after the 2026-10-30 design review. Terms are defined in `GLOSSARY.md`, decisions in `docs/adr/`, tables in `docs/schema.sql`.
+Revises `statelite_engineering_specification.md` after the 2026-10-30 design review. Terms are defined in `GLOSSARY.md`, decisions in `docs/adr/`, tables in `supabase/migrations/`.
 
 ## Product
 
@@ -55,7 +55,7 @@ Interaction rules:
 - Dexie Event log: phone-generated UUIDs, `seq` per Game, client timestamps.
 - Undo through Retraction Events.
 - Button Size setting and theme tokens.
-- Supabase schema and row-level security (`docs/schema.sql`).
+- Supabase schema and row-level security (`supabase/migrations/`).
 - Outbox uploads after each tap when online, on launch, on reconnect and on returning to the app, plus an "N not synced" badge (ADR 0001). A Refused Row holds the rows behind it, and Home says so until it uploads.
 - Download at sign-in brings back the account's Athletes, Games and Events on a new phone.
 - Athlete and Game edits sync as latest edit wins; Events stay insert-only (ADR 0001).
