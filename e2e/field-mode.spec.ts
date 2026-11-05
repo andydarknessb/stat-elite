@@ -56,8 +56,7 @@ test('Field mode in Settings paints the light theme over a dark phone, and stays
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 16, 32)');
 });
 
-test('the live screen sun button turns Field mode on at Standard without scrolling', async ({ page, browserName }) => {
-  test.fixme(browserName === 'webkit', 'WebKit: bug #218');
+test('the live screen sun button turns Field mode on at Standard without scrolling', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await addFirstAthlete(page);
   await startGame(page);

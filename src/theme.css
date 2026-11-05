@@ -73,6 +73,11 @@ button {
   background: var(--surface);
 }
 
+/* WebKit's default button padding is taller than Chromium's and pushed the Standard live screen 3px past 390×844 (#218). */
+button {
+  padding: 1px 6px;
+}
+
 /* Inputs and selects are 52px tall on the surface, with the stronger edge. */
 input,
 select {
