@@ -18,7 +18,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 |---|---|---|
 | Sign in | StatElite's name and one line on what it does, install prompt, email with a note on how it is used, then the emailed code. "Getting your Athletes…" with Retry until the first download finishes | — |
 | First run | After sign-in, when the Account has no Athletes: "Add Athlete" form (name, number, optional photo), with "Signed in as" and Sign out | — |
-| Home | Athlete photo, Start Game, Add past Game, season line, recent Games. Tapping the photo switches Athlete when the account has more than one | MyKidDid dashboard |
+| Home | Athlete photo, Start Game, Add past Game, season line, recent Games. A Phone opens on the Athlete with the newest Game that isn't removed, or the first Athlete added when none has one, and keeps that until someone switches. Tapping the photo switches Athlete when the account has more than one | MyKidDid dashboard |
 | Game setup | Sport, Opponent, date, period format, all prefilled from the last Game so starting is one tap | — |
 | Live game, basketball | Shift timer and Sub In/Out toggle on top, Team–Opponent strip, half court for Shots, Free Throw row, 2-column stat tiles with live counts | Stattie (shift bar), Buckets (tiles, Free Throw row) |
 | Live game, softball/baseball | Team–Opponent strip, optional Pitch buttons, Outcome grid, RBI chips, diamond for the Athlete only | spec's Plate Appearance flow |
