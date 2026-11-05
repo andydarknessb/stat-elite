@@ -45,3 +45,12 @@ it.each([
 ])('%s does not count', (_, events, read, expected) => {
   expect(read(fold(events, NOW))).toEqual(expected);
 });
+
+// a Period start takes the Athlete off base; retracting it puts them back on the base they held (GLOSSARY: Period, Baserunning)
+it('a single then a Period start folds to no base', () => {
+  expect(fold([event(1, { type: 'plate_appearance', outcome: 'single' }), periodStart(2, 2)], NOW).onBase).toBeUndefined();
+});
+
+it('retracting that Period start folds the Athlete back to first', () => {
+  expect(fold([event(1, { type: 'plate_appearance', outcome: 'single' }), periodStart(2, 2), retraction(3, 2)], NOW).onBase).toBe('first');
+});

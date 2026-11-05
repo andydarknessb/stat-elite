@@ -2643,6 +2643,15 @@ test('Out takes the Athlete off the diamond, and a Stole marked on an Out is a c
   expect((await core.liveGame(gameId))?.baserunning).toEqual({ runs: 0, stolenBases: 0 });
 });
 
+test('Next period takes the Athlete off base, so a baserunning move after it is refused', async () => {
+  const { core } = setup();
+  const gameId = await softballGame(core);
+  await core.recordPlateAppearance(gameId, { outcome: 'single', rbi: 0 });
+  await core.nextPeriod(gameId);
+
+  await expect(core.recordBaserunning(gameId, { base: 'second', stolen: false })).rejects.toThrow('Only an Athlete on base can move');
+});
+
 test('a baserunning move needs the Athlete on base, and never moves them back or to a base they hold', async () => {
   const { core } = setup();
   const gameId = await softballGame(core);

@@ -208,10 +208,11 @@ const REACHED: Partial<Record<Outcome, Base>> = {
   fielders_choice: 'first',
 };
 
-// the Athlete's base: the one the newest Plate Appearance reached, then each baserunning move after it; undefined once they are out or scored
+// the Athlete's base: the one the newest Plate Appearance reached, then each baserunning move after it; undefined once they are out or scored, and at a new Period
 const onBaseOf = (live: EventRow[]): Base | undefined => {
   let base: Base | undefined;
   for (const event of live) {
+    if (event.type === 'period_start') base = undefined;
     if (event.type === 'plate_appearance') base = event.outcome ? REACHED[event.outcome] : undefined;
     if (event.type === 'baserunning') base = event.base === 'second' || event.base === 'third' ? event.base : undefined;
   }
