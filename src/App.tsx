@@ -1177,13 +1177,21 @@ function DeleteAccount({ onCancel }: { onCancel: () => void }) {
   if (!summary || !phone) return null;
   // on success the phone has no Athlete, so App shows first run and this screen goes
   const remove = () => run((core) => core.deleteAccount(), { block: true, message: 'Could not delete. Check the connection and try again.' });
+  // a session the server ended clears only this phone: the Account stays on the server until its address signs in again
+  const ended = phone.state === 'session-ended';
   return (
     <main>
       <section className="card">
-        <h1>Delete my account and all data</h1>
+        <h1>{ended ? 'Clear this phone' : 'Delete my account and all data'}</h1>
         <p>
-          {phone.state !== 'signed-out' ? 'This deletes your account from the server and clears this phone.' : 'This clears this phone.'} It cannot be
-          undone.
+          {ended ? (
+            'This only clears this phone. Your Account and its data stay on the server. Sign in again first to delete them.'
+          ) : (
+            <>
+              {phone.state !== 'signed-out' ? 'This deletes your account from the server and clears this phone.' : 'This clears this phone.'} It cannot be
+              undone.
+            </>
+          )}
         </p>
         <ul>
           {summary.athletes.length === 0 && <li>Athletes: none</li>}
@@ -1195,7 +1203,7 @@ function DeleteAccount({ onCancel }: { onCancel: () => void }) {
         </ul>
       </section>
       <button className="primary" disabled={busy} onClick={remove}>
-        Delete everything
+        {ended ? 'Clear this phone' : 'Delete everything'}
       </button>
       <button disabled={busy} onClick={onCancel}>
         Cancel
