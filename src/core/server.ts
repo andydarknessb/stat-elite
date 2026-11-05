@@ -8,7 +8,7 @@ export type SyncedTable = 'athletes' | 'games' | 'events';
 export type SyncedRow = { athletes: AthleteRow; games: GameRow; events: EventRow };
 
 /** A row as the outbox uploads it. `updated_at` is set on Athletes and Games, where the latest edit wins. */
-export type UploadRow = { id: string; owner_id?: string; updated_at?: string };
+export type UploadRow = { id: string; owner_id?: string; updated_at?: string; game_id?: string; seq?: number };
 
 /** The stand-in's copy of a row: the Athlete a Game or Event belongs to is what Member access checks. */
 type StoredRow = UploadRow & { athlete_id?: string; game_id?: string; recorded_by?: string | null };
@@ -124,6 +124,10 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       async upload(table: SyncedTable, row: UploadRow) {
         reach();
         const copy = rows[table].get(row.id);
+        // an Event's (game_id, seq) is unique on the server (ADR 0001): a new Event at a taken seq is refused
+        if (table === 'events' && !copy && [...rows.events.values()].some((e) => e.game_id === row.game_id && e.seq === row.seq)) {
+          throw new Error('duplicate key value violates unique constraint "events_game_id_seq_key"');
+        }
         // an Event is never edited, so a repeat changes nothing; an Athlete or Game keeps the newer copy
         if (!copy || (table !== 'events' && (copy.updated_at ?? '') <= (row.updated_at ?? ''))) rows[table].set(row.id, row);
         uploads.push(`${table}:${row.id}`);

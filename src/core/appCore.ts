@@ -80,6 +80,8 @@ const BUTTON_SIZE = 'buttonSize';
 const FIELD_MODE = 'fieldMode';
 /** Settings key prefix, one per Athlete another account owns and shared with this phone (ADR 0004). */
 const SHARED = 'shared:';
+/** Settings key prefix, one per Game this phone first received by download: another phone records it (ADR 0009). */
+const RECEIVED = 'received:';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
 /** What Sign out says when the phone is not cleared: rows still queued, or the server refuses or cannot be reached. */
 export const SIGN_OUT_REFUSED = 'Could not sign out. Wait for everything to sync and check the connection, then try again.';
@@ -441,13 +443,15 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   };
   const queue = (table: SyncedTable, id: string) => store.outbox.add({ table, id });
   // The Event log's one append: the Game's Events are read once, a Backlogged or ended Game is refused before the command's decision
-  // (ADR 0005, and End Game is always the last Event), and the Event and its Outbox row are written in one transaction. A decision of
-  // none writes nothing. One rw transaction at a time per store, so taps in quick succession still get distinct seqs.
+  // (ADR 0005, and End Game is always the last Event), a Game another phone records is refused too (ADR 0009), and the Event and its
+  // Outbox row are written in one transaction. A decision of none writes nothing. One rw transaction at a time per store, so taps in
+  // quick succession still get distinct seqs.
   function append(gameId: string, decide: (log: Fold) => Fields): Promise<EventRow>;
   function append(gameId: string, decide: (log: Fold) => Fields | undefined): Promise<EventRow | undefined>;
   function append(gameId: string, decide: (log: Fold) => Fields | undefined): Promise<EventRow | undefined> {
-    return write([store.events], async () => {
+    return write([store.events, store.settings], async () => {
       if ((await store.games.get(gameId))?.totals) throw new Error('A Backlogged Game has no Events');
+      if (await store.settings.get(RECEIVED + gameId)) throw new Error('This Game is recorded on another Phone');
       const events = await gameEvents(gameId).toArray();
       const log = fold(events, now());
       if (log.ended) throw new Error('This Game has ended');
@@ -491,7 +495,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     await store.games.bulkDelete([...gone]);
     await store.athletePhotos.bulkDelete(ids);
     await store.athletes.bulkDelete(ids);
-    await store.settings.bulkDelete(ids.map((id) => SHARED + id));
+    await store.settings.bulkDelete([...ids.map((id) => SHARED + id), ...[...gone].map((id) => RECEIVED + id)]);
   };
   // the phone's sign-in: the Remembered Account, the ended-Session flag and the download markers (#172)
   const phone = createPhoneAccount(store, server);
@@ -558,6 +562,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       await store.athletes.bulkPut(athleteRows.filter((r, i) => later(r, athleteHeld[i])));
       const gameRows = games.map(gameOf);
       const gameHeld = await store.games.bulkGet(gameRows.map((r) => r.id));
+      // a Game this phone lacks was recorded by another phone (ADR 0009), so it is marked; a row the phone holds never is
+      await store.settings.bulkPut(lacking(gameRows, gameHeld).map((r) => ({ key: RECEIVED + r.id, value: 'received' })));
       await store.games.bulkPut(gameRows.filter((r, i) => later(r, gameHeld[i])));
       // an Event never changes, so the phone takes only the ones it lacks
       const eventRows = events.map(eventOf);
@@ -942,7 +948,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const session = (await phone.account())?.id;
       // the newest Game that End Game has not closed is the one in progress, and only its Recorder's phone records on it
       // a Game stored before Recorders were is the Owner's; one waiting on sign-in has no Recorder yet, and this phone recorded it
-      const liveGameId = unclosed.find((game) => recorderOf(game, athlete.owner_id) === session)?.id;
+      // a Game this phone received is another phone's to record, so it is skipped (ADR 0009)
+      const received = await store.settings.bulkGet(unclosed.map((game) => RECEIVED + game.id));
+      const liveGameId = unclosed.find((game, i) => !received[i] && recorderOf(game, athlete.owner_id) === session)?.id;
       return {
         athlete: { id: athlete.id, name: athlete.name, jerseyNumber: athlete.jersey_number, photo: photo?.photo },
         next: athletes.length > 1 ? { id: next.id, name: next.name } : undefined,

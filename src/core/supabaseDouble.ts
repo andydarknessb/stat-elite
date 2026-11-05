@@ -135,7 +135,8 @@ export function supabaseDouble(db: PGlite): SupabaseClient {
     if (spec.kind === 'insert') {
       const json = bind(JSON.stringify(spec.payload));
       statement = `insert into ${table} (${cols}) select ${cols} from json_populate_record(null::${table}, ${json}::json)${
-        spec.ignoreDuplicates ? ' on conflict do nothing' : ''
+        // as PostgREST's upsert, the conflict target is the primary key: a (game_id, seq) clash is an error, not a silent skip
+        spec.ignoreDuplicates ? ' on conflict (id) do nothing' : ''
       }`;
     } else if (spec.kind === 'update') {
       const json = bind(JSON.stringify(spec.payload));

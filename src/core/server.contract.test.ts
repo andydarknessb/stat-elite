@@ -32,6 +32,7 @@ const CODE = '123456';
 const ATHLETE = '10000000-0000-0000-0000-00000000000a';
 const GAME = '20000000-0000-0000-0000-00000000000a';
 const EVENT = '30000000-0000-0000-0000-00000000000a';
+const OTHER_EVENT = '30000000-0000-0000-0000-00000000000b';
 const NEW_ATHLETE = '10000000-0000-0000-0000-00000000000b';
 const NO_SUCH_INVITE = '00000000-0000-0000-0000-00000000dead';
 const NO_ACCOUNT = '00000000-0000-0000-0000-0000000000cc';
@@ -123,6 +124,17 @@ for (const [adapter, makeBackend] of contract) {
       await owner.upload('games', game(me, me));
       await owner.upload('events', event(me, { period: 1 }));
       await owner.upload('events', event(me, { period: 2 }));
+
+      expect(await owner.download('events')).toMatchObject([{ id: EVENT, period: 1 }]);
+    });
+
+    test('an Event with a new id at a (game_id, seq) already uploaded is refused, and the uploaded Event stays', async () => {
+      const owner = await signedIn(backend, 'casey@example.com');
+      const me = (await owner.session())!;
+      await owner.upload('athletes', athlete(me));
+      await owner.upload('games', game(me, me));
+      await owner.upload('events', event(me, { period: 1 }));
+      await expect(owner.upload('events', event(me, { id: OTHER_EVENT, period: 2 }))).rejects.toBeTruthy();
 
       expect(await owner.download('events')).toMatchObject([{ id: EVENT, period: 1 }]);
     });
