@@ -43,8 +43,8 @@ async function stripedPhoto(page: Page): Promise<Photo> {
   return { name: 'stripes.png', mimeType: 'image/png', buffer: Buffer.from(base64, 'base64') };
 }
 
-// each channel within 8 of the target
-const near = (rgb: number[], target: number[]) => rgb.every((c, i) => Math.abs(c - target[i]) <= 8);
+// each channel within tol of the target
+const near = (rgb: number[], target: number[], tol = 8) => rgb.every((c, i) => Math.abs(c - target[i]) <= tol);
 
 // taps Share card, then reads back the one file the share stub kept
 async function tapShareCard(page: Page) {
@@ -61,17 +61,19 @@ async function tapShareCard(page: Page) {
     const pixel = (x: number, y: number) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3));
     // rows 940 to 1030, where the Final Score is drawn
     const band = ctx.getImageData(0, 940, bitmap.width, 91).data;
-    let bright = 0;
+    // the Final Score's gold, #f5b841, each channel within 8
+    let gold = 0;
     for (let i = 0; i < band.length; i += 4) {
-      if (band[i] > 200 && band[i + 1] > 200 && band[i + 2] > 200) bright++;
+      if (Math.abs(band[i] - 0xf5) <= 8 && Math.abs(band[i + 1] - 0xb8) <= 8 && Math.abs(band[i + 2] - 0x41) <= 8) gold++;
     }
     return {
       type: file.type,
       width: bitmap.width,
       height: bitmap.height,
+      corner: pixel(0, 0),
       center: pixel(600, 200),
       left: pixel(180, 200),
-      brightInScoreRows: bright,
+      goldInScoreRows: gold,
     };
   });
 }
@@ -158,8 +160,17 @@ test('the card with no photo draws the background and the Final Score', async ({
   await keepSharedFiles(page);
   await endGameForShareCard(page);
   const card = await tapShareCard(page);
-  expect(near(card.center, [0x0f, 0x12, 0x16])).toBe(true);
-  expect(card.brightInScoreRows).toBeGreaterThan(1000);
+  // the corner is the background; within 4 a channel tells #0b1020 from the old #0f1216
+  expect(near(card.corner, [0x0b, 0x10, 0x20], 4)).toBe(true);
+  expect(card.goldInScoreRows).toBeGreaterThan(1000);
+});
+
+test('with the Barlow Condensed files blocked, the card still draws', async ({ page }) => {
+  await keepSharedFiles(page);
+  await page.route(/barlow-condensed/, (route) => route.abort());
+  await endGameForShareCard(page);
+  const card = await tapShareCard(page);
+  expect(card).toMatchObject({ type: 'image/png', width: 1200, height: 1200 });
 });
 
 test('where file sharing is unsupported, Share card downloads the 1200×1200 image', async ({ page }) => {
