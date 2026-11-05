@@ -5,27 +5,26 @@ test('Sub In puts the Athlete on court and Sub Out takes her off, with the Shift
   await addFirstAthlete(page);
   await startGame(page);
 
-  await page.getByRole('button', { name: 'Sub In' }).click();
-  await expect(page.getByRole('button', { name: 'Sub Out' })).toBeVisible();
+  await page.getByRole('button', { name: 'Sub In', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Sub Out', exact: true })).toBeVisible();
   await expect(page.getByText(/^On court \d+:\d{2}/)).toBeVisible();
 
-  await page.getByRole('button', { name: 'Sub Out' }).click();
+  await page.getByRole('button', { name: 'Sub Out', exact: true }).click();
   await expect(page.getByText('On bench')).toBeVisible();
   await expect(page.getByText(/1 Shift · Plus\/Minus/)).toBeVisible();
 });
 
-test('tapping the Game line lists each closed Shift with its time and Plus/Minus, and the screen still fits 390×844', async ({ page, browserName }) => {
-  test.fixme(browserName === 'webkit', 'WebKit: bug #218');
+test('tapping the Game line lists each closed Shift with its time and Plus/Minus, and the screen still fits 390×844', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page);
 
-  await page.getByRole('button', { name: 'Sub In' }).click();
+  await page.getByRole('button', { name: 'Sub In', exact: true }).click();
   await page.getByRole('button', { name: 'Casey +1' }).click();
   await page.getByRole('button', { name: 'Casey +1' }).click();
-  await page.getByRole('button', { name: 'Sub Out' }).click();
-  await page.getByRole('button', { name: 'Sub In' }).click();
+  await page.getByRole('button', { name: 'Sub Out', exact: true }).click();
+  await page.getByRole('button', { name: 'Sub In', exact: true }).click();
   await page.getByRole('button', { name: 'Opponent +1' }).click();
-  await page.getByRole('button', { name: 'Sub Out' }).click();
+  await page.getByRole('button', { name: 'Sub Out', exact: true }).click();
 
   const gameLine = page.locator('.shift .game');
   await expect(gameLine).toHaveAttribute('aria-expanded', 'false');
@@ -56,9 +55,9 @@ for (const size of ['Compact', 'Bleacher'] as const) {
     await addFirstAthlete(page);
     await startGame(page, { buttonSize: size });
 
-    await page.getByRole('button', { name: 'Sub In' }).click();
+    await page.getByRole('button', { name: 'Sub In', exact: true }).click();
     await page.getByRole('button', { name: 'Casey +1' }).click();
-    await page.getByRole('button', { name: 'Sub Out' }).click();
+    await page.getByRole('button', { name: 'Sub Out', exact: true }).click();
     await page.locator('.shift .game').click();
 
     await expect(page.getByRole('list', { name: 'Shifts' }).getByRole('listitem')).toHaveCount(1);
@@ -70,9 +69,9 @@ test('a long Shifts list scrolls inside its line and does not widen the page', a
   await addFirstAthlete(page);
   await startGame(page);
   for (let i = 0; i < 4; i++) {
-    await page.getByRole('button', { name: 'Sub In' }).click();
+    await page.getByRole('button', { name: 'Sub In', exact: true }).click();
     await page.getByRole('button', { name: 'Casey +1' }).click();
-    await page.getByRole('button', { name: 'Sub Out' }).click();
+    await page.getByRole('button', { name: 'Sub Out', exact: true }).click();
   }
   await page.locator('.shift .game').click();
 
@@ -99,7 +98,7 @@ test('the Shift on court stays off the Shifts list', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page);
 
-  await page.getByRole('button', { name: 'Sub In' }).click();
+  await page.getByRole('button', { name: 'Sub In', exact: true }).click();
   await page.getByRole('button', { name: 'Casey +1' }).click();
   await page.locator('.shift .game').click();
 

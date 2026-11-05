@@ -1,8 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { addFirstAthlete, startGame } from './recorder';
 
-test('at Standard the basketball live screen fits a 390×844 phone with no vertical scroll', async ({ page, browserName }) => {
-  test.fixme(browserName === 'webkit', 'WebKit: bug #218');
+test('at Standard the basketball live screen fits a 390×844 phone with no vertical scroll', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page);
 
