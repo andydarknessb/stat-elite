@@ -556,6 +556,34 @@ test('End Game records a game_end Event with the Final Score, and is refused wit
   expect((await core.liveGame(gameId))?.final).toEqual({ team: 9, opponent: 7 });
 });
 
+test('a score stops at 999: End Game refuses 1000 with no Event and no Outbox row, and takes 999', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+  const events = await inspect.events.count();
+  const outbox = await inspect.outbox.count();
+
+  await expect(core.endGame(gameId, { teamScore: 1000, opponentScore: 0 })).rejects.toThrow();
+  expect(await inspect.events.count()).toBe(events);
+  expect(await inspect.outbox.count()).toBe(outbox);
+
+  await expect(core.endGame(gameId, { teamScore: 999, opponentScore: 0 })).resolves.toMatchObject({ type: 'game_end', team_score: 999 });
+});
+
+test('the strip stops at 999: a +1 there resolves to undefined and writes nothing', async () => {
+  const { core, inspect } = setup();
+  const gameId = await basketballGame(core);
+  // the strip at 999 by setting a score Event's value: 999 presses of +1 would be slow
+  const first = await core.adjustScore(gameId, 'team', 1);
+  await inspect.events.update(first?.id ?? '', { team_score: 999 });
+  const events = await inspect.events.count();
+  const outbox = await inspect.outbox.count();
+
+  expect(await core.adjustScore(gameId, 'team', 1)).toBeUndefined();
+  expect((await core.liveGame(gameId))?.score).toEqual({ team: 999, opponent: 0 });
+  expect(await inspect.events.count()).toBe(events);
+  expect(await inspect.outbox.count()).toBe(outbox);
+});
+
 test('a finished Game accepts no new Events, and Home stops showing it as the Game in progress', async () => {
   const { core } = setup();
   const gameId = await basketballGame(core);
