@@ -293,7 +293,7 @@ export function fold(events: EventRow[], now: string): Fold {
       onCourtSince = undefined;
     }
   }
-  // End Game is always the last Event, so a finished Game ends on its game_end
+  // a Game has ended while its last Event is a game_end; an Undo End Game retracts it and the Game is open again
   const last = events.at(-1);
   const endAt = last?.type === 'game_end' ? last.client_ts : now;
   const score = latestScores(events);

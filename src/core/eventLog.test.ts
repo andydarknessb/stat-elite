@@ -54,3 +54,14 @@ it('a single then a Period start folds to no base', () => {
 it('retracting that Period start folds the Athlete back to first', () => {
   expect(fold([event(1, { type: 'plate_appearance', outcome: 'single' }), periodStart(2, 2), retraction(3, 2)], NOW).onBase).toBe('first');
 });
+
+// Undo End Game retracts the game_end that closed the Game: it is open again, on the score from before the End Game (ADR 0001)
+it('a game_end then its Retraction folds to not ended, with no Final Score and the score from before the game_end', () => {
+  const end = event(2, { type: 'game_end', team_score: 6, opponent_score: 2 });
+  expect(fold([scoreSnapshot(1, 4, 2), end], NOW).ended).toBe(true);
+
+  const reopened = fold([scoreSnapshot(1, 4, 2), end, retraction(3, 2)], NOW);
+  expect(reopened.ended).toBe(false);
+  expect(reopened.final).toBeUndefined();
+  expect(reopened.score).toEqual({ team: 4, opponent: 2 });
+});
