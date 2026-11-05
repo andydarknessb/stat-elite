@@ -1,5 +1,10 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { addFirstAthlete, startGame } from './recorder';
+
+// the px between a section's first two result rows: Recent Games and the Games feed space their rows alike (#243)
+function rowGap(section: Locator): Promise<number> {
+  return section.locator('.result-row').evaluateAll((rows) => rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().bottom);
+}
 
 // runs in the page: one line per failing text element (contrast) or tap target (size)
 function auditScreen(screen: string): string[] {
@@ -66,6 +71,13 @@ function auditScreen(screen: string): string[] {
     }
   }
 
+  // every second-level heading is set in Barlow Condensed, the card, form and Games-feed headings alike (#243)
+  for (const el of Array.from(document.querySelectorAll('h2'))) {
+    if (!shown(el)) continue;
+    const family = getComputedStyle(el).fontFamily;
+    if (!/^"?Barlow Condensed"?/.test(family)) failures.push(`${screen}: "${clean(el.textContent ?? '')}" (h2) is set in ${family}, needs Barlow Condensed`);
+  }
+
   for (const el of Array.from(document.querySelectorAll('button, a[href], input:not([type=hidden]), select'))) {
     if (!shown(el)) continue;
     const r = el.getBoundingClientRect();
@@ -94,6 +106,13 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   const failures: string[] = [];
   const check = async (screen: string) => {
     failures.push(...(await page.evaluate(auditScreen, `${theme}, ${screen}`)));
+  };
+
+  // the tab bar's bottom edge is the phone's bottom edge on the three tab screens, however short they are (#243)
+  const tabBarRests = async (screen: string) => {
+    const bottom = await page.locator('nav.tabs').evaluate((bar) => bar.getBoundingClientRect().bottom);
+    const viewport = await page.evaluate(() => window.innerHeight);
+    expect(bottom, `${screen}: the tab bar ends at ${bottom}, not at the viewport's ${viewport}`).toBeCloseTo(viewport, 0);
   };
 
   // the walk is audited at Standard; assert it, so a changed default cannot quietly audit Compact or Bleacher
@@ -130,8 +149,18 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await expect(page.getByRole('region', { name: 'Season' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Recent Games' })).toBeVisible();
   await check('Home');
+  await tabBarRests('Home');
+  const recent = page.getByRole('region', { name: 'Recent Games' });
+  await expect(recent.locator('.result-row')).toHaveCount(2);
+  const recentGap = await rowGap(recent);
 
+  // both finished Games are Today, so the feed's Today group holds both rows: its rows must space as Recent Games' do
   await page.getByRole('button', { name: 'Games', exact: true }).click();
+  const today = page.getByRole('region', { name: 'Today' });
+  await expect(today.locator('.result-row')).toHaveCount(2);
+  await tabBarRests('Games tab');
+  expect(await rowGap(today), 'Games rows space as Recent Games rows do').toBeCloseTo(recentGap, 1);
+
   await page.getByRole('button', { name: 'Softball', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Softball', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: /H\/AB/ })).toBeVisible();
@@ -140,6 +169,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: 'Insights', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Insights' })).toBeVisible();
   await check('Insights tab');
+  await tabBarRests('Insights tab');
 
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   await page.getByRole('button', { name: 'Settings' }).click();
