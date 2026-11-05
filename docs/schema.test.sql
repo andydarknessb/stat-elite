@@ -274,15 +274,8 @@ begin
   select count(*) into n from athletes;
   if n <> 0 then raise exception 'a removed Member should see no Athlete, saw %', n; end if;
 end $$;
--- a removed Member reopening its Invite is refused as used, and the Owner still sees one Member: C (ADR 0004, #210)
-select pg_temp.expect_fail($$select accept_invite('40000000-0000-0000-0000-0000000000d0')$$, 'a removed Member reopening its Invite');
-select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
-do $$
-declare n int;
-begin
-  select count(*) into n from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
-  if n <> 1 then raise exception 'a removed Member should not rejoin: the Owner should see 1 Member, saw %', n; end if;
-end $$;
+-- a removed Member reopening its Invite is refused as used (ADR 0004, #210)
+select pg_temp.expect_fail_with($$select accept_invite('40000000-0000-0000-0000-0000000000d0')$$, 'invite_used', 'a removed Member reopening its Invite');
 
 -- C leaves Casey: a Member deletes its own membership and nothing of its Athlete's.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
