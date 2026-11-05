@@ -15,7 +15,7 @@ import {
   type Store,
   type TileEventType,
 } from './store';
-import type { MemberRow, Server, SyncedTable, UploadRow } from './server';
+import { RowRefused, type MemberRow, type Server, type SyncedTable, type UploadRow } from './server';
 import { createPhoneAccount } from './phoneAccount';
 import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type Shift, type Undoable } from './eventLog';
 import { backlogProblem, eventsFromTotals, NO_FIELDS } from './totals';
@@ -87,6 +87,8 @@ const SHARED = 'shared:';
 const RECEIVED = 'received:';
 /** Settings key prefix, one per Athlete the Owner removed this account from, valued with its name: the line the phone shows until its OK (ADR 0004). */
 const REMOVED = 'removed:';
+/** Settings key, present while the server has refused a row and no upload has landed since: Home's Refused Row notice (#208). */
+const REFUSED_ROW = 'refusedRow';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
 /** What Sign out says when the phone is not cleared: rows still queued, or the server refuses or cannot be reached. */
 export const SIGN_OUT_REFUSED = 'Could not sign out. Wait for everything to sync and check the connection, then try again.';
@@ -508,7 +510,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const phone = createPhoneAccount(store, server);
   // clears every table on this phone, as a sign-out or a deletion leaves it
   const clearPhone = () => store.transaction('rw', store.tables, () => Promise.all(store.tables.map((table) => table.clear())));
-  // uploads one queued row as it is now; false when the server refuses it, and the row stays queued
+  // uploads one queued row as it is now; false when the server does not take it, and the row stays queued.
+  // A refusal (RowRefused) is recorded for Home; a dropped connection is not one, so it records nothing.
   const sendEntry = async (entry: OutboxRow): Promise<boolean> => {
     const loaded = await loadRow(entry);
     if (!loaded) {
@@ -518,10 +521,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     const athlete = await store.athletes.get(loaded.athleteId ?? '');
     try {
       await server.upload(entry.table, { ...loaded.row, owner_id: athlete?.owner_id });
-    } catch {
+    } catch (error) {
+      if (error instanceof RowRefused) await store.settings.put({ key: REFUSED_ROW, value: 'refused' });
       return false;
     }
     await store.outbox.delete(entry.seq!);
+    // a row that lands means the server takes uploads again, so the refusal is over
+    await store.settings.delete(REFUSED_ROW);
     return true;
   };
   const queuedOn = async (athleteId: string) => {
@@ -588,7 +594,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   };
 
   // Uploads in sequence order, each row as it is now. A row the server cannot take stays queued, and so do the rows behind it.
-  // shortcut: a row the server refuses holds up every row behind it until someone fixes it, upgrade when a refusal needs its own state
+  // shortcut: a row the server refuses holds up every row behind it until someone fixes it, upgrade when a row behind it should upload past the refusal
   const drain = async () => {
     const owner = await server.session();
     if (!owner) {
@@ -1200,10 +1206,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
-    /** The "N not synced" badge: how many rows still live only on the phone. Whether the phone is signed in is phoneAccount's (ADR 0007). */
-    async sync(): Promise<{ notSynced: number }> {
+    /** The "N not synced" badge: how many rows still live only on the phone, and whether the server has refused one (Refused Row). Whether the phone is signed in is phoneAccount's (ADR 0007). Live. */
+    async sync(): Promise<{ notSynced: number; refused: boolean }> {
       const pending = await store.outbox.toArray();
-      return { notSynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size };
+      return {
+        notSynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size,
+        refused: (await store.settings.get(REFUSED_ROW)) !== undefined,
+      };
     },
 
     /** Where the phone stands: signed out, the first download due, signed in, or the server ended the session (ADR 0007). Live. */

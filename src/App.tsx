@@ -179,6 +179,17 @@ function SignInAgain() {
   );
 }
 
+/** Home's notice while the server refuses a row: the row stays on this phone, and the next upload that lands clears it (#208). */
+function RefusedRow() {
+  const sync = useLive((live) => live.sync(), [], { optional: true });
+  if (!sync?.refused) return null;
+  return (
+    <section className="card">
+      <p>Some Games can&apos;t upload right now. They&apos;re safe on this phone.</p>
+    </section>
+  );
+}
+
 /** Invite co-parent, for the Owner of a signed-in Athlete: makes an Invite, then offers its link to the share sheet (ADR 0004). */
 function InviteCoParent({ athleteId, name }: { athleteId: string; name: string }) {
   const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId], { optional: true });
@@ -662,6 +673,7 @@ function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['nex
           </button>
         </header>
         <SignInAgain />
+        <RefusedRow />
         <div className="athlete">
           <SwitchPhoto athlete={athlete} next={next} />
           <h1>{athlete.name}</h1>
