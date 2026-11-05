@@ -160,8 +160,9 @@ export interface GameFeed {
 /** The hashtag a Game's copy text ends with, by sport (GLOSSARY: Game). */
 const SPORT_TAG: Record<GameRow['sport'], string> = { basketball: '#basketball', softball: '#softball', baseball: '#baseball' };
 
-/** A Score Snapshot takes whole, non-negative scores. */
-const isScore = (n: number) => Number.isInteger(n) && n >= 0;
+/** A Score Snapshot takes whole scores from 0 to 999, the limit Totals have: a larger score saves on the phone and the server refuses it. */
+export const SCORE_MAX = 999;
+const isScore = (n: number) => Number.isInteger(n) && n >= 0 && n <= SCORE_MAX;
 
 // The half court in feet, on the NFHS (US high-school and youth) line: x across the 50 ft width, y from the baseline (the basket end) down the 42 ft to the half-court line.
 const widthFt = 50;

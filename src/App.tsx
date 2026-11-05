@@ -20,6 +20,7 @@ import {
   PITCH_LABELS,
   rateText,
   resultOf,
+  SCORE_MAX,
   SIGN_OUT_REFUSED,
   shotLabel,
   signed,
@@ -1244,7 +1245,7 @@ function ScoreSide({ label, value, onAdjust }: { label: string; value: number; o
           −
         </button>
         <span className="count">{value}</span>
-        <button aria-label={`${label} +1`} onClick={() => onAdjust(1)}>
+        <button aria-label={`${label} +1`} disabled={value >= SCORE_MAX} onClick={() => onAdjust(1)}>
           +
         </button>
       </div>
@@ -1270,7 +1271,8 @@ function EndGameForm({
 }) {
   const [team, setTeam] = useState(String(score.team));
   const [opponent, setOpponent] = useState(String(score.opponent));
-  const valid = /^\d+$/.test(team) && /^\d+$/.test(opponent);
+  const whole = (text: string) => /^\d+$/.test(text) && Number(text) <= SCORE_MAX;
+  const valid = whole(team) && whole(opponent);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!valid) return;
@@ -1290,6 +1292,7 @@ function EndGameForm({
         Opponent final
         <input value={opponent} onChange={(e) => setOpponent(e.target.value)} inputMode="numeric" autoComplete="off" />
       </label>
+      {!valid && <p role="alert">Scores are whole numbers from 0 to {SCORE_MAX}.</p>}
       <button className="primary" disabled={!valid}>
         End Game
       </button>
