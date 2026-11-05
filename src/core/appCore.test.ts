@@ -568,7 +568,7 @@ async function caseyAndSam() {
   return { core, inspect, server, casey, sam, newPhone };
 }
 
-test("a new Phone opens on the Athlete whose newest Game is not removed, not on the first Athlete added", async () => {
+test('a new Phone opens on the Athlete whose newest Game is not removed, not on the first Athlete added', async () => {
   const { casey, sam, newPhone } = await caseyAndSam();
 
   expect(await newPhone.core.home()).toMatchObject({ athlete: { id: sam }, next: { id: casey } });
@@ -616,7 +616,21 @@ test('a new Phone whose Athletes have no Games opens on the first added, and a l
   expect((await newPhone.core.home()).athlete?.id).toBe(casey);
 });
 
-test("a Member whose chosen Athlete stops being shared opens on the one of its other Athletes with the newer Game", async () => {
+// two Athletes a Member adds on its own phone, Ann first, each with a Game: Ben's is the newer one
+async function annAndBen(member: ReturnType<typeof otherAccount>) {
+  const memberAt = (hour: number, minute = 0) => createAppCore({ clock: () => at(hour, minute), store: member.inspect, server: member.server });
+  const ann = await memberAt(10).addAthlete({ name: 'Ann' });
+  const ben = await memberAt(10, 1).addAthlete({ name: 'Ben' });
+  const annGame = memberAt(11);
+  await annGame.startGame({ athleteId: ann, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await annGame.flush();
+  const benGame = memberAt(12);
+  await benGame.startGame({ athleteId: ben, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await benGame.flush();
+  return { ann, ben };
+}
+
+test('a Member whose chosen Athlete stops being shared opens on the one of its other Athletes with the newer Game', async () => {
   const { core, server } = setup(at(9));
   const casey = await core.addAthlete({ name: 'Casey' });
   await signInWithCode(core, 'casey@example.com');
@@ -624,15 +638,7 @@ test("a Member whose chosen Athlete stops being shared opens on the one of its o
   const member = otherAccount(server);
   await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
-  // two Athletes of the Member's own; Ann is added first and its Game is the older one
-  const memberAt = (hour: number, minute = 0) => createAppCore({ clock: () => at(hour, minute), store: member.inspect, server: member.server });
-  const ann = await memberAt(10).addAthlete({ name: 'Ann' });
-  const ben = await memberAt(10, 1).addAthlete({ name: 'Ben' });
-  await memberAt(11).startGame({ athleteId: ann, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
-  await memberAt(11).flush();
-  const benGame = memberAt(12);
-  await benGame.startGame({ athleteId: ben, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
-  await benGame.flush();
+  const { ann, ben } = await annAndBen(member);
   // the Member is on Casey, the one the Owner stops sharing
   await member.core.switchAthlete(casey);
 
@@ -640,6 +646,26 @@ test("a Member whose chosen Athlete stops being shared opens on the one of its o
   await member.core.refresh();
 
   expect(await member.core.home()).toMatchObject({ athlete: { id: ben }, next: { id: ann } });
+});
+
+test('a Member who leaves a shared Athlete opens on the one of its other Athletes with the newer Game, and a later download leaves it there', async () => {
+  const { core, server } = setup(at(9));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(casey);
+  const member = otherAccount(server);
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const { ann, ben } = await annAndBen(member);
+  await member.core.switchAthlete(casey);
+  // nothing queued, so the leave goes straight to the server
+  await member.core.flush();
+
+  await member.core.leave(casey);
+
+  expect(await member.core.home()).toMatchObject({ athlete: { id: ben }, next: { id: ann } });
+  await member.core.refresh();
+  expect((await member.core.home()).athlete?.id).toBe(ben);
 });
 
 test('adjusting the strip records a score Event holding absolute Team and Opponent scores', async () => {
