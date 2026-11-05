@@ -22,6 +22,7 @@ export type LiveReads = Pick<
   | 'gameCopyText'
   | 'gameCard'
   | 'photoCount'
+  | 'removedAthletes'
 >;
 
 /** What a command runs against: App Core without the live reads. */
