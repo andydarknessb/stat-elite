@@ -396,6 +396,7 @@ function SignInForm({ remembered }: { remembered?: string }) {
   const address = (remembered ?? typed).trim();
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    setError(undefined);
     run((core) => core.signIn(address), {
       onDone: () => setSent(true),
       onRefused: (refusal) =>
@@ -408,6 +409,7 @@ function SignInForm({ remembered }: { remembered?: string }) {
   };
   const submitCode = (e: FormEvent) => {
     e.preventDefault();
+    setError(undefined);
     run((core) => core.verifyCode(address, code.trim()), {
       onRefused: () => setError('That code did not work. Check it and try again, or send a new code.'),
     });
