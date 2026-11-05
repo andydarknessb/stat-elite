@@ -192,3 +192,18 @@ test('the Recording Phone ends a Game and uploads it: a second Phone on the Acco
   await settled(second);
   expect((await second.core.gameFeed(athleteId)).games.map((game) => game.id)).toEqual([gameId]);
 });
+
+test('accepting an Invite resolves to the Athlete’s name, and the Athlete is on the invitee’s Phone', async () => {
+  const db = await schemaDatabase();
+  const owner = phone(db);
+  const member = phone(db);
+
+  await signIn(owner.core, 'casey@example.com');
+  const athleteId = await owner.core.addAthlete({ name: 'Casey' });
+  await settled(owner);
+  const token = await owner.core.createInvite(athleteId);
+
+  await signIn(member.core, 'sam@example.com');
+  expect(await member.core.acceptInvite(token)).toBe('Casey');
+  expect(await member.inspect.athletes.get(athleteId)).toMatchObject({ id: athleteId, name: 'Casey' });
+});

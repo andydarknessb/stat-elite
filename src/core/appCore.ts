@@ -1075,12 +1075,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
     isOwner,
 
-    /** Makes the signed-in account a Member of the Invite's Athlete, then brings the Athlete and its Games down (ADR 0004). */
-    async acceptInvite(token: string): Promise<void> {
+    /** Makes the signed-in account a Member of the Invite's Athlete, then brings the Athlete and its Games down; resolves to the Athlete's name (ADR 0004). */
+    async acceptInvite(token: string): Promise<string> {
       // cleared first, so a download that fails after the accept is retried by the next flush
       await phone.forgetDownload();
-      await server.acceptInvite(token);
+      const athleteId = await server.acceptInvite(token);
       await exclusive(download);
+      return (await store.athletes.get(athleteId))?.name ?? 'Athlete';
     },
 
     /** The Owner's Members list for one of its Athletes, each named for the screen (ADR 0004). */
