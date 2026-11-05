@@ -1666,21 +1666,23 @@ test("a Member's leave uploads its own Athlete's rows past another Athlete's ref
 test("the Owner removes a Member whose phone holds a queued Event on the Athlete, and the Member's leave drops the Athlete", async () => {
   const { core, server } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
-  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   await signInWithCode(core, 'casey@example.com');
   const token = await core.createInvite(athleteId);
-  // the server refuses every row of the Athlete, so the Member's Event waits on the phone
+  // the server refuses every row of the Athlete, so the Member's Game and Event wait on the phone
   const member = otherAccount(server, (phone) => ({
     ...phone,
     upload: async (table, row) => {
       const field = (name: string) => (row as Record<string, unknown>)[name];
-      if (row.id === athleteId || field('athlete_id') === athleteId || field('game_id') === gameId) throw new Error('refused');
+      if (row.id === athleteId || field('athlete_id') === athleteId || table === 'events') throw new Error('refused');
       return phone.upload(table, row);
     },
   }));
   await signInWithCode(member.core, 'sam@example.com');
   await member.core.acceptInvite(token);
-  const steal = await member.core.recordTile(gameId, 'steal');
+  // a Member records a Game it starts; the Owner's Game is another phone's to write (ADR 0009)
+  const memberGame = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  const steal = await member.core.recordTile(memberGame, 'steal');
   // the refused Event is in the queue before the Owner removes the Member, not still uploading past it
   await member.core.flush();
   await core.removeMember(athleteId, (await member.server.session())!);

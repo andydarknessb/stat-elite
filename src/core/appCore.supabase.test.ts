@@ -149,3 +149,46 @@ test('an Event the per-type CHECK refuses stays queued after a drain, and the ph
   expect((await owner.core.sync()).notSynced).toBe(1);
   expect(await owner.inspect.outbox.toArray()).toEqual([expect.objectContaining({ table: 'events', id: refused.id })]);
 });
+
+test('a second Phone on the Account does not open on a Game another Phone started: home has no live Game, and recording on it writes nothing', async () => {
+  const db = await schemaDatabase();
+  const first = phone(db);
+  const second = phone(db);
+
+  await signIn(first.core, 'casey@example.com');
+  const athleteId = await first.core.addAthlete({ name: 'Casey' });
+  const gameId = await first.core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-30', sport: 'basketball', periodFormat: 'quarters' });
+  await first.core.recordTile(gameId, 'steal');
+  await settled(first);
+
+  await signIn(second.core, 'casey@example.com');
+  await second.core.refresh();
+  await settled(second);
+  expect((await second.core.home()).liveGameId).toBeUndefined();
+
+  const before = { events: await second.inspect.events.count(), outbox: await second.inspect.outbox.count() };
+  await expect(second.core.recordTile(gameId, 'steal')).rejects.toThrow();
+  expect({ events: await second.inspect.events.count(), outbox: await second.inspect.outbox.count() }).toEqual(before);
+});
+
+test('the Recording Phone ends a Game and uploads it: a second Phone on the Account lists it as finished after refresh', async () => {
+  const db = await schemaDatabase();
+  const first = phone(db);
+  const second = phone(db);
+
+  await signIn(first.core, 'casey@example.com');
+  const athleteId = await first.core.addAthlete({ name: 'Casey' });
+  const gameId = await first.core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-30', sport: 'basketball', periodFormat: 'quarters' });
+  await first.core.recordTile(gameId, 'steal');
+  await settled(first);
+
+  await signIn(second.core, 'casey@example.com');
+  await second.core.refresh();
+  await settled(second);
+
+  await first.core.endGame(gameId, { teamScore: 41, opponentScore: 37 });
+  await settled(first, second);
+  await second.core.refresh();
+  await settled(second);
+  expect((await second.core.gameFeed(athleteId)).games.map((game) => game.id)).toEqual([gameId]);
+});
