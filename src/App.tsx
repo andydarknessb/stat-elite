@@ -3,36 +3,13 @@ import {
   BUTTON_SIZES,
   HALF_COURT,
   arcPreset,
-  backlogProblem,
-  BASE_LABELS,
-  baseLabel,
-  clockOf,
-  countFields,
-  EVENT_LABELS,
-  fateLine,
-  freeThrowLabel,
-  gameLineText,
-  initials,
   movesFrom,
-  notWhole,
-  OUTCOME_LABELS,
-  outcomeLabel,
-  PITCH_LABELS,
-  rateText,
-  resultOf,
   SCORE_MAX,
   SIGN_OUT_REFUSED,
-  shotLabel,
-  signed,
-  TILE_LABELS,
-  textOf,
-  totalsOf,
-  undoLabel,
   type AppCore,
   type BacklogEntry,
   type Base,
   type ButtonSize,
-  type CountField,
   type GameFormat,
   type GameSetup,
   type FeedGame,
@@ -45,6 +22,26 @@ import {
   type Season,
   type TileEventType,
 } from './core/appCore';
+import { backlogProblem, countFields, notWhole, textOf, totalsOf, type CountField } from './core/totals';
+import {
+  BASE_LABELS,
+  baseLabel,
+  clockOf,
+  EVENT_LABELS,
+  fateLine,
+  freeThrowLabel,
+  gameLineText,
+  initials,
+  OUTCOME_LABELS,
+  outcomeLabel,
+  PITCH_LABELS,
+  rateText,
+  resultOf,
+  shotLabel,
+  signed,
+  TILE_LABELS,
+  undoLabel,
+} from './core/words';
 import { CodeTooSoon, InviteRefused } from './core/server';
 import { renderShareCard } from './core/shareCard';
 import { OUTCOMES, PITCHES, type BaseMove, type Outcome, type Pitch } from './core/store';
@@ -810,13 +807,12 @@ function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: strin
   );
 }
 
-const SPORT_ORDER: Season['sport'][] = ['basketball', 'softball', 'baseball'];
 const SPORT_LABELS: Record<Season['sport'], string> = { basketball: 'Basketball', softball: 'Softball', baseball: 'Baseball' };
 
 /** Home's season card: a chip for each sport with finished Games, its headline numbers and its Games count. The chip choice is screen state. */
 function SeasonCard({ feed }: { feed: GameFeed }) {
   const [chosen, setChosen] = useState<Season['sport']>();
-  const seasons = SPORT_ORDER.flatMap((sport) => feed.seasons.filter((season) => season.sport === sport));
+  const seasons = feed.seasons;
   const season = seasons.find((s) => s.sport === chosen) ?? seasons[0];
   if (!season) return null;
   const games = feed.games.filter((game) => game.sport === season.sport).length;
@@ -939,7 +935,7 @@ function GamesTab({ athleteId, onOpen }: { athleteId: string; onOpen: (gameId: s
   const feed = useLive((live) => live.gameFeed(athleteId), [athleteId]);
   const [chosen, setChosen] = useState<Season['sport']>();
   if (!feed) return null;
-  const seasons = SPORT_ORDER.flatMap((sport) => feed.seasons.filter((season) => season.sport === sport));
+  const seasons = feed.seasons;
   const season = seasons.find((s) => s.sport === chosen);
   const games = season ? feed.games.filter((game) => game.sport === season.sport) : feed.games;
   return (
@@ -1842,12 +1838,8 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       </button>
       {/* the Period sits on the End Game row, so the live screen keeps its height at every Button Size */}
       <div className="period-row">
-        {game.periodLabel && (
-          <>
-            <span className="period">{game.periodLabel}</span>
-            <button onClick={nextPeriod}>Next period</button>
-          </>
-        )}
+        <span className="period">{game.periodLabel}</span>
+        <button onClick={nextPeriod}>Next period</button>
         {!ending && <button onClick={() => setEnding(true)}>End Game</button>}
         <button
           aria-label="Field mode"
