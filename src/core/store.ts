@@ -1,7 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { SyncedTable } from './server';
 
-// Rows use docs/schema.sql column names so the outbox (#9) can upload them as they are.
+// Rows use the column names the migrations in supabase/migrations/ give, so the outbox (#9) can upload them as they are.
 // They have no owner_id until sign-in makes the account their Owner.
 
 export interface AthleteRow {
@@ -15,10 +15,25 @@ export interface AthleteRow {
 }
 
 /** A photo lives in its own table so the Athlete row the outbox uploads never carries it (plan: photos stay on the phone). */
+// Stored as bytes: WebKit refuses a Blob in an ephemeral IndexedDB (#217). A row a Phone stored before that holds the Blob in `photo`.
 export interface AthletePhotoRow {
   athlete_id: string;
-  photo: Blob;
+  bytes?: ArrayBuffer;
+  type?: string;
+  photo?: Blob;
 }
+
+/** Made of attempted for one kind of attempt: a Shot by value, or a Free Throw (GLOSSARY: Shot, Free Throw). */
+export interface MadeAttempted {
+  made: number;
+  attempted: number;
+}
+
+/** A Backlogged Game's Totals (ADR 0005): the Final Score, and the counts of a basketball Game or a batting Game. */
+export type GameTotals = { team: number; opponent: number } & (
+  | { shots: Record<2 | 3, MadeAttempted>; freeThrows: MadeAttempted; tiles: Record<TileEventType, number> }
+  | { outcomes: Record<Outcome, number>; rbi: number; runs: number; steals: number }
+);
 
 export interface GameRow {
   id: string;
@@ -26,17 +41,21 @@ export interface GameRow {
   /** The Recorder's account: set at sign-in for a Game recorded before it; null once that account is deleted (ADR 0004). */
   recorded_by?: string | null;
   sport: 'basketball' | 'softball' | 'baseball';
-  period_format: 'halves' | 'quarters' | 'innings';
+  period_format: 'halves' | 'quarters' | 'eighths' | 'innings';
   opponent_name: string;
   game_date: string;
   created_at: string;
   updated_at: string;
+  /** A Backlogged Game's Totals; a Game with Events has none (ADR 0005). */
+  totals?: GameTotals | null;
+  /** Set when the Recorder removes a finished Game: every phone hides it, and its row stays (ADR 0006, ADR 0008). */
+  removed?: boolean;
 }
 
 export const TILE_EVENT_TYPES = ['reb_off', 'reb_def', 'assist', 'steal', 'block', 'turnover', 'foul'] as const;
 export type TileEventType = (typeof TILE_EVENT_TYPES)[number];
 
-/** How a Plate Appearance ended (GLOSSARY: Outcome). Matches docs/schema.sql's outcome check. */
+/** How a Plate Appearance ended (GLOSSARY: Outcome). Matches the outcome check in the migrations. */
 export const OUTCOMES = [
   'single',
   'double',
@@ -55,11 +74,11 @@ export const OUTCOMES = [
 ] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
-/** One Pitch thrown during a Plate Appearance (GLOSSARY: Pitch). Matches docs/schema.sql's pitch check. */
+/** One Pitch thrown during a Plate Appearance (GLOSSARY: Pitch). Matches the pitch check in the migrations. */
 export const PITCHES = ['ball', 'called_strike', 'swinging_strike', 'foul'] as const;
 export type Pitch = (typeof PITCHES)[number];
 
-/** Where the Athlete on base moves: 2nd, 3rd, Scored (home) or Out (GLOSSARY: Baserunning). Matches docs/schema.sql's base check. */
+/** Where the Athlete on base moves: 2nd, 3rd, Scored (home) or Out (GLOSSARY: Baserunning). Matches the base check in the migrations. */
 export const BASES = ['second', 'third', 'home', 'out'] as const;
 export type BaseMove = (typeof BASES)[number];
 

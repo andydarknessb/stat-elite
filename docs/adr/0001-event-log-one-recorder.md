@@ -1,6 +1,6 @@
 # Events are an append-only log, one Recorder per Game
 
-Every tap is saved on the phone as an Event the moment it happens and is never edited afterwards; Undo marks an Event retracted instead of destroying it, and the retraction syncs like any other change. Each Game has exactly one Recorder, so Events from two phones never mix and sync reduces to "upload what the server doesn't have yet", keyed by IDs the phone generates. Uploads run only while the app is open (after each tap when online, on launch, on reconnect) because iOS Safari has no Background Sync.
+Every tap is saved on the phone as an Event the moment it happens and is never edited afterwards; Undo marks an Event retracted instead of destroying it, and the retraction syncs like any other change. Each Game has exactly one Recorder, so Events from two phones never mix and sync reduces to "upload what the server doesn't have yet", keyed by IDs the phone generates. Uploads run only while the app is open (after each tap when online, on launch, on reconnect, on returning to the app) because iOS Safari has no Background Sync.
 
 ## Considered Options
 
@@ -10,6 +10,6 @@ Every tap is saved on the phone as an Event the moment it happens and is never e
 
 ## Consequences
 
-- Only the Recorder's phone writes a Game's Events. v1 has no live viewing; Members of the Athlete (ADR 0004) see a Game once it uploads, and anyone else through its share card.
-- Before the Recorder signs up, Events live only on the phone; the first "Save this game" uploads them.
+- Only the Recorder's phone writes a Game's Events. ADR 0009 makes that exact: its Recording Phone, the Phone that started it. v1 has no live viewing; Members of the Athlete (ADR 0004) see a Game once it uploads, and anyone else through its share card.
+- Before the Recorder signs in, Events live only on the phone, and signing in uploads them. ADR 0007 makes sign-in required, so this now applies only to phones that recorded before that change.
 - Athletes and Games are not Events: their details (name, number, Opponent, location) can be edited, and edits sync as latest edit wins by an updated-at time set on the phone. Only Events are append-only.

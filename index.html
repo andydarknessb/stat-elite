@@ -3,11 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f7f9" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1216" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0B1020" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>StatElite</title>
+    <script>
+      // Field mode's copy in localStorage, kept by src/App.tsx under 'field-mode': marks the root before the module script runs (#121)
+      try {
+        if (localStorage.getItem('field-mode') === 'on') {
+          document.documentElement.dataset.field = '';
+          document.querySelector('meta[name="color-scheme"]').content = 'light';
+          document.querySelector('meta[name="theme-color"]').content = '#FFFFFF';
+        }
+      } catch {
+        // a refused localStorage leaves the first paint to the Dexie read
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

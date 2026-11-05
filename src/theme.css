@@ -1,34 +1,50 @@
 /* StatElite's own palette. Color only carries meaning: make, miss, and neutral everything else. */
+/* The app is dark on every phone. Field mode (GLOSSARY: Field mode) marks the root and gives it the light tokens. */
 :root {
-  color-scheme: light dark;
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --text: #14171c;
-  --muted: #5d6673;
-  --border: #d9dde3;
-  --accent: #1f5fd1;
-  --make: #1a7f37;
-  --miss: #c9302c;
+  color-scheme: dark;
+  --bg: #0b1020;
+  --surface: #131a2c;
+  --surface-2: #1a2338;
+  --border: #26314a;
+  --border-strong: #34415f;
+  --text: #f2f4f8;
+  --muted: #a9b2c6;
+  --subtle: #8b95ac;
+  --accent: #f5b841;
+  --accent-ink: #0b1020;
+  --accent-text: #f5b841;
+  --accent-soft: rgba(245, 184, 65, 0.14);
+  --make: #3fb950;
+  --miss: #f0605a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1216;
-    --surface: #1a1f26;
-    --text: #eef1f5;
-    --muted: #9aa4b2;
-    --border: #2c333d;
-    --accent: #6ea0ff;
-    --make: #3fb950;
-    --miss: #f0605a;
-  }
+:root[data-field] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f2f4f8;
+  --surface-2: #e6eaf1;
+  --border: #7d879c;
+  --border-strong: #5c667d;
+  --text: #0b1020;
+  --muted: #2b3650;
+  --subtle: #3d4862;
+  --accent-text: #64491a;
+  --accent-soft: rgba(245, 184, 65, 0.24);
+  --make: #1a7f37;
+  --miss: #c9302c;
 }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 17px/1.4 system-ui, -apple-system, sans-serif;
+  font: 17px/1.4 Barlow, system-ui, -apple-system, sans-serif;
+}
+
+h1,
+.count {
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 main,
@@ -47,6 +63,7 @@ label {
 }
 
 input,
+select,
 button {
   font: inherit;
   color: inherit;
@@ -56,14 +73,23 @@ button {
   background: var(--surface);
 }
 
-input {
+/* WebKit's default button padding is taller than Chromium's and pushed the Standard live screen 3px past 390×844 (#218). */
+button {
+  padding: 1px 6px;
+}
+
+/* Inputs and selects are 52px tall on the surface, with the stronger edge. */
+input,
+select {
+  min-height: 52px;
   padding: 0 12px;
+  border-color: var(--border-strong);
 }
 
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--bg);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -77,12 +103,20 @@ button.primary {
   font-size: 32px;
 }
 
-/* A lone Athlete's photo is not a control, so it is not faded like a disabled button. */
+/* A tapped tile flashes for 700 ms: a gold ring drawn inside its 1px edge, so the tile keeps its size, and a tint. Color only, no motion. */
+.tile.flash {
+  border-color: var(--accent-text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-text);
+}
+
+/* A lone Athlete's photo is not a control, so it is not faded like a disabled button. The gold ring is its only accent. */
 .photo {
   width: 120px;
   height: 120px;
   justify-self: center;
   padding: 0;
+  border: 3px solid var(--accent);
   border-radius: 50%;
   overflow: hidden;
 }
@@ -119,7 +153,7 @@ button:disabled {
   margin: 0 16px 16px;
   padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   background: var(--surface);
 }
 
@@ -144,12 +178,18 @@ button:disabled {
   pointer-events: none;
 }
 
-/* The Team–Opponent strip: each side is a label over − count +. */
+/* The Team–Opponent strip is one card: each side is a label over − count +, and Team's count is gold. */
 .strip {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  border-radius: 16px;
+  background: var(--surface);
   text-align: center;
+}
+
+.strip .side:first-child .count {
+  color: var(--accent-text);
 }
 
 .strip .side {
@@ -175,6 +215,33 @@ button:disabled {
   font-weight: 600;
 }
 
+/* The Athlete's name in a score label: one line, cut with "…". */
+.score-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The label fills the width it is given and asks for none, so a long name is cut and never widens the screen. */
+.strip .score-name,
+.score-label {
+  contain: inline-size;
+}
+
+.strip .score-name {
+  justify-self: stretch;
+}
+
+/* Only the name gives way: the text after it keeps its full width. */
+.score-label {
+  display: flex;
+  gap: 0.25em;
+}
+
+.score-label > :last-child {
+  flex: none;
+}
+
 .final {
   font-size: 32px;
   font-weight: 600;
@@ -195,6 +262,8 @@ button:disabled {
   padding: 16px 16px 0;
   color: var(--muted);
   text-align: right;
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 /* The basketball live screen, top to bottom: Shift bar, score strip, half court, Free Throw row, stat tiles, then Undo and End Game. */
@@ -210,19 +279,17 @@ button:disabled {
   align-items: center;
 }
 
-.shift p {
-  margin: 0;
-}
-
 .shift .timer {
   font-size: 20px;
   font-weight: 600;
 }
 
-/* The Game line is a button that opens the closed Shifts; it resets the global button box so the closed line keeps its height. */
+/* The timer and the Game line are one button that opens the closed Shifts; it resets the global button box and is at least 44px tall. */
 .shift .game {
+  display: grid;
+  justify-items: start;
+  min-height: 44px;
   font-size: 13px;
-  min-height: 0;
   margin: 0;
   padding: 0;
   border: 0;
@@ -238,12 +305,13 @@ button:disabled {
   min-width: 0;
 }
 
-/* The open Shifts list scrolls sideways inside its line, so the Shift bar keeps its height and the page does not widen. */
+/* The open Shifts list scrolls sideways inside its line, so the Shift bar keeps its height and the page does not widen. contain stops its unscrolled width from counting toward the page. */
 .shift-list {
   display: flex;
   gap: 12px;
   flex: 1 1 0;
   min-width: 0;
+  contain: inline-size;
   margin: 0;
   padding: 0;
   overflow-x: auto;
@@ -259,7 +327,14 @@ button:disabled {
   align-items: center;
 }
 
+/* The Period label as a chip: neutral, so the gold stays on the action. */
 .period {
+  display: inline-grid;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
   font-size: 20px;
   font-weight: 600;
 }
@@ -276,7 +351,6 @@ button:disabled {
 
 .strip.pulse {
   animation: strip-pulse 0.6s ease-out;
-  border-radius: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -324,7 +398,7 @@ button:disabled {
 .shot-controls button[aria-pressed='true'] {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--bg);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -371,6 +445,19 @@ button:disabled {
   gap: 8px;
 }
 
+/* Add past Game: two count fields to a row, each input filling its half, so a 0 to 999 count never widens the page at 390px. */
+.counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.counts input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 /* softball and baseball: the Pitch row and Outcome grid, the count, the RBI chips under them, and the batting line */
 .pitches,
 .outcomes {
@@ -390,10 +477,55 @@ button:disabled {
   gap: 8px;
 }
 
-.batting {
-  font-variant-numeric: tabular-nums;
-  font-size: 18px;
+/* the tile look: bold labels on the surface; sizes stay with Button Size */
+.plate-appearance .pitches button,
+.plate-appearance .outcomes button,
+.plate-appearance .rbi button {
   font-weight: 600;
+}
+
+/* the Base group is one card: the Diamond, Stole and the base moves */
+.base-moves {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+/* the batting line: three stat cards, each a label over its value in the scoreboard face */
+.batting {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+  text-align: center;
+}
+
+.batting-card {
+  display: grid;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.batting dt {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.batting dd {
+  margin: 0;
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Bleacher: two swipe pages, Shots then Other stats, each the width of the phone. */
@@ -452,43 +584,231 @@ button:disabled {
   position: sticky;
   bottom: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   padding: 8px 16px;
   background: var(--bg);
 }
 
+/* Each tab is an icon over its label; the pressed tab's icon sits in a gold-tinted pill and its label is gold text. */
+.tabs button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  font-size: 14px;
+}
+
+.tab-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 32px;
+  border-radius: 999px;
+}
+
 .tabs button[aria-pressed='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--bg);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
-.season {
-  font-weight: 600;
-  overflow-wrap: anywhere;
+.tabs button[aria-pressed='true'] .tab-icon {
+  background: var(--accent-soft);
 }
 
-.feed-row {
+/* Home: the header, the Athlete card, and the cards below it. */
+.home-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.wordmark {
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.wordmark span:last-child {
+  color: var(--accent-text);
+}
+
+.athlete {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.athlete h1 {
+  margin: 0;
+}
+
+.athlete .number {
+  margin: 0;
+  color: var(--muted);
+}
+
+.athlete-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Edit, Add Athlete and Settings: 48px square icon buttons, never gold. */
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  padding: 0;
+}
+
+/* The live screen's Field mode sun: a 22px icon, kept at least 44px wide as a tap target. */
+.sun {
+  min-width: 44px;
+}
+
+.glyph {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+/* The sharing card has nothing to show until Invite co-parent or Members does: it then takes no space. */
+.sharing:empty {
+  display: none;
+}
+
+.card h2,
+form h2 {
+  margin: 0;
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 22px;
+}
+
+.chips {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent-text);
+  color: var(--accent-text);
+}
+
+.games {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* The headline numbers read like a scoreboard: condensed, large, gold. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+  text-align: center;
+}
+
+.stats dt {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.stats dd {
+  margin: 0;
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 12px;
   text-align: left;
 }
 
-.feed-row .opponent {
+.badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.result-text {
+  display: grid;
   flex: 1;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.result-text .opponent {
   font-weight: 600;
 }
 
-.feed-row .line {
-  order: 1;
-  flex-basis: 100%;
+.result-text .line {
   color: var(--muted);
   font-size: 15px;
+}
+
+.final {
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.result-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* The Final Score takes the rest of the head, which gives its score label a width to cut the name at. */
+.result-head .final {
+  flex: 1;
+  font-size: 24px;
+}
+
+/* Game Complete's trophy and result letter are gold text; the result rows keep the plain badge. */
+.trophy,
+.result-badge {
+  color: var(--accent-text);
 }
 
 .sizes {

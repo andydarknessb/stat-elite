@@ -4,17 +4,22 @@ A phone web app a parent uses on the sideline to record one child's games (baske
 
 ## Status
 
-M1 in progress. The app is scaffolded on React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7) and Dexie 4; supabase-js is in: it signs the Recorder in and uploads the outbox (`docs/plan.md:79`).
+M1 to M5 are built, and no family is on it yet. `docs/plan.md` lists what stands before the first family.
 
-`npm test` runs everything: typecheck, Vitest (App Core tests and the schema self-check on PGlite), then Playwright at 390×844. GitHub Actions runs it on every pull request into `integration`. Netlify deploys `integration` to https://stat-elite.netlify.app; `BASE_URL=https://stat-elite.netlify.app npx playwright test e2e/install.spec.ts e2e/offline.spec.ts` checks the deployed app.
+`npm test` runs everything: typecheck, Vitest (App Core tests and the schema self-check on PGlite), then Playwright at 390×844. GitHub Actions runs it on every pull request into `integration` and `main`, on Chromium and WebKit. In a fleet worktree, run `npm run typecheck` and `npx vitest run` instead and leave Playwright to CI: outside CI it reuses any server already on port 4173, so concurrent ICs would test each other's builds. Netlify deploys `integration` to https://stat-elite.netlify.app; `BASE_URL=https://stat-elite.netlify.app npx playwright test --project=chromium e2e/install.spec.ts e2e/offline.spec.ts` checks the deployed app.
 
 ## Where things live
 
 - `GLOSSARY.md`: the domain terms. This repo has no CONTEXT.md; the glossary is GLOSSARY.md.
-- `docs/adr/`: the accepted decisions (0001 to 0004 so far).
+- `src/core/supabaseDouble.ts`: the test double of the Supabase client, over PGlite and the real schema (`supabase/migrations/`). `src/core/server.contract.test.ts` runs one contract suite on it and on the stand-in; `src/core/appCore.supabase.test.ts` drives App Core through it.
+- `docs/adr/`: the accepted decisions (0001 to 0009 so far).
 - `docs/plan.md`: v1 screens, interaction rules, stats, milestones and what is cut.
-- `docs/schema.sql` and `docs/schema.test.sql`: the planned Supabase schema and its SQL self-check (`docs/schema.test.ts` runs it).
-- `src/core/`: App Core, the headless commands and read models every screen uses, and its tests. `src/App.tsx`: the screens. `e2e/`: Playwright smoke tests.
+- `docs/schema.test.sql`: the schema self-check's expectations; `docs/schema.test.ts` runs them on PGlite over `supabase/migrations/`.
+- `src/core/`: App Core, the headless commands and read models every screen uses, and its tests. `src/screenSeam.tsx`: the one module a screen reaches App Core through (`useLive` for the live read models, `useCommand` for commands); a screen reaches App Core only through it. `src/App.tsx`: the screens. `e2e/`: Playwright smoke tests. `e2e/openApp.ts` opens the app; `e2e/recorder.ts` holds the Recorder's common flows (add an Athlete, start and end a Game, record a whole Game, open a summary, tap the court) that the specs call to get ready.
+- `src/core/eventLog.ts`: the Event log's pure fold, a Game's Events in and the stats, Shifts, Count and Undo target out; `src/core/eventLog.test.ts` folds hand-built Events. App Core appends to the log through its one `append`.
+- `src/core/totals.ts`: a Backlogged Game's Totals: each sport's count fields, the form's text round trip and whole-number rule, `backlogProblem`, and the Totals as Events (`eventsFromTotals`); `src/core/totals.test.ts` tests them.
+- `src/core/words.ts`: the labels and pure format helpers the screens show (`TILE_LABELS`, `undoLabel`, `rateText`, `fateLine`, `initials`) and the stat-line words (`signed`, `gameLineText`); `src/core/words.test.ts` tests them by table.
+- `src/core/phoneAccount.ts`: the phone's sign-in, read as `phoneAccount()` (signed out, first download, signed in, or session ended): the Remembered Account, the ended-Session flag and the download markers. App Core reaches them only through this module.
 - `src/core/server.ts`: the server App Core syncs with: Supabase in a deployed build, an in-memory stand-in on localhost.
 - `supabase/migrations/`: the Supabase migration files; the first, `20261031000000_init.sql`, creates the schema.
 - `docs/agents/`: how the agent skills use the issue tracker, the triage labels and the domain docs, and the brief-writing rules in `agent-briefs.md`.

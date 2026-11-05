@@ -8,12 +8,28 @@ A phone app a parent uses on the sideline to record one child's games, then shar
 The child whose games are recorded. Every Game belongs to exactly one Athlete.
 _Avoid_: player, kid, profile, child
 
+**Account**:
+One person's record on the server, reached with a verified email. It can own Athletes and be a Member of others; signing in after deleting it makes a new Account.
+_Avoid_: user, profile, login
+
+**Phone**:
+One copy of the app's data on a device. Safari and the home-screen app on one iPhone are two Phones.
+_Avoid_: device, browser, client
+
+**Session**:
+A Phone's sign-in as an Account, held with the server, until Sign out or until the server ends it.
+_Avoid_: login, auth state
+
+**Remembered Account**:
+The Account a Phone last signed in with, kept on the Phone so it keeps recording when its Session cannot be read.
+_Avoid_: current user, cached account
+
 **Owner**:
-The account an Athlete belongs to, with sole say over its Members and its deletion.
+The Account an Athlete belongs to, with sole say over its Members.
 _Avoid_: admin, creator
 
 **Member**:
-An account invited to share an Athlete. A Member sees every Game of that Athlete, can record new ones, and edits the Athlete's name and number.
+An Account invited to share an Athlete. A Member sees every Game of that Athlete, can record new ones, and edits the Athlete's name and number.
 _Avoid_: co-parent (outside UI copy), collaborator, guest, viewer
 
 **Invite**:
@@ -21,8 +37,12 @@ A link that makes whoever accepts it a Member of one Athlete.
 _Avoid_: share link, invitation code
 
 **Recorder**:
-The person whose phone records a Game. Each Game has exactly one Recorder.
+The person whose Phone records a Game. Each Game has exactly one Recorder.
 _Avoid_: user, parent, scorekeeper, tracker
+
+**Recording Phone**:
+The one Phone that writes a Game's Events: the Phone that started the Game.
+_Avoid_: active phone, live phone, second device
 
 ## Games
 
@@ -31,7 +51,7 @@ One contest the Athlete plays in, from first Event to Final Score.
 _Avoid_: match, session, contest
 
 **Team**:
-The side the Athlete plays for.
+The side the Athlete plays for. UI copy labels it with the Athlete's name; its score is still the whole side's.
 _Avoid_: us, home
 
 **Opponent**:
@@ -43,16 +63,36 @@ The Team and Opponent scores as read off the scoreboard at one moment.
 _Avoid_: score update, scoreboard entry
 
 **Final Score**:
-The Score Snapshot taken when the Game ends.
+The Score Snapshot taken when the Game ends, or entered with a Backlogged Game.
 _Avoid_: result
 
+**Backlogged Game**:
+A Game entered after it was played, from its Totals and Final Score, with no Events.
+_Avoid_: past game (outside UI copy), historical game, imported game, manual game
+
+**Totals**:
+The counts of what the Athlete did in a Backlogged Game, entered all at once.
+_Avoid_: box score, stat line, aggregates
+
+**Removed Game**:
+A finished Game its Recorder removed: every Phone hides it, and its row stays on the server (ADR 0006, ADR 0008).
+_Avoid_: deleted game, erased game, trashed game
+
+**Season**:
+Every finished Game an Athlete has in one sport, whenever it was played; a Removed Game is left out.
+_Avoid_: career, all-time, year
+
 **Period**:
-One segment of a Game: a quarter, a half, an overtime, or an inning.
+One segment of a Game: a quarter, a half, one of eight periods, an overtime, or an inning.
 _Avoid_: game period, segment
 
 **Event**:
 One thing the Athlete did in a Game, as entered by the Recorder.
 _Avoid_: action, stat, play, telemetry
+
+**Event log**:
+A Game's Events in the order they were entered. Events are only ever added.
+_Avoid_: history, timeline
 
 **Undo**:
 Retracting the most recent Events, newest first. A retracted Event no longer counts toward any stat.
@@ -123,7 +163,7 @@ A run that scored because of the Athlete's Plate Appearance, as counted by the R
 _Avoid_: runs batted in
 
 **Baserunning**:
-One move of the Athlete once on base: to 2nd, 3rd, Scored or Out, marked Stole or not. Scored counts a run; a move marked Stole counts a stolen base.
+One move of the Athlete once on base: to 2nd, 3rd, Scored or Out, marked Stole or not. Scored counts a run; a move marked Stole counts a stolen base. A new Period takes the Athlete off base.
 _Avoid_: runner, base event
 
 ## Insights
@@ -132,8 +172,24 @@ _Avoid_: runner, base event
 Drill recommendations drawn from the Athlete's recent Games.
 _Avoid_: insights, practice insights, recommendations
 
+**Zone**:
+One of the places a Shot counts for Practice Focus: `rim` under 8 ft from the basket, or `mid` or `three` by the Shot's value, each on the `left` (`court_x` under 40), `center` (40 to 60 inclusive) or `right` (over 60) side.
+_Avoid_: area, section, region
+
 ## App
 
 **Button Size**:
 How large the live-game buttons are: Compact, Standard, or Bleacher.
 _Avoid_: Bleacher Mode, Oversized, target resizing
+
+**Field mode**:
+The light, high-contrast theme for bright sun, switched from Settings or the live screen. The app is dark otherwise, whatever the device's setting.
+_Avoid_: sun mode, outdoor mode, light mode
+
+**Outbox**:
+The rows on a Phone waiting to upload, in the order they were written.
+_Avoid_: sync queue, upload list
+
+**Refused Row**:
+A row in the Outbox the server answered and will not take. No signal is not a refusal.
+_Avoid_: failed upload, stuck row, dead letter

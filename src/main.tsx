@@ -6,6 +6,14 @@ import { serverFor } from './core/server';
 import { openStore } from './core/store';
 import { syncOnLaunchAndOnline } from './core/syncTriggers';
 import { requestPersistence } from './pwa';
+import '@fontsource/barlow/400.css';
+import '@fontsource/barlow/500.css';
+import '@fontsource/barlow/600.css';
+import '@fontsource/barlow/700.css';
+import '@fontsource/barlow-condensed/600.css';
+import '@fontsource/barlow-condensed/700.css';
+import '@fontsource/barlow-condensed/800.css';
+import '@fontsource/barlow-condensed/800-italic.css';
 import './theme.css';
 
 const core = createAppCore({
@@ -17,7 +25,7 @@ const core = createAppCore({
     host: location.hostname,
   }),
 });
-syncOnLaunchAndOnline(core, window);
+syncOnLaunchAndOnline(core, window, document);
 // every launch, not only first run: the Games stay on the phone until they sync (ADR 0001)
 void requestPersistence(navigator.storage);
 

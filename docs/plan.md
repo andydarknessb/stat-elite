@@ -1,28 +1,32 @@
 # StatElite v1 plan
 
-Revises `statelite_engineering_specification.md` after the 2026-10-30 design review. Terms are defined in `GLOSSARY.md`, decisions in `docs/adr/`, tables in `docs/schema.sql`.
+Revises `statelite_engineering_specification.md` after the 2026-10-30 design review. Terms are defined in `GLOSSARY.md`, decisions in `docs/adr/`, tables in `supabase/migrations/`.
 
 ## Product
 
 - A public product for families. v1 goes to a handful of families, with no payments.
 - Each Athlete has one Owner and can be shared with Members through an Invite (M3, ADR 0004). No live viewing in v1: Members see a Game once it uploads, everyone else through its share card.
-- No account until the first Game ends: "Save this game" asks for an email magic link or the emailed code, then uploads everything recorded so far.
+- Everyone signs in once per phone, before adding an Athlete, with a 6-digit code emailed to them (ADR 0007). New and returning people use the same screen, and there are no passwords. After that the app works offline.
 - Photos stay on the phone. Only stats sync.
-- Settings has "Delete my account and all data" (`delete_my_account()`), which also clears the phone. From M3, shared Athletes pass to a Member instead of being deleted.
+- Only a Game's Recording Phone, the Phone that started it, writes its Events (ADR 0009). A Game in progress is invisible on other Phones; if its Phone never returns, the Recorder enters it as a Backlogged Game. Two Recorders at one contest make two Games, and Remove clears the duplicate.
+- Settings has "Delete my account and all data" (`delete_my_account()`), which also clears the phone. From M3, shared Athletes pass to a Member instead of being deleted. With an ended Session it only clears this phone and says so; the Account and its data stay on the server until a sign-in and a delete.
+- Settings shows "Signed in as <address>" and Sign out when an Account is remembered. Sign out needs signal and nothing waiting to upload, warns with the photo count, then clears this phone, including photos, and leaves the Account and its rows on the server.
 
 ## Screens
 
 | Screen | Design | Pattern from |
 |---|---|---|
-| First run | "Add Athlete" form: name, number, optional photo | — |
-| Home | Athlete photo, Start Game, season line, recent Games. Tapping the photo switches Athlete when the account has more than one | MyKidDid dashboard |
+| Sign in | StatElite's name and one line on what it does, install prompt, email with a note on how it is used, then the emailed code. "Getting your Athletes…" with Retry until the first download finishes | — |
+| First run | After sign-in, when the Account has no Athletes: "Add Athlete" form (name, number, optional photo), with "Signed in as" and Sign out | — |
+| Home | Athlete photo, Start Game, Add past Game, season line, recent Games. Tapping the photo switches Athlete when the account has more than one | MyKidDid dashboard |
 | Game setup | Sport, Opponent, date, period format, all prefilled from the last Game so starting is one tap | — |
 | Live game, basketball | Shift timer and Sub In/Out toggle on top, Team–Opponent strip, half court for Shots, Free Throw row, 2-column stat tiles with live counts | Stattie (shift bar), Buckets (tiles, Free Throw row) |
 | Live game, softball/baseball | Team–Opponent strip, optional Pitch buttons, Outcome grid, RBI chips, diamond for the Athlete only | spec's Plate Appearance flow |
-| Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus on basketball rows | Stattie Activity |
-| Game Complete | Share card and ready-to-paste text | MyKidDid |
+| Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus on basketball rows, "—" on a Backlogged Game. Tapping a row opens its summary, where its Recorder can remove it (ADR 0008) | Stattie Activity |
+| Game Complete | Share card and ready-to-paste text. Undo End Game reopens the Game until Done | MyKidDid |
+| Add past Game | Sport, Opponent, date, Final Score and Totals. Save opens the Backlogged Game's summary, where its Recorder can edit or remove it (ADR 0005, ADR 0006) | — |
 | Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
-| Athlete sharing | Invite co-parent (link through the share sheet), Members list, Remove Member (Owner only), Leave (Members). Members also edit the Athlete's name and number, from Home's Edit | — |
+| Athlete sharing | Invite co-parent (link through the share sheet, labelled with the Athlete's name), Members list, Remove Member (Owner only), Leave (Members). Remove and Leave ask first, and a removed Member's phone says so once. The invitee sees the Athlete's name once joined; an old link says it has been used, and a connection failure offers Retry. Members also edit the Athlete's name and number, from Home's Edit | — |
 
 Navigation: bottom tabs Home · Games · Insights · Settings.
 
@@ -30,12 +34,13 @@ Interaction rules:
 
 - **Shot entry:** tap the spot, then MAKE or MISS (no default). A spot beyond the arc counts as a 3, with a toggle to correct it before MAKE/MISS. Free Throws use `MAKE | made/att | MISS` with no spot.
 - **Basketball tiles:** OREB, DREB, AST, STL, BLK, TO, FOUL.
-- **Undo:** a 3-second toast ("Missed 3PT · Undo") plus a persistent "Undo (last Event)" button that keeps stepping back. Each Undo adds a Retraction.
-- **Score strip:** the Recorder updates it from the scoreboard. The Athlete's own points add to it automatically. Sub In, Sub Out and End Game record a Score Snapshot, and End Game requires one in every sport.
+- **Undo:** a 3-second toast ("Missed 3PT · Undo") plus a persistent "Undo (last Event)" button that keeps stepping back. Each Undo adds a Retraction. On Game Complete, until Done, Undo End Game retracts it and reopens the Game. Past Done, the only fix is Remove, then re-entering it as a Backlogged Game.
+- **Score strip:** the Recorder updates it from the scoreboard. The Athlete's own points add to it automatically. Sub In, Sub Out and End Game record a Score Snapshot, and End Game requires one in every sport. Scores are whole numbers from 0 to 999.
 - **Pitches (optional):** Ball · Called strike · Swinging strike · Foul. The count shows only when they're used.
-- **Softball/baseball Outcomes:** 1B, 2B, 3B, HR · Walk, Hit by pitch, Error, Fielder's choice · Strikeout, Ground out, Fly out, Line out · Sac fly, Sac bunt. Then the RBI chips 0–4. Once the Athlete is on base, tap 2nd, 3rd, Scored, Out, or Stole.
+- **Softball/baseball Outcomes:** 1B, 2B, 3B, HR · Walk, Hit by pitch, Error, Fielder's choice · Strikeout, Ground out, Fly out, Line out · Sac fly, Sac bunt. Then the RBI chips 0–4. Once the Athlete is on base, tap 2nd, 3rd, Scored, Out, or Stole. A new Period takes the Athlete off base.
 - **Button Size:** Compact, Standard, Bleacher. Bleacher splits the basketball live screen into two swipe pages (Shots | Other stats).
-- **Theme:** follows the phone's light/dark setting. Color only carries meaning: green for make, red for miss, neutral for counting tiles. StatElite uses its own palette.
+- **Field mode:** forces the light theme, for bright sun. A sun button in the live screen's period row and a Field mode button in Settings under Button Size switch it. It stays on until turned off and is never uploaded.
+- **Theme:** dark on every phone until Field mode is on. Color only carries meaning: green for make, red for miss, neutral for counting tiles. StatElite uses its own palette.
 
 ## Stats
 
@@ -50,23 +55,23 @@ Interaction rules:
 - Dexie Event log: phone-generated UUIDs, `seq` per Game, client timestamps.
 - Undo through Retraction Events.
 - Button Size setting and theme tokens.
-- Supabase schema and row-level security (`docs/schema.sql`).
-- Outbox uploads after each tap when online, on launch, and on reconnect, plus an "N not synced" badge (ADR 0001).
+- Supabase schema and row-level security (`supabase/migrations/`).
+- Outbox uploads after each tap when online, on launch, on reconnect and on returning to the app, plus an "N not synced" badge (ADR 0001). A Refused Row holds the rows behind it, and Home says so until it uploads.
 - Download at sign-in brings back the account's Athletes, Games and Events on a new phone.
 - Athlete and Game edits sync as latest edit wins; Events stay insert-only (ADR 0001).
-- "Save this game" magic link or emailed code, and Delete account.
+- Sign in with an emailed code (ADR 0007), Sign out, and Delete account.
 - First run (Add Athlete) and the Athlete switcher on Home.
 
 **M2: basketball**
 - Game setup, prefilled from the last Game.
 - Live screen, Shot entry, Free Throws, stat tiles.
-- Periods: halves or quarters, plus overtime; softball and baseball count innings, labelled "Inn N". All advance by "Next period".
+- Periods: halves, quarters or eight periods, plus overtime; softball and baseball count innings, labelled "Inn N". All advance by "Next period".
 - Sub In/Out, score strip, Plus/Minus, Playing Share. An open Shift survives an app restart: a Sub In with no Sub Out means the Athlete is on court.
 - Bleacher two-page layout, Home, Games feed.
 
 **M3: sharing an Athlete (ADR 0004)**
 - Invite, Members, Remove Member and Leave, as ADR 0004 describes. Accepting an Invite signs the invitee in and makes them a Member.
-- Download also runs on launch and reconnect, bringing in Games recorded on other phones.
+- Download also runs on launch, on reconnect and on returning to the app, bringing in Games recorded on other phones.
 - Delete account: each shared Athlete passes to the Member who joined first, and the delete screen says so. A Member's own deletion leaves the Games they recorded with the Athlete.
 
 **M4: share card and Practice Focus**
@@ -78,14 +83,23 @@ Interaction rules:
 - AVG, OBP and SLG.
 - Baseball is a label on the same engine.
 
+## Before the first family
+
+1. The four Must fix tickets from Spec #197 merge into `integration`: #198, #199, #200, #201.
+2. Promotion: a PR from `integration` into `main` that a human merges, once `supabase migration list --remote` shows nothing missing (#212).
+3. Netlify production moves to `main`, and `integration` keeps a branch deploy on the same Supabase project, so every migration must keep the app on `main` working. The `test` check is required on both branches (#212).
+4. On production: a real sign-in from an address outside the Supabase team, and a by-hand iPhone pass (#149).
+
+The Spec's other tickets ship in later promotions.
+
 ## Cut from v1
 
-Streak evaluator · video highlights and training log · live viewing · background sync (iOS doesn't support it) · photo sync · cross-device conflict resolution · AI-generated insights.
+Streak evaluator · video highlights and training log · live viewing · background sync (iOS doesn't support it) · photo sync · cross-device conflict resolution · AI-generated insights · passwords and social sign-in · changing an Account's email · parent profile fields · deleting one Athlete · moving a Game in progress to another Phone · Season date boundaries · a captcha on sign-up.
 
 ## Stack
 
 React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7), Dexie 4, supabase-js. The outbox is our own code; PowerSync was rejected in ADR 0001.
 
-Hosting: Netlify serves https://stat-elite.netlify.app, rebuilt from `integration` on every push (`netlify.toml`). The Supabase env vars live in Netlify, not the repo.
+Hosting: Netlify serves https://stat-elite.netlify.app, rebuilt from `integration` on every push (`netlify.toml`), until #212 moves production to `main`. The Supabase env vars live in Netlify, not the repo.
 
 Minimum platform: iOS 16.4, the first version with OffscreenCanvas, and current Chrome on Android.

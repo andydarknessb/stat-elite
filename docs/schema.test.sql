@@ -1,5 +1,4 @@
--- Self-check for docs/schema.sql against a plain Postgres 15+.
--- Run: psql -v ON_ERROR_STOP=1 -f docs/schema.test.sql   (on a throwaway database)
+-- Self-check for the migrations in supabase/migrations/, run on PGlite by docs/schema.test.ts.
 -- Any failed expectation raises an exception and stops the run.
 
 -- Minimal stand-in for the parts of Supabase the schema uses.
@@ -11,7 +10,7 @@ create function auth.uid() returns uuid language sql stable
   as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 grant usage on schema auth to authenticated;
 
-\ir schema.sql
+-- The migrations, in order, go here: docs/schema.test.ts puts supabase/migrations/ in place of this line.
 
 grant select, insert, update, delete on athletes, games, events to authenticated;
 
@@ -21,6 +20,16 @@ begin
   raise exception 'expected failure did not happen: %', why;
 exception when others then
   if sqlerrm like 'expected failure did not happen:%' then raise; end if;
+end $$;
+
+-- as expect_fail, and the error must also name the refusal the check raises
+create function pg_temp.expect_fail_with(stmt text, message text, why text) returns void language plpgsql as $$
+begin
+  execute stmt;
+  raise exception 'expected failure did not happen: %', why;
+exception when others then
+  if sqlerrm like 'expected failure did not happen:%' then raise; end if;
+  if strpos(sqlerrm, message) = 0 then raise exception 'expected "%" for %, got: %', message, why, sqlerrm; end if;
 end $$;
 
 -- Two owners: A (…a) and B (…b).
@@ -44,8 +53,13 @@ insert into events (id, owner_id, game_id, seq, client_ts, period, type, court_x
 insert into events (id, owner_id, game_id, seq, client_ts, period, type, outcome, rbi) values
   ('30000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a2', 1, now(), 1, 'plate_appearance', 'double', 1);
 
+-- 8 Periods is a basketball format: a basketball Game in eighths is accepted. It has an Athlete of its own, so the counts below hold.
+insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000f2', '00000000-0000-0000-0000-00000000000a', 'Quinn');
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000f2', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-0000000000f2', 'basketball', 'eighths', '2026-10-30', '00000000-0000-0000-0000-00000000000a');
+
 -- The database rejects malformed rows.
 select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date) values ('20000000-0000-0000-0000-0000000000a9', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'basketball', 'innings', '2026-10-30')$$, 'basketball Game in innings');
+select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date) values ('20000000-0000-0000-0000-0000000000a9', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'softball', 'eighths', '2026-10-30')$$, 'softball Game in eighths');
 select pg_temp.expect_fail($$insert into games (id, owner_id, athlete_id, sport, period_format, game_date) values ('20000000-0000-0000-0000-0000000000a9', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000b', 'basketball', 'halves', '2026-10-30')$$, 'Game for another owner''s Athlete');
 select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type, court_y, shot_value, made) values ('30000000-0000-0000-0000-000000000099', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a1', 99, now(), 1, 'shot', 10, 2, true)$$, 'Shot without court_x');
 select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type, court_x, court_y, shot_value, made) values ('30000000-0000-0000-0000-000000000099', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a1', 99, now(), 1, 'shot', 10, 10, 1, true)$$, 'Shot worth 1');
@@ -299,6 +313,14 @@ begin
   if (select recorded_by from games where id = '20000000-0000-0000-0000-0000000000c1') is not null then
     raise exception 'a deleted Member''s Game should lose its Recorder';
   end if;
+  -- and nothing else: the Game keeps its Owner and Athlete, and its Event stays
+  if not exists (select 1 from games where id = '20000000-0000-0000-0000-0000000000c1'
+                 and owner_id = '00000000-0000-0000-0000-00000000000a' and athlete_id = '10000000-0000-0000-0000-00000000000a') then
+    raise exception 'a deleted Member''s Game should stay with its Owner and Athlete';
+  end if;
+  if not exists (select 1 from events where id = '30000000-0000-0000-0000-0000000000c2') then
+    raise exception 'a deleted Member''s Event should stay with its Game';
+  end if;
 end $$;
 set role authenticated;
 
@@ -318,15 +340,166 @@ begin
   end if;
 end $$;
 
--- Delete my account, signed in as A: everything of A's goes, B is untouched.
+-- A second Member, E, joins Casey after B (ADR 0004).
+reset role;
+insert into auth.users values ('00000000-0000-0000-0000-00000000000e');
+insert into invites (token, athlete_id, owner_id) values ('40000000-0000-0000-0000-0000000000e5', '10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+select accept_invite('40000000-0000-0000-0000-0000000000e5');
+-- The script runs in one transaction, so every join has the same now(). E is set to have joined a day before B: the earlier
+-- joiner then has the larger id, so only joined_at picks it as the heir (ADR 0004).
+reset role;
+update members set joined_at = now() - interval '1 day' where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000e';
+update members set joined_at = now() - interval '1 hour' where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000b';
+set role authenticated;
+-- Morgan is A's alone: with no Members it goes with A's account, its Game and its Event.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000a', 'Morgan');
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values ('20000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-0000000000f1', 'basketball', 'quarters', '2026-10-31', '00000000-0000-0000-0000-00000000000a');
+insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000f1', 1, now(), 1, 'steal');
+-- Casey's Events as they are before the deletion, owner left out, to compare after it.
+reset role;
+create temp table casey_events as
+  select e.id, to_jsonb(e) - 'owner_id' as content from events e join games g on g.id = e.game_id
+  where g.athlete_id = '10000000-0000-0000-0000-00000000000a';
+
+-- Delete my account, signed in as A (ADR 0004): Casey passes to E, the Member who joined first, with its Games and Events;
+-- B stays a Member of it, and Morgan goes with A.
+set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
 select delete_my_account();
 reset role;
 do $$
+declare n int;
 begin
-  if exists (select 1 from events where owner_id = '00000000-0000-0000-0000-00000000000a') then raise exception 'A''s Events survived account deletion'; end if;
-  if exists (select 1 from athletes where owner_id = '00000000-0000-0000-0000-00000000000a') then raise exception 'A''s Athletes survived account deletion'; end if;
-  if (select count(*) from events) <> 1 then raise exception 'B''s Event should remain'; end if;
+  if (select owner_id from athletes where id = '10000000-0000-0000-0000-00000000000a') is distinct from '00000000-0000-0000-0000-00000000000e' then
+    raise exception 'Casey should pass to E, the Member who joined first';
+  end if;
+  if (select count(*) from games where athlete_id = '10000000-0000-0000-0000-00000000000a' and owner_id = '00000000-0000-0000-0000-00000000000e') <> 3 then
+    raise exception 'Casey''s 3 Games should pass to E with it';
+  end if;
+  select count(*) into n from events e join games g on g.id = e.game_id
+    where g.athlete_id = '10000000-0000-0000-0000-00000000000a' and e.owner_id = '00000000-0000-0000-0000-00000000000e';
+  if n <> 8 then raise exception 'Casey''s 8 Events should pass to E with it, saw %', n; end if;
+  select count(*) into n from casey_events c join events e on e.id = c.id where to_jsonb(e) - 'owner_id' = c.content;
+  if n <> 8 then raise exception 'Casey''s Events should keep their contents, % of 8 match', n; end if;
+  -- E is the Owner now, so it is no Member of Casey; B, which joined later, stays one
+  if (select array_agg(member_id) from members where athlete_id = '10000000-0000-0000-0000-00000000000a')
+     is distinct from array['00000000-0000-0000-0000-00000000000b'::uuid] then
+    raise exception 'Casey should keep only B as a Member once E is its Owner';
+  end if;
+  if exists (select 1 from athletes where id = '10000000-0000-0000-0000-0000000000f1')
+     or exists (select 1 from games where id = '20000000-0000-0000-0000-0000000000f1')
+     or exists (select 1 from events where id = '30000000-0000-0000-0000-0000000000f1') then
+    raise exception 'Morgan, its Game and its Event should go with A';
+  end if;
+  if exists (select 1 from athletes where owner_id = '00000000-0000-0000-0000-00000000000a')
+     or exists (select 1 from events where owner_id = '00000000-0000-0000-0000-00000000000a') then
+    raise exception 'A''s rows survived account deletion';
+  end if;
+  if (select count(*) from events) <> 9 then
+    raise exception 'B''s Event and Casey''s 8 should remain, saw %', (select count(*) from events);
+  end if;
 end $$;
+-- The Events that came with Casey are not editable by their new Owner either (ADR 0004).
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+do $$
+declare n int;
+begin
+  update events set type = 'block' where owner_id = '00000000-0000-0000-0000-00000000000e';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'Events must not be editable by their Owner, % updated', n; end if;
+end $$;
+reset role;
+
+-- ADR 0005: a Backlogged Game keeps its Totals on the Game, and its Recorder edits them. Appended after the counts above, so they hold.
+-- B, a Member of Casey, records a Backlogged Game (d1) on Casey, which E owns now; E, Casey's Owner, records another (d2).
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by, totals) values
+  ('20000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-28', '00000000-0000-0000-0000-00000000000e', '{"team": 40, "opponent": 30}');
+-- a second Athlete of E's, the one a Recorder must not move its Game to
+insert into athletes (id, owner_id, name) values ('10000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-00000000000e', 'Riley');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by, totals) values
+  ('20000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-27', '00000000-0000-0000-0000-00000000000b', '{"team": 40, "opponent": 30}');
+
+-- the Recorder updates its Game's Totals, and a Member who did not record d2 updates none of it
+do $$
+declare n int;
+begin
+  update games set totals = '{"team": 41, "opponent": 30}' where id = '20000000-0000-0000-0000-0000000000d1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should update the Totals of the Game it recorded, updated %', n; end if;
+  update games set totals = '{"team": 41, "opponent": 30}' where id = '20000000-0000-0000-0000-0000000000d2';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a Member should update the Totals of no Game it did not record, updated %', n; end if;
+end $$;
+-- Totals are an object with a team and an opponent score: anything else is refused
+select pg_temp.expect_fail($$update games set totals = '[1, 2]' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'a non-object Totals');
+select pg_temp.expect_fail($$update games set totals = '["team", "opponent"]' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'an array holding the key names as Totals');
+-- and a Recorder keeps its Game with its Athlete: the trigger refuses this move first, and the policy would too, since B is no Member of Riley
+select pg_temp.expect_fail($$update games set athlete_id = '10000000-0000-0000-0000-0000000000e1' where id = '20000000-0000-0000-0000-0000000000d1'$$, 'a Recorder moving its Game to another Athlete');
+reset role;
+
+-- A removed Member updates no Game it recorded (ADR 0005). F joins Casey, records a Game on it, and is removed. F owns no Game,
+-- so an update with no WHERE clause can reach only the Game F recorded, and it must change nothing.
+insert into auth.users values ('00000000-0000-0000-0000-00000000000f');
+insert into members (athlete_id, member_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000f');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000f', false);
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by, totals) values
+  ('20000000-0000-0000-0000-0000000000f3', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-26', '00000000-0000-0000-0000-00000000000f', '{"team": 40, "opponent": 30}');
+reset role;
+delete from members where athlete_id = '10000000-0000-0000-0000-00000000000a' and member_id = '00000000-0000-0000-0000-00000000000f';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000f', false);
+do $$
+declare n int;
+begin
+  update games set totals = '{"team": 42, "opponent": 30}';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a removed Member should update no Game with no WHERE clause, updated %', n; end if;
+  update games set totals = '{"team": 42, "opponent": 30}' where id = '20000000-0000-0000-0000-0000000000f3';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a removed Member should update no Game it recorded, updated %', n; end if;
+end $$;
+reset role;
+
+-- An Owner moves its Game to another of its Athletes: RLS allows the move, so only the keep_athlete trigger refuses it (ADR 0005).
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+set role authenticated;
+select pg_temp.expect_fail_with($$update games set athlete_id = '10000000-0000-0000-0000-0000000000e1' where id = '20000000-0000-0000-0000-0000000000d2'$$, 'a Game keeps its Athlete', 'an Owner moving a Game to another of its Athletes');
+-- Totals need both scores: one missing is refused
+select pg_temp.expect_fail($$update games set totals = '{"opponent": 30}' where id = '20000000-0000-0000-0000-0000000000d2'$$, 'Totals without a team score');
+select pg_temp.expect_fail($$update games set totals = '{"team": 40}' where id = '20000000-0000-0000-0000-0000000000d2'$$, 'Totals without an opponent score');
+reset role;
+
+-- ADR 0006 and ADR 0008: a Recorder removes its Game, and the row stays. A Member removes no Game it did not record.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+set role authenticated;
+insert into games (id, owner_id, athlete_id, sport, period_format, game_date, recorded_by) values
+  ('20000000-0000-0000-0000-0000000000d4', '00000000-0000-0000-0000-00000000000e', '10000000-0000-0000-0000-00000000000a', 'basketball', 'quarters', '2026-10-25', '00000000-0000-0000-0000-00000000000b');
+do $$
+declare n int;
+begin
+  update games set removed = true where id = '20000000-0000-0000-0000-0000000000d2';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a Member should remove no Game it did not record, removed %', n; end if;
+  update games set removed = true where id = '20000000-0000-0000-0000-0000000000d1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should remove the Backlogged Game it recorded, removed %', n; end if;
+end $$;
+-- ADR 0008: the Recorder removes its finished Game, and a Game with null totals too; the check that refused it is gone (its Events still upload)
+do $$
+declare n int;
+begin
+  update games set removed = true where id = '20000000-0000-0000-0000-0000000000d4';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'a Member should remove the Game it recorded with null totals, removed %', n; end if;
+end $$;
+reset role;
 
 \echo 'schema.test.sql: all checks passed'

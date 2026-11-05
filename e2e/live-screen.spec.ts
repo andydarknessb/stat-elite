@@ -1,24 +1,8 @@
-import { expect, test, type Page } from '@playwright/test';
-
-async function addAthlete(page: Page) {
-  await page.goto('/');
-  await page.getByLabel('Athlete name').fill('Casey');
-  await page.getByRole('button', { name: 'Add Athlete' }).click();
-}
-
-async function startGame(page: Page) {
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-}
-
-async function chooseButtonSize(page: Page, size: string) {
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('button', { name: size, exact: true }).click();
-  await page.getByRole('button', { name: 'Done' }).click();
-}
+import { expect, test } from '@playwright/test';
+import { addFirstAthlete, startGame } from './recorder';
 
 test('at Standard the basketball live screen fits a 390×844 phone with no vertical scroll', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await startGame(page);
 
   // each tile records its Event in one tap and shows the count
@@ -35,15 +19,15 @@ test('at Standard the basketball live screen fits a 390×844 phone with no verti
 });
 
 test('a Free Throw records MAKE or MISS with no spot, and the row reads made/attempted', async ({ page }) => {
-  await addAthlete(page);
+  await addFirstAthlete(page);
   await startGame(page);
   const row = page.getByRole('group', { name: 'Free Throw' });
   const make = row.getByRole('button', { name: 'MAKE' });
   const miss = row.getByRole('button', { name: 'MISS' });
 
-  // green make, red miss: the colors carry meaning in light mode
-  await expect(make).toHaveCSS('color', 'rgb(26, 127, 55)');
-  await expect(miss).toHaveCSS('color', 'rgb(201, 48, 44)');
+  // green make, red miss: the colors carry meaning in the dark theme
+  await expect(make).toHaveCSS('color', 'rgb(63, 185, 80)');
+  await expect(miss).toHaveCSS('color', 'rgb(240, 96, 90)');
   await make.click();
   await expect(row).toHaveText(/MAKE\s*1\/1\s*MISS/);
   await miss.click();
@@ -55,8 +39,10 @@ test('a Free Throw records MAKE or MISS with no spot, and the row reads made/att
 });
 
 test('Button Size is chosen in Settings and survives a reload', async ({ page }) => {
-  await addAthlete(page);
-  await chooseButtonSize(page, 'Bleacher');
+  await addFirstAthlete(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Bleacher', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
 
   await page.reload();
   await page.getByRole('button', { name: 'Settings' }).click();
@@ -64,9 +50,8 @@ test('Button Size is chosen in Settings and survives a reload', async ({ page })
 });
 
 test('at Bleacher the live screen splits into two swipe pages, Shots then Other stats', async ({ page }) => {
-  await addAthlete(page);
-  await chooseButtonSize(page, 'Bleacher');
-  await startGame(page);
+  await addFirstAthlete(page);
+  await startGame(page, { buttonSize: 'Bleacher' });
   const steal = page.getByRole('button', { name: /^STL \d+$/ });
 
   await expect(page.getByRole('region', { name: 'Shots' })).toBeInViewport();
@@ -81,9 +66,8 @@ test('at Bleacher the live screen splits into two swipe pages, Shots then Other 
 });
 
 test('at Bleacher the half court keeps its feet ratio, and the Shot controls fit beside it', async ({ page }) => {
-  await addAthlete(page);
-  await chooseButtonSize(page, 'Bleacher');
-  await startGame(page);
+  await addFirstAthlete(page);
+  await startGame(page, { buttonSize: 'Bleacher' });
 
   const court = await page.getByRole('img', { name: 'Half court' }).boundingBox();
   await expect(page.getByRole('img', { name: 'Half court' })).toHaveAttribute('viewBox', '0 0 50 42');
@@ -92,4 +76,27 @@ test('at Bleacher the half court keeps its feet ratio, and the Shot controls fit
   const controls = await page.getByRole('group', { name: 'Shot result' }).boundingBox();
   const shots = await page.getByRole('region', { name: 'Shots' }).boundingBox();
   expect(controls!.x + controls!.width).toBeLessThanOrEqual(shots!.x + shots!.width + 0.5);
+});
+
+test.describe('under dark', () => {
+  test.use({ colorScheme: 'dark' });
+
+  test('the Team count is gold and the Opponent count is near-white', async ({ page }) => {
+    await addFirstAthlete(page);
+    await startGame(page);
+
+    await expect(page.getByRole('group', { name: 'Casey', exact: true }).locator('.count')).toHaveCSS('color', 'rgb(245, 184, 65)');
+    await expect(page.getByRole('group', { name: 'Opponent', exact: true }).locator('.count')).toHaveCSS('color', 'rgb(242, 244, 248)');
+  });
+
+  test('a tapped stat tile flashes its gold border within 300 ms, and the flash ends', async ({ page }) => {
+    await addFirstAthlete(page);
+    await startGame(page);
+    const tile = page.getByRole('button', { name: /^OREB \d+$/ });
+
+    await tile.click();
+    await expect(tile).toHaveCSS('border-top-color', 'rgb(245, 184, 65)', { timeout: 300 });
+    await page.waitForTimeout(1500);
+    await expect(tile).not.toHaveCSS('border-top-color', 'rgb(245, 184, 65)');
+  });
 });
