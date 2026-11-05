@@ -112,7 +112,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   const tabBarRests = async (screen: string) => {
     const bottom = await page.locator('nav.tabs').evaluate((bar) => bar.getBoundingClientRect().bottom);
     const viewport = await page.evaluate(() => window.innerHeight);
-    expect(bottom, `${screen}: the tab bar ends at ${bottom}, not at the viewport's ${viewport}`).toBeCloseTo(viewport, 0);
+    expect.soft(bottom, `${screen}: the tab bar ends at ${bottom}, not at the viewport's ${viewport}`).toBeCloseTo(viewport, 0);
   };
 
   // the walk is audited at Standard; assert it, so a changed default cannot quietly audit Compact or Bleacher
@@ -159,7 +159,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   const today = page.getByRole('region', { name: 'Today' });
   await expect(today.locator('.result-row')).toHaveCount(2);
   await tabBarRests('Games tab');
-  expect(await rowGap(today), 'Games rows space as Recent Games rows do').toBeCloseTo(recentGap, 1);
+  expect.soft(await rowGap(today), 'Games rows space as Recent Games rows do').toBeCloseTo(recentGap, 1);
 
   await page.getByRole('button', { name: 'Softball', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Softball', exact: true })).toHaveAttribute('aria-pressed', 'true');
