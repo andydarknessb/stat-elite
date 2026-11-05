@@ -76,16 +76,14 @@ async function tapShareCard(page: Page) {
   });
 }
 
-test('Share card hands the Recorder a 1200×1200 image through the share sheet', async ({ page, browserName }) => {
-  test.fixme(browserName === 'webkit', 'WebKit: bug #217');
+test('Share card hands the Recorder a 1200×1200 image through the share sheet', async ({ page }) => {
   await keepSharedFiles(page);
   await endGameForShareCard(page, PHOTO);
   const card = await tapShareCard(page);
   expect(card).toMatchObject({ type: 'image/png', width: 1200, height: 1200 });
 });
 
-test('a photo the browser cannot decode still shares a 1200×1200 card', async ({ page, browserName }) => {
-  test.fixme(browserName === 'webkit', 'WebKit: bug #217');
+test('a photo the browser cannot decode still shares a 1200×1200 card', async ({ page }) => {
   await keepSharedFiles(page);
   await endGameForShareCard(page, BAD_PHOTO);
   await expect(page.getByRole('button', { name: 'Share card' })).toBeEnabled();
@@ -147,8 +145,7 @@ test('a share sheet the Recorder cancels downloads nothing', async ({ page }) =>
   expect(await downloaded).toBe(false);
 });
 
-test('the card draws the photo, cropped from its middle', async ({ page, browserName }) => {
-  test.fixme(browserName === 'webkit', 'WebKit: bug #217');
+test('the card draws the photo, cropped from its middle', async ({ page }) => {
   await keepSharedFiles(page);
   await endGameForShareCard(page, await stripedPhoto(page));
   const card = await tapShareCard(page);
