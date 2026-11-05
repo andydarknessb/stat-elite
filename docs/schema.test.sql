@@ -235,6 +235,7 @@ end $$;
 reset role;
 insert into auth.users values ('00000000-0000-0000-0000-00000000000d');
 insert into members (athlete_id, member_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000d');
+insert into invites (token, athlete_id, owner_id) values ('40000000-0000-0000-0000-0000000000d0', '10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a');
 set role authenticated;
 
 -- Only the Owner removes a Member: a stranger and a Member remove nothing, and the Owner sees both Members.
@@ -247,6 +248,8 @@ begin
   if n <> 0 then raise exception 'a stranger removed % Members', n; end if;
 end $$;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000d', false);
+-- D uses the Invite while it is a Member, so the Invite is used by D
+select accept_invite('40000000-0000-0000-0000-0000000000d0');
 do $$
 declare n int;
 begin
@@ -270,6 +273,15 @@ declare n int;
 begin
   select count(*) into n from athletes;
   if n <> 0 then raise exception 'a removed Member should see no Athlete, saw %', n; end if;
+end $$;
+-- a removed Member reopening its Invite is refused as used, and the Owner still sees one Member: C (ADR 0004, #210)
+select pg_temp.expect_fail($$select accept_invite('40000000-0000-0000-0000-0000000000d0')$$, 'a removed Member reopening its Invite');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from members where athlete_id = '10000000-0000-0000-0000-00000000000a';
+  if n <> 1 then raise exception 'a removed Member should not rejoin: the Owner should see 1 Member, saw %', n; end if;
 end $$;
 
 -- C leaves Casey: a Member deletes its own membership and nothing of its Athlete's.

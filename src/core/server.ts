@@ -165,8 +165,8 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
         const invite = invites.get(token);
         if (!invite) throw new InviteRefused('unknown');
         if (invite.owner_id === account) throw new InviteRefused('own');
-        // the account that accepted it may accept again: a retry after a failed download
-        if (invite.used_by === account) return invite.athlete_id;
+        // the account that accepted it may accept again while it is still a Member: a retry after a failed download
+        if (invite.used_by === account && members.has(`${invite.athlete_id} ${account}`)) return invite.athlete_id;
         if (invite.used_by !== undefined) throw new InviteRefused('used');
         if (invite.expires <= Date.now()) throw new InviteRefused('expired');
         members.set(`${invite.athlete_id} ${account}`, { joined_at: new Date().toISOString(), email: emails.get(account) ?? null });
