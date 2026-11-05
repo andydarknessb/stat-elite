@@ -212,12 +212,15 @@ function InviteCoParent({ athleteId, name }: { athleteId: string; name: string }
   );
 }
 
-/** The Members of a shared Athlete: the Owner sees them and removes one; a Member leaves (ADR 0004). */
-function Members({ athleteId }: { athleteId: string }) {
+/** The Members of a shared Athlete: the Owner sees them and removes one; a Member leaves (ADR 0004). Leave and Remove ask first, on the confirm card the Game summary's Remove uses. */
+function Members({ athleteId, name }: { athleteId: string; name: string }) {
   const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId], { optional: true });
   const owner = useLive((live) => live.isOwner(athleteId), [athleteId], { optional: true });
   const [members, setMembers] = useState<Member[]>();
-  const { run, alert } = useCommand();
+  // nothing leaves or is removed until the confirm card's button is tapped (#205)
+  const [leaving, setLeaving] = useState(false);
+  const [removing, setRemoving] = useState<Member>();
+  const { run, alert, clear } = useCommand();
   const load = () =>
     run((core) => core.members(athleteId), {
       onDone: setMembers,
@@ -230,11 +233,18 @@ function Members({ athleteId }: { athleteId: string }) {
   if (!owner) {
     return (
       <>
-        <button
-          onClick={() => run((core) => core.leave(athleteId), { message: 'Could not leave. Wait for everything to sync, then try again.' })}
-        >
-          Leave
-        </button>
+        {!leaving && <button onClick={() => setLeaving(true)}>Leave</button>}
+        {leaving && (
+          <section className="card">
+            <p>{`Leave ${name}? ${name}, its Games and this phone's photo leave this phone, and coming back takes a new Invite.`}</p>
+            <button
+              onClick={() => run((core) => core.leave(athleteId), { message: 'Could not leave. Wait for everything to sync, then try again.' })}
+            >
+              Yes, leave
+            </button>
+            <button onClick={() => { clear(); setLeaving(false); }}>Cancel</button>
+          </section>
+        )}
         {alert && <p role="alert">{alert}</p>}
       </>
     );
@@ -242,7 +252,10 @@ function Members({ athleteId }: { athleteId: string }) {
   if (!canInvite) return null;
   const remove = (memberId: string) =>
     run((core) => core.removeMember(athleteId, memberId), {
-      onDone: load,
+      onDone: () => {
+        setRemoving(undefined);
+        load();
+      },
       message: 'Could not remove. Check the connection and try again.',
     });
   return (
@@ -253,10 +266,17 @@ function Members({ athleteId }: { athleteId: string }) {
         {members?.map((member) => (
           <li key={member.member_id}>
             {member.label}{' '}
-            <button onClick={() => void remove(member.member_id)}>Remove</button>
+            <button onClick={() => { clear(); setRemoving(member); }}>Remove</button>
           </li>
         ))}
       </ul>
+      {removing && (
+        <section className="card">
+          <p>{`Remove ${removing.label}? They lose ${name} at their next sync, and anything they haven't synced is lost.`}</p>
+          <button onClick={() => void remove(removing.member_id)}>Yes, remove</button>
+          <button onClick={() => { clear(); setRemoving(undefined); }}>Cancel</button>
+        </section>
+      )}
       {alert && <p role="alert">{alert}</p>}
     </section>
   );
@@ -642,7 +662,7 @@ function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['nex
         {/* keyed by Athlete: a switch remounts the link and the Members, so neither keeps the last Athlete's */}
         <section key={athlete.id} className="card sharing" aria-label="Sharing">
           <InviteCoParent athleteId={athlete.id} name={athlete.name} />
-          <Members athleteId={athlete.id} />
+          <Members athleteId={athlete.id} name={athlete.name} />
         </section>
       </main>
       <TabBar tab={tab} onTab={setTab} />
