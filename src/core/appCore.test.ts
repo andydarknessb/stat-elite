@@ -541,6 +541,133 @@ test('an Athlete added last is the one Home shows, with the one before it as Nex
   expect(await reopen().home()).toMatchObject({ athlete: { id: samId }, next: { id: caseyId } });
 });
 
+// local times on the 30th, so a Game's date and its clock's date agree wherever the tests run
+const at = (hour: number, minute = 0) => new Date(2026, 9, 30, hour, minute);
+
+// Casey is added first and her only Game is removed, newer than Sam's. Sam is added second and his only Game is in progress on
+// another phone of the account, older than Casey's. Returns the Owner's core and the phone that signs in last.
+async function caseyAndSam() {
+  const { core, inspect, server } = setup(at(9));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  const sam = await createAppCore({ clock: () => at(10), store: inspect, server }).addAthlete({ name: 'Sam' });
+  await signInWithCode(core, 'casey@example.com');
+  const recorder = createAppCore({ clock: () => at(12), store: inspect, server });
+  const caseyGame = await recorder.startGame({ athleteId: casey, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await recorder.endGame(caseyGame, { teamScore: 2, opponentScore: 0 });
+  await recorder.removeGame(caseyGame);
+  await recorder.flush();
+  const other = phoneOn(server);
+  await signInWithCode(other.core, 'casey@example.com');
+  await other.core.refresh();
+  const samPhone = createAppCore({ clock: () => at(11), store: other.inspect, server });
+  await samPhone.startGame({ athleteId: sam, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await samPhone.flush();
+  const newPhone = phoneOn(server);
+  await signInWithCode(newPhone.core, 'casey@example.com');
+  await newPhone.core.refresh();
+  return { core, inspect, server, casey, sam, newPhone };
+}
+
+test('a new Phone opens on the Athlete whose newest Game is not removed, not on the first Athlete added', async () => {
+  const { casey, sam, newPhone } = await caseyAndSam();
+
+  expect(await newPhone.core.home()).toMatchObject({ athlete: { id: sam }, next: { id: casey } });
+  expect((await newPhone.core.home()).liveGameId).toBeUndefined();
+});
+
+test('a later download with a newer Game for the first Athlete leaves the new Phone on the Athlete it opened on', async () => {
+  const { server, inspect, casey, sam, newPhone } = await caseyAndSam();
+  const newer = createAppCore({ clock: () => at(13), store: inspect, server });
+  await newer.startGame({ athleteId: casey, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await newer.flush();
+
+  await newPhone.core.refresh();
+
+  expect((await newPhone.core.home()).athlete?.id).toBe(sam);
+});
+
+test('after the new Phone switches to the first Athlete, a later download with a newer Game for the other leaves it there', async () => {
+  const { server, inspect, casey, sam, newPhone } = await caseyAndSam();
+  await newPhone.core.switchAthlete(casey);
+  const newer = createAppCore({ clock: () => at(13), store: inspect, server });
+  await newer.startGame({ athleteId: sam, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await newer.flush();
+
+  await newPhone.core.refresh();
+
+  expect((await newPhone.core.home()).athlete?.id).toBe(casey);
+});
+
+test('a new Phone whose Athletes have no Games opens on the first added, and a later Game for the other leaves it there', async () => {
+  const { core, inspect, server } = setup(at(9));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  const sam = await createAppCore({ clock: () => at(10), store: inspect, server }).addAthlete({ name: 'Sam' });
+  await signInWithCode(core, 'casey@example.com');
+  const newPhone = phoneOn(server);
+  await signInWithCode(newPhone.core, 'casey@example.com');
+  await newPhone.core.refresh();
+  expect(await newPhone.core.home()).toMatchObject({ athlete: { id: casey }, next: { id: sam } });
+
+  const later = createAppCore({ clock: () => at(11), store: inspect, server });
+  await later.startGame({ athleteId: sam, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await later.flush();
+  await newPhone.core.refresh();
+
+  expect((await newPhone.core.home()).athlete?.id).toBe(casey);
+});
+
+// two Athletes a Member adds on its own phone, Ann first, each with a Game: Ben's is the newer one
+async function annAndBen(member: ReturnType<typeof otherAccount>) {
+  const memberAt = (hour: number, minute = 0) => createAppCore({ clock: () => at(hour, minute), store: member.inspect, server: member.server });
+  const ann = await memberAt(10).addAthlete({ name: 'Ann' });
+  const ben = await memberAt(10, 1).addAthlete({ name: 'Ben' });
+  const annGame = memberAt(11);
+  await annGame.startGame({ athleteId: ann, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await annGame.flush();
+  const benGame = memberAt(12);
+  await benGame.startGame({ athleteId: ben, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await benGame.flush();
+  return { ann, ben };
+}
+
+test('a Member whose chosen Athlete stops being shared opens on the one of its other Athletes with the newer Game', async () => {
+  const { core, server } = setup(at(9));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(casey);
+  const member = otherAccount(server);
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const { ann, ben } = await annAndBen(member);
+  // the Member is on Casey, the one the Owner stops sharing
+  await member.core.switchAthlete(casey);
+
+  await core.removeMember(casey, (await member.server.session())!);
+  await member.core.refresh();
+
+  expect(await member.core.home()).toMatchObject({ athlete: { id: ben }, next: { id: ann } });
+});
+
+test('a Member who leaves a shared Athlete opens on the one of its other Athletes with the newer Game, and a later download leaves it there', async () => {
+  const { core, server } = setup(at(9));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(casey);
+  const member = otherAccount(server);
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const { ann, ben } = await annAndBen(member);
+  await member.core.switchAthlete(casey);
+  // nothing queued, so the leave goes straight to the server
+  await member.core.flush();
+
+  await member.core.leave(casey);
+
+  expect(await member.core.home()).toMatchObject({ athlete: { id: ben }, next: { id: ann } });
+  await member.core.refresh();
+  expect((await member.core.home()).athlete?.id).toBe(ben);
+});
+
 test('adjusting the strip records a score Event holding absolute Team and Opponent scores', async () => {
   const { core, inspect } = setup();
   const gameId = await basketballGame(core);

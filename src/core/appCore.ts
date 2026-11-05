@@ -451,6 +451,28 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     return false;
   };
 
+  // the Athlete a Phone opens on when none is chosen: the one whose newest Game that is not removed is latest, else the first Athlete added
+  const openingAthleteId = async (): Promise<string | undefined> => {
+    let opening: { id: string; newest: number } | undefined;
+    for (const athlete of await store.athletes.orderBy('created_at').toArray()) {
+      const newest = (await store.games.where('athlete_id').equals(athlete.id).toArray()).reduce(
+        (latest, game) => (game.removed ? latest : Math.max(latest, Date.parse(game.created_at))),
+        -Infinity,
+      );
+      // a tie keeps the Athlete added first
+      if (!opening || newest > opening.newest) opening = { id: athlete.id, newest };
+    }
+    return opening?.id;
+  };
+
+  // a Phone with no Athlete chosen, or whose chosen Athlete was just dropped, chooses once and keeps it until someone switches
+  const chooseOpening = async () => {
+    const chosen = (await store.settings.get(SELECTED_ATHLETE))?.value;
+    if (chosen && (await store.athletes.get(chosen))) return;
+    const opening = await openingAthleteId();
+    if (opening) await store.settings.put({ key: SELECTED_ATHLETE, value: opening });
+  };
+
   // Brings the account's rows down: Athletes and Games the phone lacks or holds an older edit of, Events it lacks.
   // Fetched before the transaction, since Dexie cannot span the network. Nothing here is queued for upload.
   // `leaving` is the Athlete a Member's own Leave drops: its drop records no removal.
@@ -502,8 +524,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       // an Event never changes, so the phone takes only the ones it lacks
       const eventRows = events.map(eventOf);
       await store.events.bulkAdd(lacking(eventRows, await store.events.bulkGet(eventRows.map((r) => r.id))));
-      // only a download that confirmed the session counts: an unconfirmed one may have come back empty (ADR 0007)
-      if (me !== undefined) await phone.confirmDownload(me);
+      // only a download that confirmed the session counts: an unconfirmed one may have come back empty (ADR 0007), so it chooses nothing either
+      if (me !== undefined) {
+        await chooseOpening();
+        await phone.confirmDownload(me);
+      }
     });
   };
 
@@ -1042,7 +1067,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         return;
       }
       await server.leave(athleteId);
-      await store.transaction('rw', phoneRows, () => dropAthletes([athleteId]));
+      // the drop may take the chosen Athlete, so the Phone chooses again in the same transaction
+      await store.transaction('rw', phoneRows, async () => {
+        await dropAthletes([athleteId]);
+        await chooseOpening();
+      });
       void flush();
     },
 
