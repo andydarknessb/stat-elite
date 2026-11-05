@@ -660,14 +660,14 @@ function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['nex
   }
   if (tab === 'games' || tab === 'insights') {
     return (
-      <>
+      <div className="tab-screen">
         {tab === 'games' ? <GamesTab key={athlete.id} athleteId={athlete.id} onOpen={setSummary} /> : <InsightsTab athleteId={athlete.id} />}
         <TabBar tab={tab} onTab={setTab} />
-      </>
+      </div>
     );
   }
   return (
-    <>
+    <div className="tab-screen">
       <main>
         <header className="home-head">
           <div className="wordmark" role="img" aria-label="StatElite">
@@ -704,9 +704,9 @@ function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['nex
           <Members athleteId={athlete.id} name={athlete.name} />
         </section>
       </main>
-      <TabBar tab={tab} onTab={setTab} />
       <InstallPrompt />
-    </>
+      <TabBar tab={tab} onTab={setTab} />
+    </div>
   );
 }
 
@@ -795,7 +795,7 @@ function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: strin
         const rows = games.filter((game) => game.group === group);
         if (rows.length === 0) return null;
         return (
-          <section key={group} aria-label={GROUP_LABELS[group]}>
+          <section key={group} className="feed-group" aria-label={GROUP_LABELS[group]}>
             <h2>{GROUP_LABELS[group]}</h2>
             {rows.map((game) => (
               <ResultRow key={game.id} game={game} onOpen={onOpen} />

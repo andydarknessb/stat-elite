@@ -9,7 +9,6 @@
   --border-strong: #34415f;
   --text: #f2f4f8;
   --muted: #a9b2c6;
-  --subtle: #8b95ac;
   --accent: #f5b841;
   --accent-ink: #0b1020;
   --accent-text: #f5b841;
@@ -27,21 +26,36 @@
   --border-strong: #5c667d;
   --text: #0b1020;
   --muted: #2b3650;
-  --subtle: #3d4862;
   --accent-text: #64491a;
   --accent-soft: rgba(245, 184, 65, 0.24);
   --make: #1a7f37;
   --miss: #c9302c;
 }
 
+/* The safe areas (the notch, the home indicator) pad every screen's edges; a tab bar pads the bottom itself. */
 body {
   margin: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   background: var(--bg);
   color: var(--text);
   font: 17px/1.4 Barlow, system-ui, -apple-system, sans-serif;
 }
 
+body:has(.tabs) {
+  padding-bottom: 0;
+}
+
+/* Headings, paragraphs and lists take no browser margin: the grid gaps do all the spacing. */
 h1,
+h2,
+p,
+ul,
+ol {
+  margin: 0;
+}
+
+h1,
+h2,
 .count {
   font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
@@ -157,10 +171,6 @@ button:disabled {
   background: var(--surface);
 }
 
-.install p {
-  margin: 0;
-}
-
 /* Taps pass through the toast, except on its own Undo button. */
 .toast {
   position: fixed;
@@ -240,12 +250,6 @@ button:disabled {
 
 .score-label > :last-child {
   flex: none;
-}
-
-.final {
-  font-size: 32px;
-  font-weight: 600;
-  text-align: center;
 }
 
 .toast button {
@@ -580,13 +584,22 @@ button:disabled {
   font-size: 40px;
 }
 
+/* A tab screen is at least the visible phone height, so its tab bar rests at the bottom and only sticks on a taller screen. */
+.tab-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - env(safe-area-inset-top));
+}
+
+/* Last in its tab screen; the bottom padding clears the home indicator. */
 .tabs {
   position: sticky;
   bottom: 0;
+  margin-top: auto;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  padding: 8px 16px;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
   background: var(--bg);
 }
 
@@ -642,12 +655,7 @@ button:disabled {
   text-align: center;
 }
 
-.athlete h1 {
-  margin: 0;
-}
-
 .athlete .number {
-  margin: 0;
   color: var(--muted);
 }
 
@@ -695,8 +703,6 @@ button:disabled {
 
 .card h2,
 form h2 {
-  margin: 0;
-  font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-size: 22px;
 }
 
@@ -720,7 +726,6 @@ form h2 {
 }
 
 .games {
-  margin: 0;
   color: var(--muted);
 }
 
@@ -746,6 +751,12 @@ form h2 {
   line-height: 1.1;
   color: var(--accent-text);
   font-variant-numeric: tabular-nums;
+}
+
+/* A Games-feed day group spaces its heading and rows as a card does: the grid gap does it. */
+.feed-group {
+  display: grid;
+  gap: 12px;
 }
 
 .result-row {
@@ -791,6 +802,7 @@ form h2 {
   font-size: 28px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .result-head {
