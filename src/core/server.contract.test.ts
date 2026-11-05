@@ -167,9 +167,10 @@ for (const [adapter, makeBackend] of contract) {
       await expect(owner.acceptInvite(token)).rejects.toMatchObject({ reason: 'own' });
       await expect(owner.acceptInvite(NO_SUCH_INVITE)).rejects.toMatchObject({ reason: 'unknown' });
       const first = await signedIn(backend, 'sam@example.com');
-      await first.acceptInvite(token);
+      // an accept resolves to the Athlete's id, the one the Invite was made for
+      await expect(first.acceptInvite(token)).resolves.toBe(ATHLETE);
       // the account that accepted it may accept again, as a retry after a failed download
-      await expect(first.acceptInvite(token)).resolves.toBeUndefined();
+      await expect(first.acceptInvite(token)).resolves.toBe(ATHLETE);
       const second = await signedIn(backend, 'rob@example.com');
       await expect(second.acceptInvite(token)).rejects.toMatchObject({ reason: 'used' });
       const late = await owner.createInvite(ATHLETE);

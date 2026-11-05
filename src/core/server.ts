@@ -52,8 +52,8 @@ export interface Server {
   download<T extends SyncedTable>(table: T): Promise<SyncedRow[T][]>;
   /** Makes an Invite to one of the account's Athletes and returns its token. Rejects unless the account owns that Athlete. */
   createInvite(athleteId: string): Promise<string>;
-  /** Makes the signed-in account a Member of the Invite's Athlete. Rejects with an InviteRefused when the Invite cannot be taken. */
-  acceptInvite(token: string): Promise<void>;
+  /** Makes the signed-in account a Member of the Invite's Athlete, and resolves to that Athlete's id. Rejects with an InviteRefused when the Invite cannot be taken. */
+  acceptInvite(token: string): Promise<string>;
   /** The Members of one Athlete the signed-in account can see: all of them for its Owner, its own membership for a Member. */
   members(athleteId: string): Promise<MemberRow[]>;
   /** Removes a Member from one of the account's Athletes. Rejects unless the account owns that Athlete. */
@@ -152,11 +152,12 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
         if (!invite) throw new InviteRefused('unknown');
         if (invite.owner_id === account) throw new InviteRefused('own');
         // the account that accepted it may accept again: a retry after a failed download
-        if (invite.used_by === account) return;
+        if (invite.used_by === account) return invite.athlete_id;
         if (invite.used_by !== undefined) throw new InviteRefused('used');
         if (invite.expires <= Date.now()) throw new InviteRefused('expired');
         members.set(`${invite.athlete_id} ${account}`, { joined_at: new Date().toISOString(), email: emails.get(account) ?? null });
         invite.used_by = account;
+        return invite.athlete_id;
       },
       async members(athleteId: string) {
         reach();
@@ -286,8 +287,8 @@ export function createSupabaseServer(client: SupabaseClient): Server {
       return data.token;
     },
     async acceptInvite(token) {
-      const { error } = await client.rpc('accept_invite', { invite_token: token });
-      if (!error) return;
+      const { data, error } = await client.rpc('accept_invite', { invite_token: token });
+      if (!error) return data;
       const refusal = /^invite_(unknown|own|used|expired)$/.exec(error.message);
       if (refusal) throw new InviteRefused(refusal[1] as InviteReason);
       throw error;
