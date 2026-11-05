@@ -44,6 +44,19 @@ test('a code that cannot be sent with the network off says so', async ({ page, c
   await expect(page.getByText('Could not send the code. Check the connection and try again.')).toBeVisible();
 });
 
+// a send that failed must not leave its error on the code screen after a later send goes through (#211)
+test('a send that failed offline leaves no alert on the code screen after a send online', async ({ page, context }) => {
+  await page.goto('/');
+  await context.setOffline(true);
+  await page.getByLabel('Email').fill('casey@example.com');
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await expect(page.getByText('Could not send the code. Check the connection and try again.')).toBeVisible();
+  await context.setOffline(false);
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await expect(page.getByLabel('Code')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
 test('an empty phone opens on the sign-in screen, and the emailed code opens Add Athlete with the address and Sign out', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'StatElite' })).toBeVisible();

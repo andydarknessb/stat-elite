@@ -3,7 +3,9 @@ import Dexie, { liveQuery } from 'dexie';
 import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
 import { expect, test, vi } from 'vitest';
 import type { CommandCore, LiveReads } from '../screenSeam';
-import { arcPreset, backlogProblem, createAppCore, gameLineText, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
+import { arcPreset, createAppCore, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
+import { backlogProblem } from './totals';
+import { gameLineText } from './words';
 import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, RowRefused, serverFor, type Server } from './server';
 import { openStore, OUTCOMES, type Outcome, type Pitch, type Store } from './store';
 

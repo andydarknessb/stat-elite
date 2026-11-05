@@ -9,6 +9,7 @@ import {
   type EventRow,
   type GameRow,
   type GameTotals,
+  type MadeAttempted,
   type OutboxRow,
   type Outcome,
   type Pitch,
@@ -22,25 +23,6 @@ import { backlogProblem, eventsFromTotals, NO_FIELDS } from './totals';
 import { gameLineText, signed } from './words';
 
 export type { TileEventType };
-export { backlogProblem, gameLineText, signed };
-export { countFields, notWhole, textOf, totalsOf, type CountField } from './totals';
-export {
-  BASE_LABELS,
-  EVENT_LABELS,
-  OUTCOME_LABELS,
-  PITCH_LABELS,
-  TILE_LABELS,
-  baseLabel,
-  clockOf,
-  fateLine,
-  freeThrowLabel,
-  initials,
-  outcomeLabel,
-  rateText,
-  resultOf,
-  shotLabel,
-  undoLabel,
-} from './words';
 export type { Base, Batting, Baserunning, Counts, PitchCount, Scores, Shift, StrikeKind, UndoableType } from './eventLog';
 
 export type GameFormat =
@@ -266,78 +248,14 @@ const groupOf = (gameDate: string, today: string): FeedGame['group'] => {
 };
 
 // The phone keeps its own columns of a downloaded row, whatever more the server sends.
-const athleteOf = ({ id, owner_id, name, jersey_number, created_at, updated_at }: AthleteRow): AthleteRow => ({
-  id,
-  owner_id,
-  name,
-  jersey_number,
-  created_at,
-  updated_at,
-});
-const gameOf = ({
-  id,
-  athlete_id,
-  sport,
-  period_format,
-  opponent_name,
-  game_date,
-  created_at,
-  updated_at,
-  recorded_by,
-  totals,
-  removed,
-}: GameRow): GameRow => ({
-  id,
-  athlete_id,
-  sport,
-  period_format,
-  opponent_name,
-  game_date,
-  created_at,
-  updated_at,
-  recorded_by,
-  totals,
-  removed,
-});
-const eventOf = ({
-  id,
-  game_id,
-  seq,
-  client_ts,
-  period,
-  type,
-  retracts_id,
-  court_x,
-  court_y,
-  shot_value,
-  made,
-  team_score,
-  opponent_score,
-  outcome,
-  rbi,
-  pitch,
-  base,
-  stolen,
-}: EventRow): EventRow => ({
-  id,
-  game_id,
-  seq,
-  client_ts,
-  period,
-  type,
-  retracts_id,
-  court_x,
-  court_y,
-  shot_value,
-  made,
-  team_score,
-  opponent_score,
-  outcome,
-  rbi,
-  pitch,
-  base,
-  stolen,
-});
+const pick = <T, K extends keyof T>(row: T, keys: K[]): Pick<T, K> => Object.fromEntries(keys.map((key) => [key, row[key]])) as Pick<T, K>;
+const athleteOf = (row: AthleteRow): AthleteRow => pick(row, ['id', 'owner_id', 'name', 'jersey_number', 'created_at', 'updated_at']);
+const gameOf = (row: GameRow): GameRow =>
+  pick(row, ['id', 'athlete_id', 'sport', 'period_format', 'opponent_name', 'game_date', 'created_at', 'updated_at', 'recorded_by', 'totals', 'removed']);
+const eventOf = (row: EventRow): EventRow =>
+  pick(row, [
+    'id', 'game_id', 'seq', 'client_ts', 'period', 'type', 'retracts_id', 'court_x', 'court_y', 'shot_value', 'made', 'team_score', 'opponent_score', 'outcome', 'rbi', 'pitch', 'base', 'stolen',
+  ]);
 
 // the downloaded rows the phone does not hold yet, given what the store already has under their ids
 const lacking = <T>(rows: T[], held: (T | undefined)[]): T[] => rows.filter((_, i) => held[i] === undefined);
@@ -373,12 +291,8 @@ export interface PracticeFocus {
 }
 
 /** Attempts of one kind and how many went in (GLOSSARY: Practice Focus). */
-interface Tally {
-  made: number;
-  attempted: number;
-}
-const tally = (): Tally => ({ made: 0, attempted: 0 });
-const count = (t: Tally, made: boolean | null) => {
+const tally = (): MadeAttempted => ({ made: 0, attempted: 0 });
+const count = (t: MadeAttempted, made: boolean | null) => {
   t.attempted++;
   if (made) t.made++;
 };
@@ -393,12 +307,12 @@ const zoneOf = (x: number, y: number, value: 2 | 3): Zone => {
 };
 
 // high is at least 20 points above low: exact fractions, cross-multiplied so no float rounding (high − low ≥ 1/5)
-const atLeast20Above = (high: Tally, low: Tally) => 5 * (high.made * low.attempted - low.made * high.attempted) >= high.attempted * low.attempted;
+const atLeast20Above = (high: MadeAttempted, low: MadeAttempted) => 5 * (high.made * low.attempted - low.made * high.attempted) >= high.attempted * low.attempted;
 
 // the cards the rules make over the given Games, each Game's Events already live (none retracted)
 const practiceFocusOf = (games: { periodFormat: GameRow['period_format']; events: EventRow[] }[]): PracticeFocus[] => {
   const freeThrows = { early: tally(), late: tally() };
-  const zones: Partial<Record<Zone, Tally>> = {};
+  const zones: Partial<Record<Zone, MadeAttempted>> = {};
   for (const { periodFormat, events } of games) {
     for (const event of events) {
       // late is past half of regulation: Q3 on in quarters, H2 on in halves, P5 on in 8 Periods, every overtime
@@ -1055,10 +969,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const game = await store.games.get(gameId);
       const summary = game && (await finishedGame(game, localDate(clock())))?.row;
       if (!game || !summary) return undefined;
-      const athlete = await store.athletes.get(game.athlete_id);
       const photo = await store.athletePhotos.get(game.athlete_id);
       return {
-        athlete: athlete?.name ?? 'Athlete',
+        athlete: summary.athleteName,
         photo: photoOf(photo),
         opponent: summary.opponent,
         final: summary.final,
