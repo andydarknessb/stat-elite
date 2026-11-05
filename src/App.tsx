@@ -117,16 +117,18 @@ function InviteScreen({ token, onDone }: { token: string; onDone: () => void }) 
   const phone = useLive((live) => live.phoneAccount(), []);
   const { run } = useCommand();
   const [athleteName, setAthleteName] = useState<string>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<unknown>();
+  // bumped by Retry, so the accept runs again with the link kept
+  const [attempt, setAttempt] = useState(0);
   // a phone whose session ended is not signed in until its remembered address signs in again (ADR 0007)
   const signedIn = phone?.state === 'signed-in' || phone?.state === 'first-download';
   useEffect(() => {
     if (!signedIn) return;
     run((core) => core.acceptInvite(token), {
       onDone: setAthleteName,
-      onRefused: (refused) => setError(refusalMessage(refused)),
+      onRefused: (refused) => setError(refused),
     });
-  }, [token, signedIn]);
+  }, [token, signedIn, attempt]);
   if (!phone) return null;
   if (!signedIn) {
     return (
@@ -147,10 +149,15 @@ function InviteScreen({ token, onDone }: { token: string; onDone: () => void }) 
     );
   }
   if (error) {
+    // a failure that is not a refusal keeps the link: Retry tries again, and Continue drops it beside it
+    const refused = error instanceof InviteRefused;
     return (
       <main>
-        <p role="alert">{error}</p>
-        <button className="primary" onClick={onDone}>Continue</button>
+        <p role="alert">{refusalMessage(error)}</p>
+        {!refused && (
+          <button className="primary" onClick={() => { setError(undefined); setAttempt((n) => n + 1); }}>Retry</button>
+        )}
+        <button className={refused ? 'primary' : undefined} onClick={onDone}>Continue</button>
       </main>
     );
   }

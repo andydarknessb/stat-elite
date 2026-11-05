@@ -45,6 +45,8 @@ export class RowRefused extends Error {
 
 // the stand-in's one address whose uploads the server refuses, so a spec can reach the Refused Row notice (#208)
 const REFUSED_EMAIL = 'refused@example.com';
+// the stand-in's one address whose first Invite accept fails without a refusal, so a spec can reach Retry (#210)
+const NO_ANSWER_EMAIL = 'no-answer@example.com';
 
 /** The backend App Core syncs with: Supabase in a configured build, the in-memory stand-in on localhost. */
 export interface Server {
@@ -107,6 +109,7 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       const athlete = athleteOf(table, row);
       return row.owner_id === account || (account !== undefined && athlete !== undefined && members.has(`${athlete} ${account}`));
     };
+    let noAnswer = false;
     return {
       async session() {
         // as Supabase's getSession does, this await leaves Dexie's zone: a liveQuery stops observing at a non-Dexie await
@@ -162,6 +165,11 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       async acceptInvite(token: string) {
         reach();
         if (account === undefined) throw new Error('Sign in before accepting an Invite');
+        // shortcut: the first accept by no-answer@example.com fails without a refusal, so a spec can reach Retry; upgrade when a test needs a real network failure
+        if (emails.get(account) === NO_ANSWER_EMAIL && !noAnswer) {
+          noAnswer = true;
+          throw new Error('The server did not answer');
+        }
         const invite = invites.get(token);
         if (!invite) throw new InviteRefused('unknown');
         if (invite.owner_id === account) throw new InviteRefused('own');
