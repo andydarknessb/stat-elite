@@ -4,7 +4,7 @@ import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
 import { expect, test, vi } from 'vitest';
 import type { CommandCore, LiveReads } from '../screenSeam';
 import { arcPreset, backlogProblem, createAppCore, gameLineText, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
-import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
+import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, RowRefused, serverFor, type Server } from './server';
 import { openStore, OUTCOMES, type Outcome, type Pitch, type Store } from './store';
 
 let stores = 0;
@@ -907,7 +907,7 @@ test('with no account, writes stay on the phone, and the badge counts each row n
   await core.recordTile(gameId, 'steal');
 
   expect(await core.phoneAccount()).toEqual({ state: 'signed-out' });
-  expect(await core.sync()).toEqual({ notSynced: 3 });
+  expect(await core.sync()).toEqual({ notSynced: 3, refused: false });
   expect(server.uploads).toEqual([]);
 });
 
@@ -920,7 +920,7 @@ test("sending the code signs nothing in; the emailed code makes the account the 
 
   await core.signIn('casey@example.com');
   expect((await core.phoneAccount()).state).toBe('signed-out');
-  expect(await core.sync()).toEqual({ notSynced: 4 });
+  expect(await core.sync()).toEqual({ notSynced: 4, refused: false });
   expect(server.uploads).toEqual([]);
   await expect(core.verifyCode('casey@example.com', '12345')).rejects.toThrow();
   expect((await core.phoneAccount()).state).toBe('signed-out');
@@ -935,7 +935,7 @@ test("sending the code signs nothing in; the emailed code makes the account the 
   expect(server.rows.games.get(gameId)).toMatchObject({ owner_id: owner, athlete_id: athleteId, recorded_by: owner });
   expect(server.rows.events.get(steal.id)).toMatchObject({ owner_id: owner, game_id: gameId });
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('signing in while the server is unreachable fails and leaves the Recorder signed out', async () => {
@@ -954,14 +954,48 @@ test('a write made while the server is unreachable waits on the phone, then uplo
   const athleteId = await core.addAthlete({ name: 'Casey' });
   await core.flush();
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 1 });
+  expect(await core.sync()).toEqual({ notSynced: 1, refused: false });
   expect(server.rows.athletes.has(athleteId)).toBe(false);
 
   link.up = true;
   await core.flush();
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
   expect(server.rows.athletes.has(athleteId)).toBe(true);
+});
+
+test('a row the server refuses stays queued and sync() reports it refused; the next upload that lands clears it', async () => {
+  const { server } = setup();
+  const refuse = { on: true };
+  const phone = otherAccount(server, (p) => ({
+    ...p,
+    upload: async (table, row) => {
+      if (refuse.on) throw new RowRefused('23514', 'violates check constraint');
+      return p.upload(table, row);
+    },
+  }));
+  await signInWithCode(phone.core, 'casey@example.com');
+  await phone.core.addAthlete({ name: 'Casey' });
+  await phone.core.flush();
+  expect(await phone.core.sync()).toEqual({ notSynced: 1, refused: true });
+
+  refuse.on = false;
+  await phone.core.flush();
+  expect(await phone.core.sync()).toEqual({ notSynced: 0, refused: false });
+});
+
+test('a failed fetch is not a refusal: the row waits on the phone and sync() reports no refused row', async () => {
+  const { server } = setup();
+  const phone = otherAccount(server, (p) => ({
+    ...p,
+    upload: async () => {
+      throw new Error('The server cannot be reached');
+    },
+  }));
+  await signInWithCode(phone.core, 'casey@example.com');
+  await phone.core.addAthlete({ name: 'Casey' });
+  await phone.core.flush();
+  expect(await phone.core.sync()).toEqual({ notSynced: 1, refused: false });
 });
 
 // the Server a phone reopened with its session stuck sees: session() never settles, as getSession does while its retries run
@@ -1189,11 +1223,11 @@ test("a signed-in phone reopened after the server ended its session: refresh() r
   const reopened = reopen();
   await reopened.refresh();
   expect(await reopened.phoneAccount()).toMatchObject({ state: 'session-ended', firstDownload: false });
-  expect(await reopened.sync()).toEqual({ notSynced: 0 });
+  expect(await reopened.sync()).toEqual({ notSynced: 0, refused: false });
   expect(await reopened.home()).toMatchObject({ liveGameId: gameId });
 
   const steal = await reopened.recordTile(gameId, 'steal');
-  expect(await reopened.sync()).toEqual({ notSynced: 1 });
+  expect(await reopened.sync()).toEqual({ notSynced: 1, refused: false });
   expect(server.uploads).not.toContain(`events:${steal.id}`);
 });
 
@@ -1227,7 +1261,7 @@ test('with the session ended, signIn rejects another address and sends nothing; 
   await reopened.signIn('casey@example.com');
   await reopened.verifyCode('casey@example.com', CODE);
   expect((await reopened.phoneAccount()).state).toBe('signed-in');
-  expect(await reopened.sync()).toEqual({ notSynced: 0 });
+  expect(await reopened.sync()).toEqual({ notSynced: 0, refused: false });
   expect(server.rows.events.has(steal.id)).toBe(true);
 });
 
@@ -1258,7 +1292,7 @@ test("with the session ended and no download confirmed on this phone, phoneAccou
   const reopened = reopen();
   await reopened.refresh();
   expect(await reopened.phoneAccount()).toEqual({ state: 'session-ended', id: expect.any(String), email: 'casey@example.com', firstDownload: true });
-  expect(await reopened.sync()).toEqual({ notSynced: 0 });
+  expect(await reopened.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('sessionEnded on Supabase: ended when no session is held and the error is not a retryable network failure', async () => {
@@ -1387,7 +1421,7 @@ test("signing in on an empty phone brings down the account's Athletes, Games and
   expect(await second.inspect.events.get(steal.id)).toEqual(steal);
   expect(await second.inspect.events.get(end.id)).toEqual(end);
   expect((await second.core.phoneAccount()).state).toBe('signed-in');
-  expect(await second.core.sync()).toEqual({ notSynced: 0 });
+  expect(await second.core.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('a Game edited elsewhere replaces the phone copy at its next sign-in, when the edit is later', async () => {
@@ -1444,7 +1478,7 @@ test('a download that fails for another reason does not stop uploads, and the ne
 
   expect(server.uploads).toEqual([`athletes:${athleteId}`]);
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
   expect(await inspect.settings.get('downloadedFor')).toBeUndefined();
 
   server.download = download;
@@ -1849,7 +1883,7 @@ test("a phone whose session ended refuses another account's sign-in, and keeps t
   await signInWithCode(member, 'sam@example.com');
   expect(await memberStore.athletes.get(athleteId)).toMatchObject({ name: 'Casey' });
   expect((await member.phoneAccount()).state).toBe('signed-in');
-  expect(await member.sync()).toEqual({ notSynced: 0 });
+  expect(await member.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test("a Member's leave resolves and drops the Athlete when the download after it fails, and the Owner no longer lists the Member", async () => {
@@ -2789,7 +2823,7 @@ test('deleting the account removes its rows from the server and clears the phone
   expect(await server.session()).toBeUndefined();
   expect(await core.home()).toEqual({});
   expect(await core.phoneAccount()).toEqual({ state: 'signed-out' });
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
   expect(await inspect.athletes.count()).toBe(0);
   expect(await inspect.athletePhotos.count()).toBe(0);
   expect(await inspect.games.count()).toBe(0);
@@ -2811,7 +2845,7 @@ test('a server that refuses the deletion leaves the account signed in and the ph
   expect(server.rows.athletes.has(athleteId)).toBe(true);
   expect(await core.home()).toMatchObject({ athlete: { id: athleteId } });
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('a phone that is not signed in clears itself without calling the server', async () => {
@@ -2866,7 +2900,7 @@ test('signing out with a row still queued and the link down is refused: the row 
   await expect(core.signOut()).rejects.toThrow('Could not sign out. Wait for everything to sync and check the connection, then try again.');
 
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 1 });
+  expect(await core.sync()).toEqual({ notSynced: 1, refused: false });
   expect(await inspect.athletes.get(athleteId)).toBeDefined();
   expect(await core.phoneAccount()).toEqual({ state: 'signed-in', id: expect.any(String), email: 'casey@example.com' });
 });
@@ -2881,7 +2915,7 @@ test('signing out while the server refuses every upload is refused: the phone ke
 
   expect(await inspect.athletes.get(athleteId)).toBeDefined();
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 1 });
+  expect(await core.sync()).toEqual({ notSynced: 1, refused: false });
 });
 
 test('signing out with the link down and nothing queued is refused: the phone keeps its rows', async () => {
@@ -2896,7 +2930,7 @@ test('signing out with the link down and nothing queued is refused: the phone ke
   expect(server.rows.athletes.has(athleteId)).toBe(true);
   expect(await inspect.athletes.get(athleteId)).toBeDefined();
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('the phone counts the photos it holds, which Sign out says it clears', async () => {
@@ -3021,7 +3055,7 @@ test("a Member's phone takes the Athlete's new Owner at its next refresh, so an 
   expect(await sam.canInvite(athleteId)).toBe(true);
   expect(server.rows.athletes.get(athleteId)).toMatchObject({ owner_id: await samServer.session(), name: 'Casey S' });
   expect((await sam.phoneAccount()).state).toBe('signed-in');
-  expect(await sam.sync()).toEqual({ notSynced: 0 });
+  expect(await sam.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test("a Member's deletion summary names the Athlete that passed to it, even before its phone has downloaded the move", async () => {
@@ -3704,7 +3738,7 @@ test('a Game finished and removed while the server is unreachable uploads with r
   t.link.up = true;
   await t.core.flush();
   expect((await t.core.phoneAccount()).state).toBe('signed-in');
-  expect(await t.core.sync()).toEqual({ notSynced: 0 });
+  expect(await t.core.sync()).toEqual({ notSynced: 0, refused: false });
   expect(t.server.rows.games.get(gameId)).toMatchObject({ removed: true });
   expect([...t.server.rows.events.values()].filter((e) => e.game_id === gameId)).toHaveLength(2);
 });
