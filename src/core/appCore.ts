@@ -69,7 +69,7 @@ const SHARED = 'shared:';
 const RECEIVED = 'received:';
 /** Settings key prefix, one per Athlete the Owner removed this account from, valued with its name: the line the phone shows until its OK (ADR 0004). */
 const REMOVED = 'removed:';
-/** Settings key, present while the server has refused a row and no upload has landed since: Home's Refused Row notice (#208). */
+/** Settings key: the seq of the row the server last refused. Home's Refused Row notice reads it while that row still waits (#208, #237). */
 const REFUSED_ROW = 'refusedRow';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
 /** What Sign out says when the phone is not cleared: rows still queued, or the server refuses or cannot be reached. */
@@ -425,7 +425,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   // clears every table on this phone, as a sign-out or a deletion leaves it
   const clearPhone = () => store.transaction('rw', store.tables, () => Promise.all(store.tables.map((table) => table.clear())));
   // uploads one queued row as it is now; false when the server does not take it, and the row stays queued.
-  // A refusal (RowRefused) is recorded for Home; a dropped connection is not one, so it records nothing.
+  // A refusal (RowRefused) is recorded for Home by its row's seq; a dropped connection is not one, so it records nothing.
   const sendEntry = async (entry: OutboxRow): Promise<boolean> => {
     const loaded = await loadRow(entry);
     if (!loaded) {
@@ -436,12 +436,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     try {
       await server.upload(entry.table, { ...loaded.row, owner_id: athlete?.owner_id });
     } catch (error) {
-      if (error instanceof RowRefused) await store.settings.put({ key: REFUSED_ROW, value: 'refused' });
+      // shortcut: one seq is kept, so a refused row that lands while an earlier one still waits clears the notice until the next drain, upgrade with a set of refused seqs
+      if (error instanceof RowRefused) await store.settings.put({ key: REFUSED_ROW, value: String(entry.seq) });
       return false;
     }
     await store.outbox.delete(entry.seq!);
-    // a row that lands means the server takes uploads again, so the refusal is over
-    await store.settings.delete(REFUSED_ROW);
     return true;
   };
   const queuedOn = async (athleteId: string) => {
@@ -1151,9 +1150,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** The "N not synced" badge: how many rows still live only on the phone, and whether the server has refused one (Refused Row). Whether the phone is signed in is phoneAccount's (ADR 0007). Live. */
     async sync(): Promise<{ notSynced: number; refused: boolean }> {
       const pending = await store.outbox.toArray();
+      // the notice holds only while the refused row is still queued: its landing or its drop from the Outbox ends it
+      const refusedSeq = (await store.settings.get(REFUSED_ROW))?.value;
       return {
         notSynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size,
-        refused: (await store.settings.get(REFUSED_ROW)) !== undefined,
+        refused: pending.some(({ seq }) => String(seq) === refusedSeq),
       };
     },
 

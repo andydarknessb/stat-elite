@@ -349,3 +349,24 @@ describe('the Supabase adapter over the double refuses the rows the real schema 
     expect(await owner.download('games')).toMatchObject([{ opponent_name: 'Hawks' }]);
   });
 });
+
+// a Supabase client whose write answers the given error and status, as the real client does when the server answers a row
+const answering = (error: { code: string; message: string }, status?: number) =>
+  createSupabaseServer({ from: () => ({ upsert: async () => ({ error, status }) }) } as never);
+
+test('a failed fetch, with no error code, is not a refusal', async () => {
+  await expect(answering({ code: '', message: 'Failed to fetch' }).upload('events', event('me'))).rejects.not.toBeInstanceOf(RowRefused);
+});
+
+test('an expired or bad token (401) is not a refusal', async () => {
+  await expect(answering({ code: 'PGRST301', message: 'JWT expired' }, 401).upload('events', event('me'))).rejects.not.toBeInstanceOf(RowRefused);
+});
+
+test('a server answering 5xx is not a refusal: the row waits with no notice (#237)', async () => {
+  await expect(answering({ code: 'PGRST003', message: 'upstream timeout' }, 504).upload('events', event('me'))).rejects.not.toBeInstanceOf(RowRefused);
+  await expect(answering({ code: '53300', message: 'too many connections' }, 503).upload('events', event('me'))).rejects.not.toBeInstanceOf(RowRefused);
+});
+
+test('a row the server answers with a code on a 4xx is a refusal', async () => {
+  await expect(answering({ code: '23514', message: 'violates check constraint' }, 400).upload('events', event('me'))).rejects.toBeInstanceOf(RowRefused);
+});
