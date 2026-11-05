@@ -89,7 +89,7 @@ On production: a real sign-in from an address outside the Supabase team, and a b
 
 ## Promotion
 
-A PR from `integration` into `main`, which a human merges with a merge commit once `supabase migration list --remote` shows nothing missing. The `test` check is required on both branches. The other tickets from Spec #197 ship in later promotions.
+A PR from `integration` into `main`, which a human merges once `supabase migration list --remote` shows nothing missing. It takes a merge commit, because a squash makes the next promotion conflict with itself. The repo's rulesets require the `test` check on both branches. Spec #197's remaining tickets ship in later promotions.
 
 ## Cut from v1
 
