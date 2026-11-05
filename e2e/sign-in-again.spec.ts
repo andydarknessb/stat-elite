@@ -39,6 +39,10 @@ test('a reload with the network on: Delete my account says it only clears this p
 test('a reload with the network off does not show Sign in again to sync', async ({ page, context }) => {
   await addFirstAthlete(page);
   await expect(page.getByRole('heading', { name: 'Casey', level: 1 })).toBeVisible();
+  // the service worker precaches the app shell while it installs; the offline switch below must not cut that short
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
   await context.setOffline(true);
   await page.reload();
 
