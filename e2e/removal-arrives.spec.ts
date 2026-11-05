@@ -138,6 +138,10 @@ test('Leave asks first: Cancel keeps Casey on the Phone, and Yes, leave removes 
 test('an Athlete removed while the phone was away drops at a reconnect, its line shows, OK clears it, and it stays gone after a reload', async ({ page, context }) => {
   const line = "You're no longer a Member of Casey. Anything not synced is gone.";
   await openApp(page);
+  // the service worker precaches the app shell while it installs; the offline switch below must not cut that short
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
   await page.evaluate(
     () =>
       new Promise<void>((resolve, reject) => {
