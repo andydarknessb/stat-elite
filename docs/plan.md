@@ -85,12 +85,11 @@ Interaction rules:
 
 ## Before the first family
 
-1. The four Must fix tickets from Spec #197 merge into `integration`: #198, #199, #200, #201.
-2. Promotion: a PR from `integration` into `main` that a human merges, once `supabase migration list --remote` shows nothing missing (#212).
-3. Netlify production moves to `main`, and `integration` keeps a branch deploy on the same Supabase project, so every migration must keep the app on `main` working. The `test` check is required on both branches (#212).
-4. On production: a real sign-in from an address outside the Supabase team, and a by-hand iPhone pass (#149).
+On production: a real sign-in from an address outside the Supabase team, and a by-hand iPhone pass (#149).
 
-The Spec's other tickets ship in later promotions.
+## Promotion
+
+A PR from `integration` into `main`, which a human merges with a merge commit once `supabase migration list --remote` shows nothing missing. The `test` check is required on both branches. The other tickets from Spec #197 ship in later promotions.
 
 ## Cut from v1
 
@@ -100,6 +99,6 @@ Streak evaluator · video highlights and training log · live viewing · backgro
 
 React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7), Dexie 4, supabase-js. The outbox is our own code; PowerSync was rejected in ADR 0001.
 
-Hosting: Netlify serves https://stat-elite.netlify.app, rebuilt from `integration` on every push (`netlify.toml`), until #212 moves production to `main`. The Supabase env vars live in Netlify, not the repo.
+Hosting: Netlify serves production at https://stat-elite.netlify.app, rebuilt from `main` on every push, and `integration` at https://integration--stat-elite.netlify.app. Netlify's project settings name those branches, and `netlify.toml` holds the build. Both deploys use one Supabase project, so every migration must keep the app on `main` working. The Supabase env vars live in Netlify, not the repo.
 
 Minimum platform: iOS 16.4, the first version with OffscreenCanvas, and current Chrome on Android.
