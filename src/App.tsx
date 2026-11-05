@@ -115,14 +115,14 @@ function Screens() {
 function InviteScreen({ token, onDone }: { token: string; onDone: () => void }) {
   const phone = useLive((live) => live.phoneAccount(), []);
   const { run } = useCommand();
-  const [joined, setJoined] = useState(false);
+  const [athleteName, setAthleteName] = useState<string>();
   const [error, setError] = useState<string>();
   // a phone whose session ended is not signed in until its remembered address signs in again (ADR 0007)
   const signedIn = phone?.state === 'signed-in' || phone?.state === 'first-download';
   useEffect(() => {
     if (!signedIn) return;
     run((core) => core.acceptInvite(token), {
-      onDone: () => setJoined(true),
+      onDone: setAthleteName,
       onRefused: (refused) => setError(refusalMessage(refused)),
     });
   }, [token, signedIn]);
@@ -136,10 +136,10 @@ function InviteScreen({ token, onDone }: { token: string; onDone: () => void }) 
       </main>
     );
   }
-  if (joined) {
+  if (athleteName) {
     return (
       <main>
-        <h1>You&apos;re a Member</h1>
+        <h1>You&apos;re a Member of {athleteName}</h1>
         <p>The Athlete and its Games are on this phone.</p>
         <button className="primary" onClick={onDone}>Continue</button>
       </main>
@@ -179,7 +179,7 @@ function SignInAgain() {
 }
 
 /** Invite co-parent, for the Owner of a signed-in Athlete: makes an Invite, then offers its link to the share sheet (ADR 0004). */
-function InviteCoParent({ athleteId }: { athleteId: string }) {
+function InviteCoParent({ athleteId, name }: { athleteId: string; name: string }) {
   const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId], { optional: true });
   const [link, setLink] = useState<string>();
   const { run, alert } = useCommand();
@@ -199,6 +199,7 @@ function InviteCoParent({ athleteId }: { athleteId: string }) {
   }
   return (
     <>
+      <p>Invite for {name}</p>
       <p style={{ overflowWrap: 'anywhere' }}>{link}</p>
       <p>Works once, and for 7 days.</p>
       {/* without the share sheet the link above is copied by hand; a cancelled share is not an error */}
@@ -638,8 +639,9 @@ function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['nex
         </button>
         <button onClick={() => setForm('backlog')}>Add past Game</button>
         <SeasonAndRecent athleteId={athlete.id} onOpen={setSummary} />
-        <section className="card sharing" aria-label="Sharing">
-          <InviteCoParent athleteId={athlete.id} />
+        {/* keyed by Athlete: a switch remounts the link and the Members, so neither keeps the last Athlete's */}
+        <section key={athlete.id} className="card sharing" aria-label="Sharing">
+          <InviteCoParent athleteId={athlete.id} name={athlete.name} />
           <Members athleteId={athlete.id} />
         </section>
       </main>

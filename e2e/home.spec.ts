@@ -1,5 +1,5 @@
 import { expect, test, type Locator } from '@playwright/test';
-import { addFirstAthlete, recordBasketballGame, recordSoftballGame } from './recorder';
+import { addAthlete, addFirstAthlete, recordBasketballGame, recordSoftballGame } from './recorder';
 
 /** One headline number on the season card, by its label. */
 const statOf = (season: Locator, label: string) => season.locator('dl > div', { hasText: label });
@@ -53,6 +53,22 @@ test('switching Athlete opens the season card on its first sport, not the one ch
   await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
   await expect(season.getByRole('button', { name: 'Basketball' })).toHaveAttribute('aria-pressed', 'true');
   await expect(season.getByRole('button', { name: 'Softball' })).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('an Invite stays with its Athlete: after a switch, the link made under Sam is gone and Casey offers its own', async ({ page }) => {
+  await addFirstAthlete(page);
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await addAthlete(page, { name: 'Sam' });
+
+  const sharing = page.getByRole('region', { name: 'Sharing' });
+  await page.getByRole('button', { name: 'Invite co-parent' }).click();
+  await expect(sharing).toContainText('Invite for Sam');
+  await expect(sharing).toContainText('?invite=');
+
+  await page.getByRole('button', { name: 'Switch to Casey' }).click();
+  await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
+  await expect(sharing).not.toContainText('?invite=');
+  await expect(sharing.getByRole('button', { name: 'Invite co-parent' })).toBeVisible();
 });
 
 for (const colorScheme of ['dark', 'light'] as const) {
