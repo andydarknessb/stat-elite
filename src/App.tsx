@@ -99,6 +99,7 @@ function Screens() {
   if (!gameId && (phone.state === 'first-download' || (phone.state === 'session-ended' && phone.firstDownload))) return <FirstDownload />;
   return (
     <>
+      <RemovedAthletes />
       <NotSynced />
       {!home.athlete ? (
         <FirstRun />
@@ -279,6 +280,26 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
       )}
       {alert && <p role="alert">{alert}</p>}
     </section>
+  );
+}
+
+/** A line per Athlete an Owner removed this account from, until its OK clears it: the root, so Home and first run both show it (ADR 0004). */
+function RemovedAthletes() {
+  const removed = useLive((live) => live.removedAthletes(), []);
+  const { run, alert } = useCommand();
+  if (!removed?.length) return null;
+  return (
+    <>
+      {removed.map(({ id, name }) => (
+        <section key={id}>
+          <p role="alert">You&apos;re no longer a Member of {name}. Anything not synced is gone.</p>
+          <button className="primary" onClick={() => run((core) => core.clearRemovedAthlete(id))}>
+            OK
+          </button>
+        </section>
+      ))}
+      {alert && <p role="alert">{alert}</p>}
+    </>
   );
 }
 

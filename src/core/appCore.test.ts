@@ -3923,6 +3923,17 @@ async function followsWrite<T>(read: () => Promise<T>, write: () => Promise<unkn
 
 // each read model a screen subscribes to, keyed by its name on App Core
 const LIVE_READ_MODELS: Record<keyof LiveReads, () => Promise<void>> = {
+  removedAthletes: async () => {
+    const { core, athleteId, member, memberId } = await sharedWithAMember();
+    await followsWrite(
+      () => member.core.removedAthletes(),
+      async () => {
+        await core.removeMember(athleteId, memberId);
+        await member.core.refresh();
+      },
+      (lines) => lines.length === 1,
+    );
+  },
   home: async () => {
     const { core } = setup();
     const casey = await core.addAthlete({ name: 'Casey' });

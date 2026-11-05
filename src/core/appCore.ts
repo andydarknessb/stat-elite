@@ -85,6 +85,8 @@ const photoOf = (row?: AthletePhotoRow): Blob | undefined => row?.photo ?? (row?
 const SHARED = 'shared:';
 /** Settings key prefix, one per Game this phone first received by download: another phone records it (ADR 0009). */
 const RECEIVED = 'received:';
+/** Settings key prefix, one per Athlete the Owner removed this account from, valued with its name: the line the phone shows until its OK (ADR 0004). */
+const REMOVED = 'removed:';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
 /** What Sign out says when the phone is not cleared: rows still queued, or the server refuses or cannot be reached. */
 export const SIGN_OUT_REFUSED = 'Could not sign out. Wait for everything to sync and check the connection, then try again.';
@@ -531,8 +533,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
   // Brings the account's rows down: Athletes and Games the phone lacks or holds an older edit of, Events it lacks.
   // Fetched before the transaction, since Dexie cannot span the network. Nothing here is queued for upload.
+  // `leaving` is the Athlete a Member's own Leave drops: its drop records no removal.
   // shortcut: every visible Event is fetched on each sign-in, launch and reconnect, not only the missing ones, fine for one child's Games; upgrade with a per-Game seq cursor when a season's Events get slow to fetch
-  const download = async () => {
+  const download = async (leaving?: string) => {
     const before = await server.session();
     const [athletes, games, events] = await Promise.all([
       server.download('athletes'),
@@ -553,7 +556,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
               .filter(({ value }) => value === me || value === 'shared')
               .map(({ key }) => key.slice(SHARED.length))
               .filter((id) => !sent.has(id));
-      if (departed.length > 0) await dropAthletes(departed);
+      if (departed.length > 0) {
+        const dropped = (await store.athletes.bulkGet(departed)).filter((a): a is AthleteRow => a !== undefined);
+        await dropAthletes(departed);
+        await store.settings.bulkPut(dropped.filter((a) => a.id !== leaving).map((a) => ({ key: REMOVED + a.id, value: a.name })));
+      }
+      // an Athlete the server sends again is not removed any more, so a line still waiting for its OK goes
+      await store.settings.bulkDelete(athletes.map((a) => REMOVED + a.id));
       if (me !== undefined) {
         await store.settings.bulkPut(athletes.filter((a) => a.owner_id !== me).map((a) => ({ key: SHARED + a.id, value: me })));
       }
@@ -1106,7 +1115,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         // a removed Member's download no longer sends the Athlete, so it drops it; if the download fails, the rows still wait
         try {
           // queued like a drain, so a deletion that starts meanwhile waits for it and it cannot refill the phone
-          await exclusive(download);
+          await exclusive(() => download(athleteId));
         } catch {
           throw new Error(NOT_SYNCED);
         }
@@ -1116,6 +1125,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       await server.leave(athleteId);
       await store.transaction('rw', phoneRows, () => dropAthletes([athleteId]));
       void flush();
+    },
+
+    /** The Athletes the Owner removed this account from, named, until each one's OK clears it (ADR 0004). Live. */
+    async removedAthletes(): Promise<{ id: string; name: string }[]> {
+      const lines = await store.settings.where('key').startsWith(REMOVED).toArray();
+      return lines.map(({ key, value }) => ({ id: key.slice(REMOVED.length), name: value }));
+    },
+
+    /** The OK on a removal line: it stays cleared, reload included. */
+    async clearRemovedAthlete(athleteId: string): Promise<void> {
+      await store.settings.delete(REMOVED + athleteId);
     },
 
     /** The photos this phone holds, which Sign out clears. Read here, so the Sign out screen needs no connection. */
