@@ -179,6 +179,33 @@ for (const [adapter, makeBackend] of contract) {
       await expect(third.acceptInvite(late)).rejects.toMatchObject({ reason: 'expired' });
     });
 
+    test('a Member removed by the Owner, or one that left, reopens its link and is refused as used; a current Member reopening it still resolves', async () => {
+      const owner = await signedIn(backend, 'casey@example.com');
+      const me = (await owner.session())!;
+      await owner.upload('athletes', athlete(me));
+
+      const removed = await signedIn(backend, 'sam@example.com');
+      const removedId = (await removed.session())!;
+      const tokenRemoved = await owner.createInvite(ATHLETE);
+      await removed.acceptInvite(tokenRemoved);
+      await owner.removeMember(ATHLETE, removedId);
+      await expect(removed.acceptInvite(tokenRemoved)).rejects.toMatchObject({ reason: 'used' });
+
+      const left = await signedIn(backend, 'rob@example.com');
+      const tokenLeft = await owner.createInvite(ATHLETE);
+      await left.acceptInvite(tokenLeft);
+      await left.leave(ATHLETE);
+      await expect(left.acceptInvite(tokenLeft)).rejects.toMatchObject({ reason: 'used' });
+
+      const current = await signedIn(backend, 'lee@example.com');
+      const currentId = (await current.session())!;
+      const tokenCurrent = await owner.createInvite(ATHLETE);
+      await current.acceptInvite(tokenCurrent);
+      await expect(current.acceptInvite(tokenCurrent)).resolves.toBe(ATHLETE);
+
+      expect((await owner.members(ATHLETE)).map((m) => m.member_id)).toEqual([currentId]);
+    });
+
     test('an Owner sees every Member of its Athlete with the email each accepted with; a Member sees only itself', async () => {
       const owner = await signedIn(backend, 'casey@example.com');
       const me = (await owner.session())!;
