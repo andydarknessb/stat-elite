@@ -3,11 +3,10 @@ import { openApp } from './openApp';
 import { addFirstAthlete } from './recorder';
 
 type PersistWindow = { persistCalls: number };
-// PROBE (temporary, #222): readings the failure message carries
-type ProbeWindow = PersistWindow & { stubFn?: unknown; initState?: string; initRoot?: boolean };
 
 test('first run asks the browser to keep storage permanently', async ({ page }) => {
   // stub before the app loads, so the call the first-run screen makes lands on the counter
+  // on the prototype: an own property on the navigator.storage wrapper goes with the wrapper when WebKit collects it
   await page.addInitScript(() => {
     const w = window as unknown as PersistWindow;
     w.persistCalls = 0;
@@ -24,56 +23,24 @@ test('first run asks the browser to keep storage permanently', async ({ page }) 
   expect(calls).toBeGreaterThanOrEqual(1);
 });
 
-// PROBE (temporary, #222): the test at the old :25, as copies; pressure copies carry the churn snippet
-function everyLaunch(title: string, pressure: boolean): void {
-  test(title, async ({ page }) => {
-    await page.addInitScript((pressureOn: boolean) => {
-      const w = window as unknown as ProbeWindow;
-      w.persistCalls = 0;
-      w.initState = document.readyState;
-      w.initRoot = !!document.getElementById('root');
-      const stub = async () => {
-        w.persistCalls += 1;
-        return true;
-      };
-      StorageManager.prototype.persist = stub;
-      w.stubFn = stub;
-      if (pressureOn) {
-        document.addEventListener('readystatechange', () => {
-          let keep: unknown[] = [];
-          for (let round = 0; round < 12; round++) {
-            keep = [];
-            for (let i = 0; i < 400000; i++) keep.push({ i });
-          }
-        }, { once: true });
-      }
-    }, pressure);
-
-    await addFirstAthlete(page);
-    await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
-
-    // the init script resets the counter on every load, so this counts the reloaded page alone
-    await page.reload();
-    await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
-    const timeOriginAtHeading = await page.evaluate(() => performance.timeOrigin);
-
-    const reading = await page.evaluate(() => {
-      const w = window as unknown as ProbeWindow;
-      return {
-        calls: w.persistCalls,
-        timeOriginBesideCounter: performance.timeOrigin,
-        stubIntact: navigator.storage.persist === w.stubFn,
-        stubOwn: Object.prototype.hasOwnProperty.call(navigator.storage, 'persist'),
-        initState: w.initState,
-        initRoot: w.initRoot,
-        readyStateNow: document.readyState,
-      };
-    });
-    const message = JSON.stringify({ pressure, timeOriginAtHeading, ...reading });
-
-    expect(reading.calls, message).toBeGreaterThanOrEqual(1);
+test('every launch asks the browser to keep storage permanently, once an Athlete exists', async ({ page }) => {
+  // on the prototype, for the same reason as the first-run test (#222)
+  await page.addInitScript(() => {
+    const w = window as unknown as PersistWindow;
+    w.persistCalls = 0;
+    StorageManager.prototype.persist = async () => {
+      w.persistCalls += 1;
+      return true;
+    };
   });
-}
 
-for (let i = 1; i <= 40; i++) everyLaunch(`probe natural ${i}`, false);
-for (let i = 1; i <= 5; i++) everyLaunch(`probe pressure ${i}`, true);
+  await addFirstAthlete(page);
+  await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
+
+  // the init script resets the counter on every load, so this counts the reloaded page alone
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Casey' })).toBeVisible();
+
+  const calls = await page.evaluate(() => (window as unknown as PersistWindow).persistCalls);
+  expect(calls).toBeGreaterThanOrEqual(1);
+});
