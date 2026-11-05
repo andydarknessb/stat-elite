@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { createStandInServer, createSupabaseServer, type Server } from './server';
+import { createStandInServer, createSupabaseServer, RowRefused, type Server } from './server';
 import { schemaDatabase, supabaseDouble } from './supabaseDouble';
 
 // One server per test: a new phone on it, and the one clock-dependent state each backend keeps differently.
@@ -134,7 +134,7 @@ for (const [adapter, makeBackend] of contract) {
       await owner.upload('athletes', athlete(me));
       await owner.upload('games', game(me, me));
       await owner.upload('events', event(me, { period: 1 }));
-      await expect(owner.upload('events', event(me, { id: OTHER_EVENT, period: 2 }))).rejects.toBeTruthy();
+      await expect(owner.upload('events', event(me, { id: OTHER_EVENT, period: 2 }))).rejects.toBeInstanceOf(RowRefused);
 
       expect(await owner.download('events')).toMatchObject([{ id: EVENT, period: 1 }]);
     });
@@ -293,7 +293,9 @@ describe('the Supabase adapter over the double refuses the rows the real schema 
     await owner.upload('athletes', athlete(me));
     await owner.upload('games', game(me, me));
 
-    await expect(owner.upload('events', event(me, { type: 'shot' }))).rejects.toThrow('check constraint');
+    const refused = owner.upload('events', event(me, { type: 'shot' }));
+    await expect(refused).rejects.toBeInstanceOf(RowRefused);
+    await expect(refused).rejects.toMatchObject({ code: '23514', message: expect.stringContaining('check constraint') });
   });
 
   test('a Game naming another Recorder is refused', async () => {
