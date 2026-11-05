@@ -348,11 +348,12 @@ const labelled = (member: MemberRow): Member => ({
   label: member.email ?? `Joined ${new Date(member.joined_at).toLocaleDateString()}`,
 });
 
-/** What deleting the account does to one Athlete the phone holds (ADR 0004): it passes to its first Member, is deleted with its Games, or this account leaves it. */
+/** What deleting the account does to one Athlete the phone holds (ADR 0004): it passes to its first Member, is deleted with its Games, or this account leaves it. A Phone whose Session the server ended only clears itself: 'removed'. */
 export type AthleteFate =
   | { name: string; fate: 'passes'; to: string }
   | { name: string; fate: 'deleted'; games: number }
-  | { name: string; fate: 'left' };
+  | { name: string; fate: 'left' }
+  | { name: string; fate: 'removed' };
 
 /** What deleting the account does: each Athlete's fate, the photos this phone clears, and the rows not yet uploaded. */
 export interface DeletionSummary {
@@ -1129,8 +1130,11 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       // a signed-in phone first brings the server's owners down, so an Athlete that passed to this account reads as its own
       if (me !== undefined) await exclusive(download);
       const athletes = await store.athletes.orderBy('created_at').toArray();
+      // the server ended this phone's session: deletion clears only this phone, so every Athlete reads as removed from it
+      const ended = (await phone.phoneAccount()).state === 'session-ended';
       const fates = await Promise.all(
         athletes.map(async (a): Promise<AthleteFate> => {
+          if (ended) return { name: a.name, fate: 'removed' };
           // another account's Athlete, shared with this phone: this account is one of its Members, and leaves it
           if (me !== undefined && a.owner_id !== undefined && a.owner_id !== me) return { name: a.name, fate: 'left' };
           // the account's own Athlete passes to the Member who joined first, if it has one

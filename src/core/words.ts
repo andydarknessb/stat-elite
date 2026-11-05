@@ -94,6 +94,7 @@ export const initials = (name: string) =>
 
 /** What deleting does to one Athlete, in the words the Recorder reads before it confirms (ADR 0004). */
 export const fateLine = (athlete: AthleteFate): string => {
+  if (athlete.fate === 'removed') return `${athlete.name}: removed from this phone.`;
   if (athlete.fate === 'passes') return `${athlete.name}: passes to ${athlete.to}, with its Games and Events.`;
   if (athlete.fate === 'deleted') {
     return `${athlete.name}: deleted with ${athlete.games} ${athlete.games === 1 ? 'Game' : 'Games'} and their Events.`;

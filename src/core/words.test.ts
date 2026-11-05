@@ -44,6 +44,7 @@ it.each([
   [{ name: 'Casey', fate: 'deleted', games: 1 }, 'Casey: deleted with 1 Game and their Events.'],
   [{ name: 'Casey', fate: 'deleted', games: 2 }, 'Casey: deleted with 2 Games and their Events.'],
   [{ name: 'Casey', fate: 'left' }, 'Casey: you leave it; the Games you recorded stay with it.'],
+  [{ name: 'Casey', fate: 'removed' }, 'Casey: removed from this phone.'],
 ] as [AthleteFate, string][])('fateLine(%j) reads as the Recorder confirms it', (athlete, text) => {
   expect(fateLine(athlete)).toBe(text);
 });
