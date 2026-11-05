@@ -30,6 +30,37 @@ async function removeFromOtherTab(context: BrowserContext) {
   await expect(other.getByRole('button', { name: 'Start Game' })).toBeVisible();
 }
 
+/** Opens a second tab on this store with Casey's Athlete owned by another Account, so Leave shows there. */
+async function seedCaseyOwnedByAnother(context: BrowserContext): Promise<Page> {
+  const other = await context.newPage();
+  // goto, not openApp: this tab shares the store and the remembered account. Another account owns Casey's Athlete here, so Leave shows
+  await other.goto('/');
+  await other.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('stat-elite');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction('athletes', 'readwrite');
+          const store = tx.objectStore('athletes');
+          const all = store.getAll();
+          all.onsuccess = () => {
+            const casey = all.result.find((row: { name: string }) => row.name === 'Casey');
+            store.put({ ...casey, owner_id: 'another-account' });
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+  );
+  await other.reload();
+  return other;
+}
+
 test('a removal arriving on a summary opened from Games returns to the Games tab, with the Game gone', async ({ page, context }) => {
   await addBackloggedGame(page);
   await page.getByRole('button', { name: 'Back' }).click();
@@ -76,34 +107,28 @@ test('Leave in another tab while an Edit form is open leaves the form, and the G
   await page.getByRole('button', { name: 'Edit' }).click();
   await expect(page.getByRole('heading', { name: 'Edit past Game' })).toBeVisible();
 
-  // goto, not openApp: this tab shares the store and the remembered account. Another account owns Casey's Athlete here, so Leave shows
-  const other = await context.newPage();
-  await other.goto('/');
-  await other.evaluate(
-    () =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open('stat-elite');
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => {
-          const db = request.result;
-          const tx = db.transaction('athletes', 'readwrite');
-          const store = tx.objectStore('athletes');
-          const all = store.getAll();
-          all.onsuccess = () => {
-            const casey = all.result.find((row: { name: string }) => row.name === 'Casey');
-            store.put({ ...casey, owner_id: 'another-account' });
-          };
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-      }),
-  );
-  await other.reload();
+  const other = await seedCaseyOwnedByAnother(context);
   await other.getByRole('button', { name: 'Leave', exact: true }).click();
+  await other.getByRole('button', { name: 'Yes, leave', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: 'Games', level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Leave asks first: Cancel keeps Casey on the Phone, and Yes, leave removes it', async ({ page, context }) => {
+  await addFirstAthlete(page, { name: 'Sam' });
+  await page.getByRole('button', { name: 'Add Athlete' }).click();
+  await addAthlete(page, { name: 'Casey' });
+
+  const other = await seedCaseyOwnedByAnother(context);
+  await other.getByRole('button', { name: 'Leave', exact: true }).click();
+  await expect(
+    other.getByText("Leave Casey? Casey, its Games and this phone's photo leave this phone, and coming back takes a new Invite.", { exact: true }),
+  ).toBeVisible();
+  await other.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(other.getByRole('heading', { name: 'Casey', level: 1 })).toBeVisible();
+
+  await other.getByRole('button', { name: 'Leave', exact: true }).click();
+  await other.getByRole('button', { name: 'Yes, leave', exact: true }).click();
+  await expect(other.getByRole('heading', { name: 'Casey', level: 1 })).toHaveCount(0);
 });
