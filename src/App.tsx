@@ -1841,9 +1841,22 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
           {otherStats}
         </>
       )}
-      <button className="undo" disabled={!game.undoable} onClick={undo}>
-        {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
-      </button>
+      <div className="undo-slot">
+        <button className="undo" disabled={!game.undoable} onClick={undo}>
+          {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
+        </button>
+        {/* the toast covers the Undo button it names; its status region is mounted from the start, so each new text is announced (#246) */}
+        <div className="toast" role="status">
+          {toast && (
+            <>
+              <span>
+                <span aria-hidden="true">✓</span> {toast.label}
+              </span>
+              <button onClick={undo}>Undo</button>
+            </>
+          )}
+        </div>
+      </div>
       {/* the Period sits on the End Game row, so the live screen keeps its height at every Button Size */}
       <div className="period-row">
         <span className="period">{game.periodLabel}</span>
@@ -1877,14 +1890,6 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
             onEnded(gameId);
           }}
         />
-      )}
-      {toast && (
-        <div className="toast" role="status">
-          <span>
-            <span aria-hidden="true">✓</span> {toast.label}
-          </span>
-          <button onClick={undo}>Undo</button>
-        </div>
       )}
     </main>
   );
