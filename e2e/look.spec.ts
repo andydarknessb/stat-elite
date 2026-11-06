@@ -106,12 +106,25 @@ async function auditSignIn(page: Page, theme: string): Promise<string[]> {
 async function narrowFailures(page: Page, screen: string): Promise<string[]> {
   const failures: string[] = [];
   const edges = await page.locator('main.live button, main.live .strip').evaluateAll((els) => {
-    // a Bleacher page out of view sits past the phone's edge; the gutters count only what is on screen (#247)
-    const boxes = els.map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0 && r.right > 0 && r.left < window.innerWidth);
-    return { left: Math.min(...boxes.map((r) => r.left)), right: window.innerWidth - Math.max(...boxes.map((r) => r.right)) };
+    // at Bleacher the Other stats page sits beside the Shots page and partly inside the phone's width, so the gutters
+    // count only the first .page; with no .pages (Standard, Compact) every button counts, as before (#247)
+    const first = document.querySelector('main.live .pages .page');
+    const boxes = els
+      .filter((el) => !el.closest('.pages') || first?.contains(el))
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0);
+    const rect = first?.getBoundingClientRect();
+    return {
+      left: Math.min(...boxes.map((r) => r.left)),
+      right: window.innerWidth - Math.max(...boxes.map((r) => r.right)),
+      firstPage: rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width } : null,
+    };
   });
   if (Math.abs(edges.left - 16) >= 0.5 || Math.abs(edges.right - 16) >= 0.5) {
-    failures.push(`${screen}: the controls start ${edges.left.toFixed(1)}px and end ${edges.right.toFixed(1)}px from the edges, needs 16 and 16`);
+    const fp = edges.firstPage ? JSON.stringify(edges.firstPage) : 'none (no .pages)';
+    failures.push(
+      `${screen}: the controls start ${edges.left.toFixed(1)}px and end ${edges.right.toFixed(1)}px from the edges, needs 16 and 16; first .page rect ${fp}`,
+    );
   }
   for (const width of [320, 360, 375]) {
     await page.setViewportSize({ width, height: 844 });
