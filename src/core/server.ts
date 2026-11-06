@@ -244,9 +244,9 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
   return { ...phone(), rows, uploads, invites, phone };
 }
 
-/** A failed write as the server answered it: an error with a code is a refusal, but a 401 is an expired or bad token, a sign-in problem, and a failed fetch has no code. */
+/** A failed write as the server answered it: an error with a code on a 4xx is a refusal; a 401 is an expired or bad token, a sign-in problem; a 5xx is the server not answering now, so its row waits with no notice (#237), a persistent one too, so a server bug that answers 500 shows only the count; a failed fetch has no code. */
 const rowFailure = (error: { code?: string; message: string }, status?: number) =>
-  error.code && status !== 401 ? new RowRefused(error.code, error.message) : error;
+  error.code && status !== 401 && (status ?? 0) < 500 ? new RowRefused(error.code, error.message) : error;
 
 /** Supabase through its client: the server the deployed app syncs with. */
 export function createSupabaseServer(client: SupabaseClient): Server {

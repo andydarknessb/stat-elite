@@ -183,7 +183,7 @@ function SignInAgain() {
   );
 }
 
-/** Home's notice while the server refuses a row: the row stays on this phone, and the next upload that lands clears it (#208). */
+/** Home's notice while the server refuses a row: the row stays on this phone, and the notice clears once that row leaves the Outbox (#208, #237). */
 function RefusedRow() {
   const sync = useLive((live) => live.sync(), [], { optional: true });
   if (!sync?.refused) return null;

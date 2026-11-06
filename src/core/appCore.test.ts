@@ -1093,7 +1093,7 @@ test('a write made while the server is unreachable waits on the phone, then uplo
   expect(server.rows.athletes.has(athleteId)).toBe(true);
 });
 
-test('a row the server refuses stays queued and sync() reports it refused; the next upload that lands clears it', async () => {
+test('a row the server refuses stays queued and sync() reports it refused; the refused row landing clears it', async () => {
   const { server } = setup();
   const refuse = { on: true };
   const phone = otherAccount(server, (p) => ({
@@ -1125,6 +1125,54 @@ test('a failed fetch is not a refusal: the row waits on the phone and sync() rep
   await phone.core.addAthlete({ name: 'Casey' });
   await phone.core.flush();
   expect(await phone.core.sync()).toEqual({ notSynced: 1, refused: false });
+});
+
+test('a refused row whose Athlete the Member is removed from leaves the Outbox, and sync() stops reporting the refusal', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server, (phone) => ({
+    ...phone,
+    upload: async (table, row) => {
+      if (table === 'games') throw new RowRefused('23514', 'violates check constraint');
+      return phone.upload(table, row);
+    },
+  }));
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await member.core.flush();
+  expect((await member.core.sync()).refused).toBe(true);
+
+  await core.removeMember(athleteId, (await member.server.session())!);
+  await member.core.refresh();
+  await member.core.flush();
+
+  expect(await member.core.sync()).toEqual({ notSynced: 0, refused: false });
+});
+
+test('a leave whose Member Game is refused and whose later Event lands rejects, and sync() keeps reporting the refusal while the Game waits', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server, (phone) => ({
+    ...phone,
+    upload: async (table, row) => {
+      if (table === 'games') throw new RowRefused('23514', 'violates check constraint');
+      return phone.upload(table, row);
+    },
+  }));
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const gameId = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  const steal = await member.core.recordTile(gameId, 'steal');
+
+  await expect(member.core.leave(athleteId)).rejects.toThrow();
+
+  expect(server.rows.events.get(steal.id)).toBeDefined();
+  expect(await member.core.sync()).toEqual({ notSynced: 1, refused: true });
 });
 
 // the Server a phone reopened with its session stuck sees: session() never settles, as getSession does while its retries run
