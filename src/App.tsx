@@ -1573,6 +1573,40 @@ function Diamond({ onBase }: { onBase: Base }) {
   );
 }
 
+/** Bleacher: two swipe pages, Shots then Other stats, under a switch that shows the page in view and scrolls to the other on tap (#247). */
+function BleacherPages({ shots, otherStats }: { shots: ReactNode; otherStats: ReactNode }) {
+  const pages = useRef<HTMLDivElement>(null);
+  const [inView, setInView] = useState<'Shots' | 'Other stats'>('Shots');
+  // a swipe or a tap that moves the pages past half their width puts the other page in view
+  const onScroll = () => {
+    const el = pages.current;
+    if (el) setInView(el.scrollLeft * 2 >= el.clientWidth ? 'Other stats' : 'Shots');
+  };
+  const show = (page: 'Shots' | 'Other stats') => {
+    const el = pages.current;
+    if (el) el.scrollTo({ left: page === 'Other stats' ? el.clientWidth : 0, behavior: 'smooth' });
+  };
+  return (
+    <>
+      <div className="sizes pages-switch">
+        {(['Shots', 'Other stats'] as const).map((page) => (
+          <button key={page} aria-pressed={inView === page} className={inView === page ? 'primary' : undefined} onClick={() => show(page)}>
+            {page}
+          </button>
+        ))}
+      </div>
+      <div className="pages" ref={pages} onScroll={onScroll}>
+        <section className="page" aria-label="Shots">
+          {shots}
+        </section>
+        <section className="page" aria-label="Other stats">
+          {otherStats}
+        </section>
+      </div>
+    </>
+  );
+}
+
 function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameId: string) => void; onDone: () => void }) {
   // the live Game re-reads each second, so the Shift timer and Playing Share keep running
   // shortcut: re-reads every Event of the Game each second, fine for one Game; upgrade to a UI-side clock if a Game's read gets slow
@@ -1827,14 +1861,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       {game.sport !== 'basketball' ? (
         plateAppearance
       ) : size === 'bleacher' ? (
-        <div className="pages">
-          <section className="page" aria-label="Shots">
-            {shots}
-          </section>
-          <section className="page" aria-label="Other stats">
-            {otherStats}
-          </section>
-        </div>
+        <BleacherPages shots={shots} otherStats={otherStats} />
       ) : (
         <>
           {shots}

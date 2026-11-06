@@ -587,6 +587,16 @@ button:disabled {
   height: 220px;
 }
 
+/* Bleacher: the court takes its own row and the Shot controls sit under it at full width, so MAKE and MISS are wider than at Standard (#247). */
+.bleacher .shot-entry {
+  grid-template-columns: 1fr;
+}
+
+/* The Shots | Other stats switch is two parts of the Button Size group's grid (#247). */
+.sizes.pages-switch {
+  grid-template-columns: 1fr 1fr;
+}
+
 .bleacher .tile {
   min-height: 112px;
 }
