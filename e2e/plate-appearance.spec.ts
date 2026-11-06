@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { addFirstAthlete, startGame } from './recorder';
 
-// the batting line is three stat cards, AVG, OBP and SLG: each is a group named for its stat, its value in it
-const battingCard = (page: Page, stat: 'AVG' | 'OBP' | 'SLG') => page.getByRole('group', { name: stat, exact: true });
+// the batting line is three stat cards, AVG, OBP and SLG: each holds its stat as a term, its value under it (#249)
+const battingCard = (page: Page, stat: 'AVG' | 'OBP' | 'SLG') => page.locator('.batting-card', { has: page.getByRole('term', { name: stat, exact: true }) });
 
 test('an Outcome, then its RBI chip, records a Plate Appearance; Undo takes it back; Next period moves to the next inning', async ({ page }) => {
   await addFirstAthlete(page);

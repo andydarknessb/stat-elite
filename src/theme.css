@@ -6,7 +6,8 @@
   --surface: #131a2c;
   --surface-2: #1a2338;
   --border: #26314a;
-  --border-strong: #34415f;
+  --border-strong: #5d6a88;
+  --focus: #5d6a88;
   --text: #f2f4f8;
   --muted: #a9b2c6;
   --accent: #f5b841;
@@ -24,6 +25,7 @@
   --surface-2: #e6eaf1;
   --border: #7d879c;
   --border-strong: #5c667d;
+  --focus: #5c667d;
   --text: #0b1020;
   --muted: #2b3650;
   --accent-text: #64491a;
@@ -160,6 +162,12 @@ button:disabled {
   opacity: 0.5;
 }
 
+/* Keyboard focus shows one ring on every control: 3:1 against the gold buttons and the surface in both themes (#249). */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 /* The Add to Home Screen card, under the screen's own content. */
 .install {
   display: grid;
@@ -277,6 +285,16 @@ button:disabled {
   text-align: right;
   font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
+}
+
+/* A heading a screen reader reads and no one sees: clipped to nothing and out of the grid's flow (#249). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* The basketball live screen, top to bottom: Shift bar, score strip, half court, Free Throw row, stat tiles, then Undo and End Game. */
@@ -397,10 +415,10 @@ button:disabled {
   stroke: none;
 }
 
-/* The court takes keyboard focus (#248); the ring shows for keys, not taps. */
-.court:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* In Field mode the pending Spot keeps its gold fill and gains a navy ring, so it reads on the white court (#249). */
+:root[data-field] .court .spot {
+  stroke: #0b1020;
+  stroke-width: 0.6;
 }
 
 /* 3PT across the top, MAKE and MISS beneath it, the count under those. */
