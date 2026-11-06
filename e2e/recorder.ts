@@ -39,6 +39,7 @@ export async function startGame(page: Page, { sport = 'basketball', periodFormat
     await page.getByRole('button', { name: 'Done', exact: true }).click();
   }
   await page.getByRole('button', { name: 'Start Game' }).click();
+  // always set: the setup form keeps the last sport, so a basketball Game after a softball one would start as softball
   await page.getByLabel('Sport').selectOption(sport);
   if (periodFormat) await page.getByLabel('Period format').selectOption(periodFormat);
   await page.getByRole('button', { name: 'Start', exact: true }).click();

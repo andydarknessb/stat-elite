@@ -121,7 +121,8 @@ async function narrowFailures(page: Page, screen: string): Promise<string[]> {
   return failures;
 }
 
-// the Home-to-Games-to-Settings walk, shared by all three audits: basketball then softball finish, so Home lists both
+// the Home-to-Games-to-Settings walk, shared by all three audits: basketball then softball finish, so Home lists both;
+// the walk closes with a Compact basketball and softball Game for the narrow-width checks (#244)
 async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   const failures: string[] = [];
   const check = async (screen: string) => {
@@ -204,9 +205,12 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await check('Settings');
 
   // the same two live screens at Compact, a Game each: the size is set on Settings before the Game starts (#244)
-  await page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Compact', exact: true }).click();
+  const compact = page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Compact', exact: true });
+  await compact.click();
+  await expect(compact).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Done' }).click();
   await startGame(page);
+  await expect(page.locator('main.live.compact')).toBeVisible();
   failures.push(...(await narrowFailures(page, 'basketball live screen, Compact')));
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
@@ -217,6 +221,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: '0 RBI' }).click();
   await page.getByRole('button', { name: '1B', exact: true }).click();
   await expect(page.getByRole('button', { name: '1B', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('group', { name: 'Base' })).toBeVisible();
   failures.push(...(await narrowFailures(page, 'softball live screen, Athlete on base, Outcome armed, Compact')));
   await page.getByRole('button', { name: '0 RBI' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
