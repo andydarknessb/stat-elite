@@ -1,7 +1,19 @@
 import { expect, it } from 'vitest';
 import type { AthleteFate } from './appCore';
 import type { Undoable } from './eventLog';
-import { clockOf, fateLine, initials, rateText, resultOf, undoLabel } from './words';
+import { clockOf, fateLine, initials, rateText, resultOf, undoLabel, zoneLabel } from './words';
+
+it.each([
+  ['rim', 'Rim'],
+  ['mid-left', 'Mid-range left'],
+  ['mid-center', 'Mid-range center'],
+  ['mid-right', 'Mid-range right'],
+  ['three-left', 'Three-point left'],
+  ['three-center', 'Three-point center'],
+  ['three-right', 'Three-point right'],
+] as const)('zoneLabel(%s) is %s', (zone, label) => {
+  expect(zoneLabel(zone)).toBe(label);
+});
 
 it.each([
   [1 / 3, '.333'],

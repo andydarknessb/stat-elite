@@ -1,4 +1,4 @@
-import type { AthleteFate, FeedGame, Line } from './appCore';
+import type { AthleteFate, FeedGame, Line, Zone } from './appCore';
 import type { Batting, StrikeKind, Undoable, UndoableType } from './eventLog';
 import type { BaseMove, Outcome, Pitch, TileEventType } from './store';
 
@@ -65,6 +65,17 @@ export const baseLabel = (base: BaseMove, stolen?: boolean) => `${BASE_LABELS[ba
 
 export const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
 export const shotLabel = (value: 2 | 3 | undefined, made?: boolean) => `${made ? 'Made' : 'Missed'} ${value}PT`;
+/** A Zone in words, as the court names the place a Shot would count (GLOSSARY: Zone). */
+const ZONE_LABELS: Record<Zone, string> = {
+  rim: 'Rim',
+  'mid-left': 'Mid-range left',
+  'mid-center': 'Mid-range center',
+  'mid-right': 'Mid-range right',
+  'three-left': 'Three-point left',
+  'three-center': 'Three-point center',
+  'three-right': 'Three-point right',
+};
+export const zoneLabel = (zone: Zone) => ZONE_LABELS[zone];
 /** A Shift's time as m:ss. */
 export const clockOf = (ms: number) => {
   const seconds = Math.floor(ms / 1000);
