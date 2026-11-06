@@ -6,6 +6,17 @@ function rowGap(section: Locator): Promise<number> {
   return section.locator('.result-row').evaluateAll((rows) => rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().bottom);
 }
 
+// Tabs from the page's start until the named button has focus, as a keyboard Recorder reaches it, so the ring shows in every browser (#249)
+async function tabTo(page: Page, name: string) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const button = page.getByRole('button', { name, exact: true });
+  for (let presses = 0; presses < 200; presses++) {
+    if (await button.evaluate((el) => el === document.activeElement)) return;
+    await page.keyboard.press('Tab');
+  }
+  throw new Error(`Tab never reached the ${name} button`);
+}
+
 // runs in the page: one line per failing text element (contrast) or tap target (size)
 function auditScreen(screen: string): string[] {
   const failures: string[] = [];
@@ -215,9 +226,8 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await expect(page.getByRole('button', { name: '2B', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  // keyboard focus on the gold Outcome: a key press first, so the ring shows as it does for a keyboard Recorder (#249)
-  await page.keyboard.press('Shift');
-  await page.getByRole('button', { name: '2B', exact: true }).focus();
+  // keyboard focus on the gold Outcome, reached by Tab (#249)
+  await tabTo(page, '2B');
   expect(await page.evaluate(() => document.activeElement?.matches(':focus-visible') ?? false)).toBe(true);
   await check('softball live screen, Outcome armed, focused');
   await page.getByRole('button', { name: '0 RBI' }).click();
