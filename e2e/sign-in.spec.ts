@@ -98,7 +98,7 @@ test('a Game open on a phone with no Account opens its live screen, and Done aft
   await page.getByRole('button', { name: /^STL/ }).click();
 
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByLabel('Email')).toBeVisible();

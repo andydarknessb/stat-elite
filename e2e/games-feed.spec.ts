@@ -14,7 +14,7 @@ test('Home shows the season line, and the Games tab lists the finished Game, who
   await page.getByRole('button', { name: /^AST \d+$/ }).click();
   await page.getByRole('button', { name: 'Sub Out' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   // the Shift ran from 0–0 to 3–0 on the strip, so Plus/Minus is +3
@@ -49,7 +49,7 @@ test('a softball Game shows its batting line in Game Complete, its Games feed ro
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('3');
   await page.getByLabel('Opponent final').fill('1');
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
 
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
   await expect(page.getByText('Casey 3 – Opponent 1')).toBeVisible();
@@ -82,7 +82,7 @@ test('a baseball Game shows its batting line in Game Complete and its Games feed
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('2');
   await page.getByLabel('Opponent final').fill('1');
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
 
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
   await expect(page.getByText('H/AB 1/1 · 1 RBI · 0 R · 0 SB', { exact: true })).toBeVisible();
@@ -105,7 +105,7 @@ test('the Games tab chips filter its feed and season tiles, with one basketball 
   await page.getByRole('button', { name: /^AST \d+$/ }).click();
   await page.getByRole('button', { name: 'Sub Out' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   // the softball Game from the second test: a double with 2 RBI, a steal to 3rd and a Scored move
@@ -118,7 +118,7 @@ test('the Games tab chips filter its feed and season tiles, with one basketball 
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('3');
   await page.getByLabel('Opponent final').fill('1');
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();

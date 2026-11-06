@@ -20,7 +20,7 @@ test('a Game recorded offline uploads once the connection returns, and the badge
   await startGame(page);
   await page.getByRole('button', { name: /^STL/ }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   // the Athlete, the Game, the steal and the End Game
   await expect(page.getByText('4 not synced')).toBeVisible();
 
@@ -70,7 +70,7 @@ test('offline, with rows waiting and none refused, Home does not show the notice
   await context.setOffline(true);
   await startGame(page);
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByText(/^[1-9][0-9]* not synced$/)).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
 
@@ -90,7 +90,7 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
   await startGame(page);
   await page.getByRole('button', { name: /^STL/ }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByText('0 not synced')).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
 

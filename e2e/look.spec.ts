@@ -148,9 +148,9 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await check('basketball live screen, Standard');
   failures.push(...(await narrowFailures(page, 'basketball live screen, Standard')));
   await page.getByRole('button', { name: 'End Game' }).click();
-  await expect(page.getByRole('heading', { name: 'Finish game?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Final Score' })).toBeVisible();
   await check('basketball live screen, End Game form open');
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   // the softball live screen at Standard, with an Outcome armed; then the Game ends and Game Complete shows
@@ -168,7 +168,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('3');
   await page.getByLabel('Opponent final').fill('1');
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
   await check('Game Complete');
   await page.getByRole('button', { name: 'Done' }).click();
@@ -213,7 +213,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await expect(page.locator('main.live.compact')).toBeVisible();
   failures.push(...(await narrowFailures(page, 'basketball live screen, Compact')));
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   await startGame(page, { sport: 'softball' });
@@ -227,7 +227,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('3');
   await page.getByLabel('Opponent final').fill('1');
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
   return failures;

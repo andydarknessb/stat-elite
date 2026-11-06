@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   BUTTON_SIZES,
   HALF_COURT,
@@ -1323,6 +1323,7 @@ function ScoreSide({ label, value, onAdjust }: { label: string; value: number; o
 
 /** End Game: the Final Score, prefilled from the strip. Submit stays disabled until both sides have a whole number. */
 function EndGameForm({
+  formRef,
   run,
   gameId,
   athleteName,
@@ -1330,6 +1331,7 @@ function EndGameForm({
   onEnded,
   onCancel,
 }: {
+  formRef: RefObject<HTMLFormElement | null>;
   run: Run;
   gameId: string;
   athleteName: string;
@@ -1350,8 +1352,8 @@ function EndGameForm({
     run((core) => core.endGame(gameId, { teamScore: Number(team), opponentScore: Number(opponent) }));
   };
   return (
-    <form onSubmit={submit}>
-      <h2>Finish game?</h2>
+    <form ref={formRef} onSubmit={submit}>
+      <h2>Final Score</h2>
       <label>
         <ScoreLabel name={athleteName}>final</ScoreLabel>
         <input value={team} onChange={(e) => setTeam(e.target.value)} inputMode="numeric" autoComplete="off" />
@@ -1362,7 +1364,7 @@ function EndGameForm({
       </label>
       {!valid && <p role="alert">Scores are whole numbers from 0 to {SCORE_MAX}.</p>}
       <button className="primary" disabled={!valid}>
-        End Game
+        Save Final Score
       </button>
       <button type="button" onClick={onCancel}>
         Keep playing
@@ -1587,6 +1589,12 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   // a write the store refused: the alert shows until the next write lands
   const { run, alert } = useCommand();
   const [ending, setEnding] = useState(false);
+  // the Final Score form opens at the screen's bottom edge, so Keep playing sits about where End Game was (#245)
+  const endForm = useRef<HTMLFormElement>(null);
+  const bringFormIntoView = () => endForm.current?.scrollIntoView({ block: 'end' });
+  useLayoutEffect(() => {
+    if (ending) bringFormIntoView();
+  }, [ending]);
   // the Outcome picked on softball or baseball, waiting for its RBI chip
   const [pending, setPending] = useState<Outcome>();
   // the Stole option: on while the next base move is a steal
@@ -1840,7 +1848,10 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       <div className="period-row">
         <span className="period">{game.periodLabel}</span>
         <button onClick={nextPeriod}>Next period</button>
-        {!ending && <button onClick={() => setEnding(true)}>End Game</button>}
+        {/* a second tap while the form is open only brings it back into view */}
+        <button className={ending ? 'primary' : undefined} aria-expanded={ending} onClick={() => (ending ? bringFormIntoView() : setEnding(true))}>
+          End Game
+        </button>
         <button
           aria-label="Field mode"
           aria-pressed={field}
@@ -1855,6 +1866,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       </div>
       {ending && (
         <EndGameForm
+          formRef={endForm}
           run={run}
           gameId={gameId}
           athleteName={game.athleteName}

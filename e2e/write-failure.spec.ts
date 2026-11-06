@@ -171,7 +171,7 @@ test('End Game: a refused save leaves the Game live with its STL tile shown', as
   await page.getByRole('button', { name: 'End Game' }).click();
   await failWrites(page);
 
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
 
   await expectNotSaved(page);
   await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();

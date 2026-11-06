@@ -18,7 +18,7 @@ test('Start Game opens setup, Start opens the live screen, and the next setup is
   await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();
 
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -33,7 +33,7 @@ test('the next setup is prefilled with 8 Periods from a Game started that way', 
   await expect(page.getByText('P1', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Start Game' }).click();
