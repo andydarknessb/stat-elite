@@ -106,11 +106,25 @@ async function auditSignIn(page: Page, theme: string): Promise<string[]> {
 async function narrowFailures(page: Page, screen: string): Promise<string[]> {
   const failures: string[] = [];
   const edges = await page.locator('main.live button, main.live .strip').evaluateAll((els) => {
-    const boxes = els.map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
-    return { left: Math.min(...boxes.map((r) => r.left)), right: window.innerWidth - Math.max(...boxes.map((r) => r.right)) };
+    // at Bleacher the Other stats page sits beside the Shots page and partly inside the phone's width, so the gutters
+    // count only the first .page; with no .pages (Standard, Compact) every button counts, as before (#247)
+    const first = document.querySelector('main.live .pages .page');
+    const boxes = els
+      .filter((el) => !el.closest('.pages') || first?.contains(el))
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0);
+    const rect = first?.getBoundingClientRect();
+    return {
+      left: Math.min(...boxes.map((r) => r.left)),
+      right: window.innerWidth - Math.max(...boxes.map((r) => r.right)),
+      firstPage: rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width } : null,
+    };
   });
   if (Math.abs(edges.left - 16) >= 0.5 || Math.abs(edges.right - 16) >= 0.5) {
-    failures.push(`${screen}: the controls start ${edges.left.toFixed(1)}px and end ${edges.right.toFixed(1)}px from the edges, needs 16 and 16`);
+    const fp = edges.firstPage ? JSON.stringify(edges.firstPage) : 'none (no .pages)';
+    failures.push(
+      `${screen}: the controls start ${edges.left.toFixed(1)}px and end ${edges.right.toFixed(1)}px from the edges, needs 16 and 16; first .page rect ${fp}`,
+    );
   }
   for (const width of [320, 360, 375]) {
     await page.setViewportSize({ width, height: 844 });
@@ -223,6 +237,34 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await expect(page.getByRole('button', { name: '1B', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('group', { name: 'Base' })).toBeVisible();
   failures.push(...(await narrowFailures(page, 'softball live screen, Athlete on base, Outcome armed, Compact')));
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByLabel('Casey final').fill('3');
+  await page.getByLabel('Opponent final').fill('1');
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  // the same two live screens at Bleacher, a Game each: the two-page switch and the shot controls under the court hold 320–375px too (#247)
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const bleacher = page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Bleacher', exact: true });
+  await bleacher.click();
+  await expect(bleacher).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Done' }).click();
+  await startGame(page);
+  await expect(page.locator('main.live.bleacher')).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'basketball live screen, Bleacher')));
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await expect(page.getByRole('button', { name: '1B', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('group', { name: 'Base' })).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'softball live screen, Athlete on base, Outcome armed, Bleacher')));
   await page.getByRole('button', { name: '0 RBI' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('3');

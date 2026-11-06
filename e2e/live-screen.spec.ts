@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { addFirstAthlete, startGame } from './recorder';
+import { addFirstAthlete, endGame, startGame } from './recorder';
 
 // The toast is the Undo button's box, so no Period row button sits under it (#246)
 async function expectToastOverUndo(page: Page) {
@@ -120,7 +120,7 @@ test('at Bleacher the live screen splits into two swipe pages, Shots then Other 
   await expect(page.getByRole('button', { name: 'End Game' })).toBeVisible();
 });
 
-test('at Bleacher the half court keeps its feet ratio, and the Shot controls fit beside it', async ({ page }) => {
+test('at Bleacher the half court keeps its feet ratio, and the Shot controls sit under it at full width', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page, { buttonSize: 'Bleacher' });
 
@@ -130,7 +130,63 @@ test('at Bleacher the half court keeps its feet ratio, and the Shot controls fit
 
   const controls = await page.getByRole('group', { name: 'Shot result' }).boundingBox();
   const shots = await page.getByRole('region', { name: 'Shots' }).boundingBox();
-  expect(controls!.x + controls!.width).toBeLessThanOrEqual(shots!.x + shots!.width + 0.5);
+  // the controls sit under the court and span the page, so MAKE and MISS are not squeezed beside it (#247)
+  expect(controls!.y).toBeGreaterThanOrEqual(court!.y + court!.height - 0.5);
+  expect(Math.abs(controls!.width - shots!.width)).toBeLessThanOrEqual(0.5);
+});
+
+// the Shot result buttons' widths on screen, for the Standard and Bleacher comparison (#247)
+async function shotResultWidths(page: Page) {
+  const result = page.getByRole('group', { name: 'Shot result' });
+  const make = await result.getByRole('button', { name: 'MAKE', exact: true }).boundingBox();
+  const miss = await result.getByRole('button', { name: 'MISS', exact: true }).boundingBox();
+  if (!make || !miss) throw new Error('MAKE or MISS is not on screen');
+  return { make: make.width, miss: miss.width };
+}
+
+test('at Bleacher MAKE and MISS are at least as wide as at Standard, on the same 390×844 phone', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  const standard = await shotResultWidths(page);
+  // a live Game holds the Settings off, so the Standard Game ends before the Bleacher one starts
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  await startGame(page, { buttonSize: 'Bleacher' });
+  const bleacher = await shotResultWidths(page);
+  expect(bleacher.make, `MAKE is ${bleacher.make}px at Bleacher, ${standard.make}px at Standard`).toBeGreaterThanOrEqual(standard.make);
+  expect(bleacher.miss, `MISS is ${bleacher.miss}px at Bleacher, ${standard.miss}px at Standard`).toBeGreaterThanOrEqual(standard.miss);
+});
+
+test('at Bleacher the switch shows the page in view: Other stats brings its tiles in, and a swipe back shows Shots', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page, { buttonSize: 'Bleacher' });
+  const shots = page.getByRole('button', { name: 'Shots', exact: true });
+  const other = page.getByRole('button', { name: 'Other stats', exact: true });
+  const oreb = page.getByRole('button', { name: /^OREB \d+$/ });
+
+  await expect(shots).toHaveAttribute('aria-pressed', 'true');
+  await expect(other).toHaveAttribute('aria-pressed', 'false');
+  await expect(oreb).not.toBeInViewport();
+
+  await other.click();
+  await expect(oreb).toBeInViewport();
+  await expect(other).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('region', { name: 'Other stats' }).hover();
+  await page.mouse.wheel(-400, 0);
+  await expect(shots).toHaveAttribute('aria-pressed', 'true');
+  await expect(oreb).not.toBeInViewport();
+});
+
+test('at Bleacher the toast sits exactly over the Undo button after a tap, and no Period row button is under it', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page, { buttonSize: 'Bleacher' });
+  await page.getByRole('button', { name: /^STL/ }).click();
+
+  await expect(page.getByRole('status')).toBeVisible();
+  await expectToastOverUndo(page);
 });
 
 test.describe('under dark', () => {
