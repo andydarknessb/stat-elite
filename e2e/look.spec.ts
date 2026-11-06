@@ -106,7 +106,8 @@ async function auditSignIn(page: Page, theme: string): Promise<string[]> {
 async function narrowFailures(page: Page, screen: string): Promise<string[]> {
   const failures: string[] = [];
   const edges = await page.locator('main.live button, main.live .strip').evaluateAll((els) => {
-    const boxes = els.map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
+    // a Bleacher page out of view sits past the phone's edge; the gutters count only what is on screen (#247)
+    const boxes = els.map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0 && r.right > 0 && r.left < window.innerWidth);
     return { left: Math.min(...boxes.map((r) => r.left)), right: window.innerWidth - Math.max(...boxes.map((r) => r.right)) };
   });
   if (Math.abs(edges.left - 16) >= 0.5 || Math.abs(edges.right - 16) >= 0.5) {
