@@ -298,9 +298,10 @@ const count = (t: MadeAttempted, made: boolean | null) => {
 };
 
 /** A Zone: where a Shot falls for Practice Focus (GLOSSARY: Zone). rim and the two center Zones feed no rule. */
-type Zone = 'rim' | `${'mid' | 'three'}-${'left' | 'center' | 'right'}`;
+export type Zone = 'rim' | `${'mid' | 'three'}-${'left' | 'center' | 'right'}`;
 // rim under 8 ft from the basket, else mid or three by the Shot's value, then left, center or right by its court_x
-const zoneOf = (x: number, y: number, value: 2 | 3): Zone => {
+// shared with the court's name (#248), so a keyboard Shot names the Zone Practice Focus will count it in
+export const zoneOf = (x: number, y: number, value: 2 | 3): Zone => {
   if (basketDistanceFt(x, y) < 8) return 'rim';
   const side = x < 40 ? 'left' : x <= 60 ? 'center' : 'right';
   return `${value === 2 ? 'mid' : 'three'}-${side}`;
