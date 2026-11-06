@@ -18,6 +18,8 @@ test.describe('on iPhone', () => {
     await addFirstAthlete(page);
     const card = page.getByRole('region', { name: 'Add to Home Screen' });
     await expect(card).toBeVisible();
+    // Home is taller than the phone: the tab bar is pinned to the bottom edge, and the card sits above it only at the page's end
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     const cardBox = await card.boundingBox();
     const tabsBox = await page.locator('nav.tabs').boundingBox();
     expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(tabsBox!.y);
