@@ -417,7 +417,7 @@ button:disabled {
 
 /* In Field mode the pending Spot keeps its gold fill and gains a navy ring, so it reads on the white court (#249). */
 :root[data-field] .court .spot {
-  stroke: #0b1020;
+  stroke: var(--text);
   stroke-width: 0.6;
 }
 
@@ -655,7 +655,7 @@ button:disabled {
   background: var(--bg);
 }
 
-/* Each tab is an icon over its label; the pressed tab's icon sits in a gold-tinted pill and its label is gold text. */
+/* Each tab is an icon over its label; the current tab's icon sits in a gold-tinted pill and its label is gold text. */
 .tabs button {
   display: grid;
   justify-items: center;
@@ -673,12 +673,12 @@ button:disabled {
   border-radius: 999px;
 }
 
-.tabs button[aria-pressed='true'] {
+.tabs button[aria-current='page'] {
   color: var(--accent-text);
   font-weight: 600;
 }
 
-.tabs button[aria-pressed='true'] .tab-icon {
+.tabs button[aria-current='page'] .tab-icon {
   background: var(--accent-soft);
 }
 

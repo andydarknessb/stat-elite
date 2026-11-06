@@ -759,19 +759,19 @@ function Icon({ name }: { name: keyof typeof ICONS }) {
 function TabBar({ tab, onTab }: { tab: Tab; onTab: (tab: Tab) => void }) {
   return (
     <nav className="tabs" aria-label="Tabs">
-      <button aria-pressed={tab === 'home'} aria-current={tab === 'home' ? 'page' : undefined} onClick={() => onTab('home')}>
+      <button aria-current={tab === 'home' ? 'page' : undefined} onClick={() => onTab('home')}>
         <span className="tab-icon">
           <Icon name="home" />
         </span>
         Home
       </button>
-      <button aria-pressed={tab === 'games'} aria-current={tab === 'games' ? 'page' : undefined} onClick={() => onTab('games')}>
+      <button aria-current={tab === 'games' ? 'page' : undefined} onClick={() => onTab('games')}>
         <span className="tab-icon">
           <Icon name="games" />
         </span>
         Games
       </button>
-      <button aria-pressed={tab === 'insights'} aria-current={tab === 'insights' ? 'page' : undefined} onClick={() => onTab('insights')}>
+      <button aria-current={tab === 'insights' ? 'page' : undefined} onClick={() => onTab('insights')}>
         <span className="tab-icon">
           <Icon name="insights" />
         </span>

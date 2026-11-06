@@ -194,7 +194,7 @@ test('the softball live screen has one level-one heading, its batting line reads
   await addFirstAthlete(page);
   await startGame(page, { sport: 'softball' });
 
-  await expect(page.locator('main.live').getByRole('heading', { level: 1 })).toHaveCount(1);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
   const batting = page.locator('dl.batting');
   await expect(batting.getByRole('group')).toHaveCount(0);
   await expect(batting.getByRole('term')).toHaveText(['AVG', 'OBP', 'SLG']);
