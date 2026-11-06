@@ -100,3 +100,28 @@ test.describe('under dark', () => {
     await expect(tile).not.toHaveCSS('border-top-color', 'rgb(245, 184, 65)');
   });
 });
+
+test.describe('on a touchscreen', () => {
+  test.use({ hasTouch: true });
+
+  // End Game opens the Final Score form and brings it into view, so Save Final Score is on screen with no scroll by the Recorder (#245)
+  test('End Game stays in its row and brings the Final Score form into view, and a second tap keeps playing', async ({ page }) => {
+    await addFirstAthlete(page);
+    await startGame(page);
+
+    const endGame = page.locator('.period-row').getByRole('button', { name: 'End Game', exact: true });
+    const box = await endGame.boundingBox();
+    if (!box) throw new Error('End Game is not on screen');
+    const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+    await page.touchscreen.tap(centre.x, centre.y);
+    await expect(endGame).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('button', { name: 'Save Final Score', exact: true })).toBeInViewport({ ratio: 1 });
+
+    // the same tap again lands on Keep playing, which sits where End Game was; the Game stays live
+    await page.touchscreen.tap(centre.x, centre.y);
+    // a Game closes asynchronously, so give a tap that would end it time to land before the check
+    await page.waitForTimeout(1000);
+    await expect(page.getByRole('region', { name: 'Game Complete' })).toHaveCount(0);
+  });
+});
