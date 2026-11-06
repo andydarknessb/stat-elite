@@ -3,8 +3,10 @@ import Dexie, { liveQuery } from 'dexie';
 import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
 import { expect, test, vi } from 'vitest';
 import type { CommandCore, LiveReads } from '../screenSeam';
-import { arcPreset, backlogProblem, createAppCore, gameLineText, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
-import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, serverFor, type Server } from './server';
+import { arcPreset, createAppCore, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
+import { backlogProblem } from './totals';
+import { gameLineText } from './words';
+import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, RowRefused, serverFor, type Server } from './server';
 import { openStore, OUTCOMES, type Outcome, type Pitch, type Store } from './store';
 
 let stores = 0;
@@ -539,6 +541,133 @@ test('an Athlete added last is the one Home shows, with the one before it as Nex
   expect(await reopen().home()).toMatchObject({ athlete: { id: samId }, next: { id: caseyId } });
 });
 
+// local times on the 30th, so a Game's date and its clock's date agree wherever the tests run
+const at = (hour: number, minute = 0) => new Date(2026, 9, 30, hour, minute);
+
+// Casey is added first and her only Game is removed, newer than Sam's. Sam is added second and his only Game is in progress on
+// another phone of the account, older than Casey's. Returns the Owner's core and the phone that signs in last.
+async function caseyAndSam() {
+  const { core, inspect, server } = setup(at(9));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  const sam = await createAppCore({ clock: () => at(10), store: inspect, server }).addAthlete({ name: 'Sam' });
+  await signInWithCode(core, 'casey@example.com');
+  const recorder = createAppCore({ clock: () => at(12), store: inspect, server });
+  const caseyGame = await recorder.startGame({ athleteId: casey, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await recorder.endGame(caseyGame, { teamScore: 2, opponentScore: 0 });
+  await recorder.removeGame(caseyGame);
+  await recorder.flush();
+  const other = phoneOn(server);
+  await signInWithCode(other.core, 'casey@example.com');
+  await other.core.refresh();
+  const samPhone = createAppCore({ clock: () => at(11), store: other.inspect, server });
+  await samPhone.startGame({ athleteId: sam, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await samPhone.flush();
+  const newPhone = phoneOn(server);
+  await signInWithCode(newPhone.core, 'casey@example.com');
+  await newPhone.core.refresh();
+  return { core, inspect, server, casey, sam, newPhone };
+}
+
+test('a new Phone opens on the Athlete whose newest Game is not removed, not on the first Athlete added', async () => {
+  const { casey, sam, newPhone } = await caseyAndSam();
+
+  expect(await newPhone.core.home()).toMatchObject({ athlete: { id: sam }, next: { id: casey } });
+  expect((await newPhone.core.home()).liveGameId).toBeUndefined();
+});
+
+test('a later download with a newer Game for the first Athlete leaves the new Phone on the Athlete it opened on', async () => {
+  const { server, inspect, casey, sam, newPhone } = await caseyAndSam();
+  const newer = createAppCore({ clock: () => at(13), store: inspect, server });
+  await newer.startGame({ athleteId: casey, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await newer.flush();
+
+  await newPhone.core.refresh();
+
+  expect((await newPhone.core.home()).athlete?.id).toBe(sam);
+});
+
+test('after the new Phone switches to the first Athlete, a later download with a newer Game for the other leaves it there', async () => {
+  const { server, inspect, casey, sam, newPhone } = await caseyAndSam();
+  await newPhone.core.switchAthlete(casey);
+  const newer = createAppCore({ clock: () => at(13), store: inspect, server });
+  await newer.startGame({ athleteId: sam, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await newer.flush();
+
+  await newPhone.core.refresh();
+
+  expect((await newPhone.core.home()).athlete?.id).toBe(casey);
+});
+
+test('a new Phone whose Athletes have no Games opens on the first added, and a later Game for the other leaves it there', async () => {
+  const { core, inspect, server } = setup(at(9));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  const sam = await createAppCore({ clock: () => at(10), store: inspect, server }).addAthlete({ name: 'Sam' });
+  await signInWithCode(core, 'casey@example.com');
+  const newPhone = phoneOn(server);
+  await signInWithCode(newPhone.core, 'casey@example.com');
+  await newPhone.core.refresh();
+  expect(await newPhone.core.home()).toMatchObject({ athlete: { id: casey }, next: { id: sam } });
+
+  const later = createAppCore({ clock: () => at(11), store: inspect, server });
+  await later.startGame({ athleteId: sam, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await later.flush();
+  await newPhone.core.refresh();
+
+  expect((await newPhone.core.home()).athlete?.id).toBe(casey);
+});
+
+// two Athletes a Member adds on its own phone, Ann first, each with a Game: Ben's is the newer one
+async function annAndBen(member: ReturnType<typeof otherAccount>) {
+  const memberAt = (hour: number, minute = 0) => createAppCore({ clock: () => at(hour, minute), store: member.inspect, server: member.server });
+  const ann = await memberAt(10).addAthlete({ name: 'Ann' });
+  const ben = await memberAt(10, 1).addAthlete({ name: 'Ben' });
+  const annGame = memberAt(11);
+  await annGame.startGame({ athleteId: ann, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await annGame.flush();
+  const benGame = memberAt(12);
+  await benGame.startGame({ athleteId: ben, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await benGame.flush();
+  return { ann, ben };
+}
+
+test('a Member whose chosen Athlete stops being shared opens on the one of its other Athletes with the newer Game', async () => {
+  const { core, server } = setup(at(9));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(casey);
+  const member = otherAccount(server);
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const { ann, ben } = await annAndBen(member);
+  // the Member is on Casey, the one the Owner stops sharing
+  await member.core.switchAthlete(casey);
+
+  await core.removeMember(casey, (await member.server.session())!);
+  await member.core.refresh();
+
+  expect(await member.core.home()).toMatchObject({ athlete: { id: ben }, next: { id: ann } });
+});
+
+test('a Member who leaves a shared Athlete opens on the one of its other Athletes with the newer Game, and a later download leaves it there', async () => {
+  const { core, server } = setup(at(9));
+  const casey = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(casey);
+  const member = otherAccount(server);
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const { ann, ben } = await annAndBen(member);
+  await member.core.switchAthlete(casey);
+  // nothing queued, so the leave goes straight to the server
+  await member.core.flush();
+
+  await member.core.leave(casey);
+
+  expect(await member.core.home()).toMatchObject({ athlete: { id: ben }, next: { id: ann } });
+  await member.core.refresh();
+  expect((await member.core.home()).athlete?.id).toBe(ben);
+});
+
 test('adjusting the strip records a score Event holding absolute Team and Opponent scores', async () => {
   const { core, inspect } = setup();
   const gameId = await basketballGame(core);
@@ -623,7 +752,7 @@ test('the strip stops at 999: a +1 there resolves to undefined and writes nothin
   expect(await inspect.outbox.count()).toBe(outbox);
 });
 
-test('a finished Game accepts no new Events, and Home stops showing it as the Game in progress', async () => {
+test('a finished Game refuses every command but Undo, and Home stops showing it as the Game in progress', async () => {
   const { core } = setup();
   const gameId = await basketballGame(core);
   await core.recordTile(gameId, 'steal');
@@ -631,7 +760,6 @@ test('a finished Game accepts no new Events, and Home stops showing it as the Ga
 
   await expect(core.recordTile(gameId, 'block')).rejects.toThrow();
   await expect(core.adjustScore(gameId, 'team', 1)).rejects.toThrow();
-  await expect(core.undo(gameId)).rejects.toThrow();
   await expect(core.endGame(gameId, { teamScore: 6, opponentScore: 3 })).rejects.toThrow();
   expect(await core.liveGame(gameId)).toMatchObject({ final: { team: 5, opponent: 3 }, tiles: { steal: 1 } });
   expect((await core.home()).liveGameId).toBeUndefined();
@@ -639,6 +767,31 @@ test('a finished Game accepts no new Events, and Home stops showing it as the Ga
   const athleteId = (await core.home()).athlete!.id;
   const nextGame = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
   expect((await core.home()).liveGameId).toBe(nextGame);
+});
+
+test('Undo End Game reopens the Game: one Retraction is queued, the live screen is back, and a second End Game gives the new Final Score', async () => {
+  const { core, inspect, link } = setup();
+  const gameId = await basketballGame(core);
+  await core.recordTile(gameId, 'steal');
+  const end = await core.endGame(gameId, { teamScore: 52, opponentScore: 48 });
+  const athleteId = (await core.home()).athlete!.id;
+  // offline, so the queued rows stay in the Outbox for the count
+  link.up = false;
+  const queued = await inspect.outbox.count();
+
+  const retraction = await core.undo(gameId);
+
+  expect(retraction).toMatchObject({ type: 'retraction', retracts_id: end.id });
+  expect(await inspect.outbox.count()).toBe(queued + 1);
+  expect((await core.liveGame(gameId))?.final).toBeUndefined();
+  expect((await core.home()).liveGameId).toBe(gameId);
+  expect((await core.gameFeed(athleteId)).games).toEqual([]);
+  await core.recordTile(gameId, 'block');
+  expect((await core.liveGame(gameId))?.tiles.block).toBe(1);
+
+  await core.endGame(gameId, { teamScore: 52, opponentScore: 46 });
+  expect((await core.liveGame(gameId))?.final).toEqual({ team: 52, opponent: 46 });
+  expect((await core.gameFeed(athleteId)).games.map((g) => [g.id, g.final])).toEqual([[gameId, { team: 52, opponent: 46 }]]);
 });
 
 test('a live Home drops the Game once End Game closes it', async () => {
@@ -883,7 +1036,7 @@ test('with no account, writes stay on the phone, and the badge counts each row n
   await core.recordTile(gameId, 'steal');
 
   expect(await core.phoneAccount()).toEqual({ state: 'signed-out' });
-  expect(await core.sync()).toEqual({ notSynced: 3 });
+  expect(await core.sync()).toEqual({ notSynced: 3, refused: false });
   expect(server.uploads).toEqual([]);
 });
 
@@ -896,7 +1049,7 @@ test("sending the code signs nothing in; the emailed code makes the account the 
 
   await core.signIn('casey@example.com');
   expect((await core.phoneAccount()).state).toBe('signed-out');
-  expect(await core.sync()).toEqual({ notSynced: 4 });
+  expect(await core.sync()).toEqual({ notSynced: 4, refused: false });
   expect(server.uploads).toEqual([]);
   await expect(core.verifyCode('casey@example.com', '12345')).rejects.toThrow();
   expect((await core.phoneAccount()).state).toBe('signed-out');
@@ -911,7 +1064,7 @@ test("sending the code signs nothing in; the emailed code makes the account the 
   expect(server.rows.games.get(gameId)).toMatchObject({ owner_id: owner, athlete_id: athleteId, recorded_by: owner });
   expect(server.rows.events.get(steal.id)).toMatchObject({ owner_id: owner, game_id: gameId });
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('signing in while the server is unreachable fails and leaves the Recorder signed out', async () => {
@@ -930,14 +1083,96 @@ test('a write made while the server is unreachable waits on the phone, then uplo
   const athleteId = await core.addAthlete({ name: 'Casey' });
   await core.flush();
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 1 });
+  expect(await core.sync()).toEqual({ notSynced: 1, refused: false });
   expect(server.rows.athletes.has(athleteId)).toBe(false);
 
   link.up = true;
   await core.flush();
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
   expect(server.rows.athletes.has(athleteId)).toBe(true);
+});
+
+test('a row the server refuses stays queued and sync() reports it refused; the refused row landing clears it', async () => {
+  const { server } = setup();
+  const refuse = { on: true };
+  const phone = otherAccount(server, (p) => ({
+    ...p,
+    upload: async (table, row) => {
+      if (refuse.on) throw new RowRefused('23514', 'violates check constraint');
+      return p.upload(table, row);
+    },
+  }));
+  await signInWithCode(phone.core, 'casey@example.com');
+  await phone.core.addAthlete({ name: 'Casey' });
+  await phone.core.flush();
+  expect(await phone.core.sync()).toEqual({ notSynced: 1, refused: true });
+
+  refuse.on = false;
+  await phone.core.flush();
+  expect(await phone.core.sync()).toEqual({ notSynced: 0, refused: false });
+});
+
+test('a failed fetch is not a refusal: the row waits on the phone and sync() reports no refused row', async () => {
+  const { server } = setup();
+  const phone = otherAccount(server, (p) => ({
+    ...p,
+    upload: async () => {
+      throw new Error('The server cannot be reached');
+    },
+  }));
+  await signInWithCode(phone.core, 'casey@example.com');
+  await phone.core.addAthlete({ name: 'Casey' });
+  await phone.core.flush();
+  expect(await phone.core.sync()).toEqual({ notSynced: 1, refused: false });
+});
+
+test('a refused row whose Athlete the Member is removed from leaves the Outbox, and sync() stops reporting the refusal', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server, (phone) => ({
+    ...phone,
+    upload: async (table, row) => {
+      if (table === 'games') throw new RowRefused('23514', 'violates check constraint');
+      return phone.upload(table, row);
+    },
+  }));
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await member.core.flush();
+  expect((await member.core.sync()).refused).toBe(true);
+
+  await core.removeMember(athleteId, (await member.server.session())!);
+  await member.core.refresh();
+  await member.core.flush();
+
+  expect(await member.core.sync()).toEqual({ notSynced: 0, refused: false });
+});
+
+test('a leave whose Member Game is refused and whose later Event lands rejects, and sync() keeps reporting the refusal while the Game waits', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const token = await core.createInvite(athleteId);
+  const member = otherAccount(server, (phone) => ({
+    ...phone,
+    upload: async (table, row) => {
+      if (table === 'games') throw new RowRefused('23514', 'violates check constraint');
+      return phone.upload(table, row);
+    },
+  }));
+  await signInWithCode(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  const gameId = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  const steal = await member.core.recordTile(gameId, 'steal');
+
+  await expect(member.core.leave(athleteId)).rejects.toThrow();
+
+  expect(server.rows.events.get(steal.id)).toBeDefined();
+  expect(await member.core.sync()).toEqual({ notSynced: 1, refused: true });
 });
 
 // the Server a phone reopened with its session stuck sees: session() never settles, as getSession does while its retries run
@@ -1165,11 +1400,11 @@ test("a signed-in phone reopened after the server ended its session: refresh() r
   const reopened = reopen();
   await reopened.refresh();
   expect(await reopened.phoneAccount()).toMatchObject({ state: 'session-ended', firstDownload: false });
-  expect(await reopened.sync()).toEqual({ notSynced: 0 });
+  expect(await reopened.sync()).toEqual({ notSynced: 0, refused: false });
   expect(await reopened.home()).toMatchObject({ liveGameId: gameId });
 
   const steal = await reopened.recordTile(gameId, 'steal');
-  expect(await reopened.sync()).toEqual({ notSynced: 1 });
+  expect(await reopened.sync()).toEqual({ notSynced: 1, refused: false });
   expect(server.uploads).not.toContain(`events:${steal.id}`);
 });
 
@@ -1203,7 +1438,7 @@ test('with the session ended, signIn rejects another address and sends nothing; 
   await reopened.signIn('casey@example.com');
   await reopened.verifyCode('casey@example.com', CODE);
   expect((await reopened.phoneAccount()).state).toBe('signed-in');
-  expect(await reopened.sync()).toEqual({ notSynced: 0 });
+  expect(await reopened.sync()).toEqual({ notSynced: 0, refused: false });
   expect(server.rows.events.has(steal.id)).toBe(true);
 });
 
@@ -1234,7 +1469,7 @@ test("with the session ended and no download confirmed on this phone, phoneAccou
   const reopened = reopen();
   await reopened.refresh();
   expect(await reopened.phoneAccount()).toEqual({ state: 'session-ended', id: expect.any(String), email: 'casey@example.com', firstDownload: true });
-  expect(await reopened.sync()).toEqual({ notSynced: 0 });
+  expect(await reopened.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('sessionEnded on Supabase: ended when no session is held and the error is not a retryable network failure', async () => {
@@ -1363,7 +1598,7 @@ test("signing in on an empty phone brings down the account's Athletes, Games and
   expect(await second.inspect.events.get(steal.id)).toEqual(steal);
   expect(await second.inspect.events.get(end.id)).toEqual(end);
   expect((await second.core.phoneAccount()).state).toBe('signed-in');
-  expect(await second.core.sync()).toEqual({ notSynced: 0 });
+  expect(await second.core.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('a Game edited elsewhere replaces the phone copy at its next sign-in, when the edit is later', async () => {
@@ -1420,7 +1655,7 @@ test('a download that fails for another reason does not stop uploads, and the ne
 
   expect(server.uploads).toEqual([`athletes:${athleteId}`]);
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
   expect(await inspect.settings.get('downloadedFor')).toBeUndefined();
 
   server.download = download;
@@ -1825,7 +2060,7 @@ test("a phone whose session ended refuses another account's sign-in, and keeps t
   await signInWithCode(member, 'sam@example.com');
   expect(await memberStore.athletes.get(athleteId)).toMatchObject({ name: 'Casey' });
   expect((await member.phoneAccount()).state).toBe('signed-in');
-  expect(await member.sync()).toEqual({ notSynced: 0 });
+  expect(await member.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test("a Member's leave resolves and drops the Athlete when the download after it fails, and the Owner no longer lists the Member", async () => {
@@ -2765,7 +3000,7 @@ test('deleting the account removes its rows from the server and clears the phone
   expect(await server.session()).toBeUndefined();
   expect(await core.home()).toEqual({});
   expect(await core.phoneAccount()).toEqual({ state: 'signed-out' });
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
   expect(await inspect.athletes.count()).toBe(0);
   expect(await inspect.athletePhotos.count()).toBe(0);
   expect(await inspect.games.count()).toBe(0);
@@ -2787,7 +3022,7 @@ test('a server that refuses the deletion leaves the account signed in and the ph
   expect(server.rows.athletes.has(athleteId)).toBe(true);
   expect(await core.home()).toMatchObject({ athlete: { id: athleteId } });
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('a phone that is not signed in clears itself without calling the server', async () => {
@@ -2842,7 +3077,7 @@ test('signing out with a row still queued and the link down is refused: the row 
   await expect(core.signOut()).rejects.toThrow('Could not sign out. Wait for everything to sync and check the connection, then try again.');
 
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 1 });
+  expect(await core.sync()).toEqual({ notSynced: 1, refused: false });
   expect(await inspect.athletes.get(athleteId)).toBeDefined();
   expect(await core.phoneAccount()).toEqual({ state: 'signed-in', id: expect.any(String), email: 'casey@example.com' });
 });
@@ -2857,7 +3092,7 @@ test('signing out while the server refuses every upload is refused: the phone ke
 
   expect(await inspect.athletes.get(athleteId)).toBeDefined();
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 1 });
+  expect(await core.sync()).toEqual({ notSynced: 1, refused: false });
 });
 
 test('signing out with the link down and nothing queued is refused: the phone keeps its rows', async () => {
@@ -2872,7 +3107,7 @@ test('signing out with the link down and nothing queued is refused: the phone ke
   expect(server.rows.athletes.has(athleteId)).toBe(true);
   expect(await inspect.athletes.get(athleteId)).toBeDefined();
   expect((await core.phoneAccount()).state).toBe('signed-in');
-  expect(await core.sync()).toEqual({ notSynced: 0 });
+  expect(await core.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test('the phone counts the photos it holds, which Sign out says it clears', async () => {
@@ -2997,7 +3232,7 @@ test("a Member's phone takes the Athlete's new Owner at its next refresh, so an 
   expect(await sam.canInvite(athleteId)).toBe(true);
   expect(server.rows.athletes.get(athleteId)).toMatchObject({ owner_id: await samServer.session(), name: 'Casey S' });
   expect((await sam.phoneAccount()).state).toBe('signed-in');
-  expect(await sam.sync()).toEqual({ notSynced: 0 });
+  expect(await sam.sync()).toEqual({ notSynced: 0, refused: false });
 });
 
 test("a Member's deletion summary names the Athlete that passed to it, even before its phone has downloaded the move", async () => {
@@ -3680,7 +3915,7 @@ test('a Game finished and removed while the server is unreachable uploads with r
   t.link.up = true;
   await t.core.flush();
   expect((await t.core.phoneAccount()).state).toBe('signed-in');
-  expect(await t.core.sync()).toEqual({ notSynced: 0 });
+  expect(await t.core.sync()).toEqual({ notSynced: 0, refused: false });
   expect(t.server.rows.games.get(gameId)).toMatchObject({ removed: true });
   expect([...t.server.rows.events.values()].filter((e) => e.game_id === gameId)).toHaveLength(2);
 });
@@ -3923,6 +4158,17 @@ async function followsWrite<T>(read: () => Promise<T>, write: () => Promise<unkn
 
 // each read model a screen subscribes to, keyed by its name on App Core
 const LIVE_READ_MODELS: Record<keyof LiveReads, () => Promise<void>> = {
+  removedAthletes: async () => {
+    const { core, athleteId, member, memberId } = await sharedWithAMember();
+    await followsWrite(
+      () => member.core.removedAthletes(),
+      async () => {
+        await core.removeMember(athleteId, memberId);
+        await member.core.refresh();
+      },
+      (lines) => lines.length === 1,
+    );
+  },
   home: async () => {
     const { core } = setup();
     const casey = await core.addAthlete({ name: 'Casey' });

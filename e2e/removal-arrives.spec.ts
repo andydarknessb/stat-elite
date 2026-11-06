@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { addAthlete, addFirstAthlete } from './recorder';
+import { openApp } from './openApp';
 
 /** Adds a Backlogged Game against Lions for the Athlete the phone shows, and waits on the summary Save opens. */
 async function addLionsGame(page: Page) {
@@ -71,7 +72,7 @@ test('a removal arriving on a summary opened from Games returns to the Games tab
   await removeFromOtherTab(context);
 
   await expect(page.getByRole('heading', { name: 'Games', level: 1 })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('button', { name: /Lions/ })).toHaveCount(0);
 });
 
@@ -81,7 +82,7 @@ test('a removal arriving on a summary opened from Home returns to Home', async (
   await removeFromOtherTab(context);
 
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('a removal arriving on an open Edit form keeps its entry, and Cancel then leaves the summary', async ({ page, context }) => {
@@ -112,7 +113,7 @@ test('Leave in another tab while an Edit form is open leaves the form, and the G
   await other.getByRole('button', { name: 'Yes, leave', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: 'Games', level: 1 })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('Leave asks first: Cancel keeps Casey on the Phone, and Yes, leave removes it', async ({ page, context }) => {
@@ -131,4 +132,46 @@ test('Leave asks first: Cancel keeps Casey on the Phone, and Yes, leave removes 
   await other.getByRole('button', { name: 'Leave', exact: true }).click();
   await other.getByRole('button', { name: 'Yes, leave', exact: true }).click();
   await expect(other.getByRole('heading', { name: 'Casey', level: 1 })).toHaveCount(0);
+});
+
+// the Owner removed this account while the phone was away: its Athlete is in the store under a shared marker and not on the stand-in
+test('an Athlete removed while the phone was away drops at a reconnect, its line shows, OK clears it, and it stays gone after a reload', async ({ page, context }) => {
+  const line = "You're no longer a Member of Casey. Anything not synced is gone.";
+  await openApp(page);
+  // the service worker precaches the app shell while it installs; the offline switch below must not cut that short
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('stat-elite');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction(['athletes', 'settings'], 'readwrite');
+          const id = 'a0000000-0000-0000-0000-000000000206';
+          tx.objectStore('athletes').put({ id, name: 'Casey', owner_id: 'another-account', jersey_number: null, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' });
+          tx.objectStore('settings').put({ key: `shared:${id}`, value: 'shared' });
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+  );
+
+  // the reconnect runs the download, which no longer sends the Athlete
+  await context.setOffline(true);
+  await context.setOffline(false);
+  await expect(page.getByText(line)).toBeVisible();
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page.getByText(line)).toHaveCount(0);
+
+  // as test 3 does: the reload lands on the Phone's screen, and the cleared line stays down
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.getByLabel('Athlete name')).toBeVisible();
+  await expect(page.getByText(line)).toHaveCount(0);
 });

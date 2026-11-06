@@ -9,38 +9,20 @@ import {
   type EventRow,
   type GameRow,
   type GameTotals,
+  type MadeAttempted,
   type OutboxRow,
   type Outcome,
   type Pitch,
   type Store,
   type TileEventType,
 } from './store';
-import type { MemberRow, Server, SyncedTable, UploadRow } from './server';
+import { RowRefused, type MemberRow, type Server, type SyncedTable, type UploadRow } from './server';
 import { createPhoneAccount } from './phoneAccount';
 import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type Shift, type Undoable } from './eventLog';
 import { backlogProblem, eventsFromTotals, NO_FIELDS } from './totals';
 import { gameLineText, signed } from './words';
 
 export type { TileEventType };
-export { backlogProblem, gameLineText, signed };
-export { countFields, notWhole, textOf, totalsOf, type CountField } from './totals';
-export {
-  BASE_LABELS,
-  EVENT_LABELS,
-  OUTCOME_LABELS,
-  PITCH_LABELS,
-  TILE_LABELS,
-  baseLabel,
-  clockOf,
-  fateLine,
-  freeThrowLabel,
-  initials,
-  outcomeLabel,
-  rateText,
-  resultOf,
-  shotLabel,
-  undoLabel,
-} from './words';
 export type { Base, Batting, Baserunning, Counts, PitchCount, Scores, Shift, StrikeKind, UndoableType } from './eventLog';
 
 export type GameFormat =
@@ -85,6 +67,10 @@ const photoOf = (row?: AthletePhotoRow): Blob | undefined => row?.photo ?? (row?
 const SHARED = 'shared:';
 /** Settings key prefix, one per Game this phone first received by download: another phone records it (ADR 0009). */
 const RECEIVED = 'received:';
+/** Settings key prefix, one per Athlete the Owner removed this account from, valued with its name: the line the phone shows until its OK (ADR 0004). */
+const REMOVED = 'removed:';
+/** Settings key: the seq of the row the server last refused. Home's Refused Row notice reads it while that row still waits (#208, #237). */
+const REFUSED_ROW = 'refusedRow';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
 /** What Sign out says when the phone is not cleared: rows still queued, or the server refuses or cannot be reached. */
 export const SIGN_OUT_REFUSED = 'Could not sign out. Wait for everything to sync and check the connection, then try again.';
@@ -262,78 +248,14 @@ const groupOf = (gameDate: string, today: string): FeedGame['group'] => {
 };
 
 // The phone keeps its own columns of a downloaded row, whatever more the server sends.
-const athleteOf = ({ id, owner_id, name, jersey_number, created_at, updated_at }: AthleteRow): AthleteRow => ({
-  id,
-  owner_id,
-  name,
-  jersey_number,
-  created_at,
-  updated_at,
-});
-const gameOf = ({
-  id,
-  athlete_id,
-  sport,
-  period_format,
-  opponent_name,
-  game_date,
-  created_at,
-  updated_at,
-  recorded_by,
-  totals,
-  removed,
-}: GameRow): GameRow => ({
-  id,
-  athlete_id,
-  sport,
-  period_format,
-  opponent_name,
-  game_date,
-  created_at,
-  updated_at,
-  recorded_by,
-  totals,
-  removed,
-});
-const eventOf = ({
-  id,
-  game_id,
-  seq,
-  client_ts,
-  period,
-  type,
-  retracts_id,
-  court_x,
-  court_y,
-  shot_value,
-  made,
-  team_score,
-  opponent_score,
-  outcome,
-  rbi,
-  pitch,
-  base,
-  stolen,
-}: EventRow): EventRow => ({
-  id,
-  game_id,
-  seq,
-  client_ts,
-  period,
-  type,
-  retracts_id,
-  court_x,
-  court_y,
-  shot_value,
-  made,
-  team_score,
-  opponent_score,
-  outcome,
-  rbi,
-  pitch,
-  base,
-  stolen,
-});
+const pick = <T, K extends keyof T>(row: T, keys: K[]): Pick<T, K> => Object.fromEntries(keys.map((key) => [key, row[key]])) as Pick<T, K>;
+const athleteOf = (row: AthleteRow): AthleteRow => pick(row, ['id', 'owner_id', 'name', 'jersey_number', 'created_at', 'updated_at']);
+const gameOf = (row: GameRow): GameRow =>
+  pick(row, ['id', 'athlete_id', 'sport', 'period_format', 'opponent_name', 'game_date', 'created_at', 'updated_at', 'recorded_by', 'totals', 'removed']);
+const eventOf = (row: EventRow): EventRow =>
+  pick(row, [
+    'id', 'game_id', 'seq', 'client_ts', 'period', 'type', 'retracts_id', 'court_x', 'court_y', 'shot_value', 'made', 'team_score', 'opponent_score', 'outcome', 'rbi', 'pitch', 'base', 'stolen',
+  ]);
 
 // the downloaded rows the phone does not hold yet, given what the store already has under their ids
 const lacking = <T>(rows: T[], held: (T | undefined)[]): T[] => rows.filter((_, i) => held[i] === undefined);
@@ -369,32 +291,29 @@ export interface PracticeFocus {
 }
 
 /** Attempts of one kind and how many went in (GLOSSARY: Practice Focus). */
-interface Tally {
-  made: number;
-  attempted: number;
-}
-const tally = (): Tally => ({ made: 0, attempted: 0 });
-const count = (t: Tally, made: boolean | null) => {
+const tally = (): MadeAttempted => ({ made: 0, attempted: 0 });
+const count = (t: MadeAttempted, made: boolean | null) => {
   t.attempted++;
   if (made) t.made++;
 };
 
 /** A Zone: where a Shot falls for Practice Focus (GLOSSARY: Zone). rim and the two center Zones feed no rule. */
-type Zone = 'rim' | `${'mid' | 'three'}-${'left' | 'center' | 'right'}`;
+export type Zone = 'rim' | `${'mid' | 'three'}-${'left' | 'center' | 'right'}`;
 // rim under 8 ft from the basket, else mid or three by the Shot's value, then left, center or right by its court_x
-const zoneOf = (x: number, y: number, value: 2 | 3): Zone => {
+// shared with the court's name (#248), so a keyboard Shot names the Zone Practice Focus will count it in
+export const zoneOf = (x: number, y: number, value: 2 | 3): Zone => {
   if (basketDistanceFt(x, y) < 8) return 'rim';
   const side = x < 40 ? 'left' : x <= 60 ? 'center' : 'right';
   return `${value === 2 ? 'mid' : 'three'}-${side}`;
 };
 
 // high is at least 20 points above low: exact fractions, cross-multiplied so no float rounding (high − low ≥ 1/5)
-const atLeast20Above = (high: Tally, low: Tally) => 5 * (high.made * low.attempted - low.made * high.attempted) >= high.attempted * low.attempted;
+const atLeast20Above = (high: MadeAttempted, low: MadeAttempted) => 5 * (high.made * low.attempted - low.made * high.attempted) >= high.attempted * low.attempted;
 
 // the cards the rules make over the given Games, each Game's Events already live (none retracted)
 const practiceFocusOf = (games: { periodFormat: GameRow['period_format']; events: EventRow[] }[]): PracticeFocus[] => {
   const freeThrows = { early: tally(), late: tally() };
-  const zones: Partial<Record<Zone, Tally>> = {};
+  const zones: Partial<Record<Zone, MadeAttempted>> = {};
   for (const { periodFormat, events } of games) {
     for (const event of events) {
       // late is past half of regulation: Q3 on in quarters, H2 on in halves, P5 on in 8 Periods, every overtime
@@ -448,18 +367,18 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   };
   const queue = (table: SyncedTable, id: string) => store.outbox.add({ table, id });
   // The Event log's one append: the Game's Events are read once, a Backlogged or ended Game is refused before the command's decision
-  // (ADR 0005, and End Game is always the last Event), a Game another phone records is refused too (ADR 0009), and the Event and its
+  // (ADR 0005; a Game has ended while its last Event is a game_end), a Game another phone records is refused too (ADR 0009), and the Event and its
   // Outbox row are written in one transaction. A decision of none writes nothing. One rw transaction at a time per store, so taps in
-  // quick succession still get distinct seqs.
-  function append(gameId: string, decide: (log: Fold) => Fields): Promise<EventRow>;
-  function append(gameId: string, decide: (log: Fold) => Fields | undefined): Promise<EventRow | undefined>;
-  function append(gameId: string, decide: (log: Fold) => Fields | undefined): Promise<EventRow | undefined> {
+  // quick succession still get distinct seqs. Undo alone may write to an ended Game, and only to retract its game_end (Undo End Game).
+  function append(gameId: string, decide: (log: Fold) => Fields, options?: { undo?: boolean }): Promise<EventRow>;
+  function append(gameId: string, decide: (log: Fold) => Fields | undefined, options?: { undo?: boolean }): Promise<EventRow | undefined>;
+  function append(gameId: string, decide: (log: Fold) => Fields | undefined, { undo = false } = {}): Promise<EventRow | undefined> {
     return write([store.events, store.settings], async () => {
       if ((await store.games.get(gameId))?.totals) throw new Error('A Backlogged Game has no Events');
       if (await store.settings.get(RECEIVED + gameId)) throw new Error('This Game is recorded on another Phone');
       const events = await gameEvents(gameId).toArray();
       const log = fold(events, now());
-      if (log.ended) throw new Error('This Game has ended');
+      if (log.ended && !(undo && log.undoable?.type === 'game_end')) throw new Error('This Game has ended');
       const fields = decide(log);
       if (!fields) return undefined;
       const event: EventRow = {
@@ -506,7 +425,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
   const phone = createPhoneAccount(store, server);
   // clears every table on this phone, as a sign-out or a deletion leaves it
   const clearPhone = () => store.transaction('rw', store.tables, () => Promise.all(store.tables.map((table) => table.clear())));
-  // uploads one queued row as it is now; false when the server refuses it, and the row stays queued
+  // uploads one queued row as it is now; false when the server does not take it, and the row stays queued.
+  // A refusal (RowRefused) is recorded for Home by its row's seq; a dropped connection is not one, so it records nothing.
   const sendEntry = async (entry: OutboxRow): Promise<boolean> => {
     const loaded = await loadRow(entry);
     if (!loaded) {
@@ -516,7 +436,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     const athlete = await store.athletes.get(loaded.athleteId ?? '');
     try {
       await server.upload(entry.table, { ...loaded.row, owner_id: athlete?.owner_id });
-    } catch {
+    } catch (error) {
+      // shortcut: one seq is kept, so a refused row that lands while an earlier one still waits clears the notice until the next drain, upgrade with a set of refused seqs
+      if (error instanceof RowRefused) await store.settings.put({ key: REFUSED_ROW, value: String(entry.seq) });
       return false;
     }
     await store.outbox.delete(entry.seq!);
@@ -529,10 +451,33 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     return false;
   };
 
+  // the Athlete a Phone opens on when none is chosen: the one whose newest Game that is not removed is latest, else the first Athlete added
+  const openingAthleteId = async (): Promise<string | undefined> => {
+    let opening: { id: string; newest: number } | undefined;
+    for (const athlete of await store.athletes.orderBy('created_at').toArray()) {
+      const newest = (await store.games.where('athlete_id').equals(athlete.id).toArray()).reduce(
+        (latest, game) => (game.removed ? latest : Math.max(latest, Date.parse(game.created_at))),
+        -Infinity,
+      );
+      // a tie keeps the Athlete added first
+      if (!opening || newest > opening.newest) opening = { id: athlete.id, newest };
+    }
+    return opening?.id;
+  };
+
+  // a Phone with no Athlete chosen, or whose chosen Athlete was just dropped, chooses once and keeps it until someone switches
+  const chooseOpening = async () => {
+    const chosen = (await store.settings.get(SELECTED_ATHLETE))?.value;
+    if (chosen && (await store.athletes.get(chosen))) return;
+    const opening = await openingAthleteId();
+    if (opening) await store.settings.put({ key: SELECTED_ATHLETE, value: opening });
+  };
+
   // Brings the account's rows down: Athletes and Games the phone lacks or holds an older edit of, Events it lacks.
   // Fetched before the transaction, since Dexie cannot span the network. Nothing here is queued for upload.
+  // `leaving` is the Athlete a Member's own Leave drops: its drop records no removal.
   // shortcut: every visible Event is fetched on each sign-in, launch and reconnect, not only the missing ones, fine for one child's Games; upgrade with a per-Game seq cursor when a season's Events get slow to fetch
-  const download = async () => {
+  const download = async (leaving?: string) => {
     const before = await server.session();
     const [athletes, games, events] = await Promise.all([
       server.download('athletes'),
@@ -553,7 +498,13 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
               .filter(({ value }) => value === me || value === 'shared')
               .map(({ key }) => key.slice(SHARED.length))
               .filter((id) => !sent.has(id));
-      if (departed.length > 0) await dropAthletes(departed);
+      if (departed.length > 0) {
+        const dropped = (await store.athletes.bulkGet(departed)).filter((a): a is AthleteRow => a !== undefined);
+        await dropAthletes(departed);
+        await store.settings.bulkPut(dropped.filter((a) => a.id !== leaving).map((a) => ({ key: REMOVED + a.id, value: a.name })));
+      }
+      // an Athlete the server sends again is not removed any more, so a line still waiting for its OK goes
+      await store.settings.bulkDelete(athletes.map((a) => REMOVED + a.id));
       if (me !== undefined) {
         await store.settings.bulkPut(athletes.filter((a) => a.owner_id !== me).map((a) => ({ key: SHARED + a.id, value: me })));
       }
@@ -573,13 +524,16 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       // an Event never changes, so the phone takes only the ones it lacks
       const eventRows = events.map(eventOf);
       await store.events.bulkAdd(lacking(eventRows, await store.events.bulkGet(eventRows.map((r) => r.id))));
-      // only a download that confirmed the session counts: an unconfirmed one may have come back empty (ADR 0007)
-      if (me !== undefined) await phone.confirmDownload(me);
+      // only a download that confirmed the session counts: an unconfirmed one may have come back empty (ADR 0007), so it chooses nothing either
+      if (me !== undefined) {
+        await chooseOpening();
+        await phone.confirmDownload(me);
+      }
     });
   };
 
   // Uploads in sequence order, each row as it is now. A row the server cannot take stays queued, and so do the rows behind it.
-  // shortcut: a row the server refuses holds up every row behind it until someone fixes it, upgrade when a refusal needs its own state
+  // shortcut: a row the server refuses holds up every row behind it until someone fixes it, upgrade when a row behind it should upload past the refusal
   const drain = async () => {
     const owner = await server.session();
     if (!owner) {
@@ -907,9 +861,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       return append(gameId, () => ({ type: 'game_end', team_score: final.teamScore, opponent_score: final.opponentScore }));
     },
 
-    /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. */
+    /** Appends a Retraction for the newest Event not yet retracted; no Event is changed. On an ended Game that is its End Game, this reopens it (Undo End Game). */
     undo(gameId: string): Promise<EventRow | undefined> {
-      return append(gameId, ({ undoable }) => undoable && { type: 'retraction', retracts_id: undoable.id });
+      return append(gameId, ({ undoable }) => undoable && { type: 'retraction', retracts_id: undoable.id }, { undo: true });
     },
 
     gameSetup,
@@ -1028,7 +982,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         if (games.length === 5) break;
         if (game.sport !== 'basketball') continue;
         const events = await gameEvents(game.id).toArray();
-        // End Game is always a finished Game's last Event
+        // a Game has ended while its last Event is a game_end
         if (events.at(-1)?.type !== 'game_end') continue;
         games.push({ periodFormat: game.period_format, events: fold(events, now()).live });
       }
@@ -1040,10 +994,9 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       const game = await store.games.get(gameId);
       const summary = game && (await finishedGame(game, localDate(clock())))?.row;
       if (!game || !summary) return undefined;
-      const athlete = await store.athletes.get(game.athlete_id);
       const photo = await store.athletePhotos.get(game.athlete_id);
       return {
-        athlete: athlete?.name ?? 'Athlete',
+        athlete: summary.athleteName,
         photo: photoOf(photo),
         opponent: summary.opponent,
         final: summary.final,
@@ -1106,7 +1059,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         // a removed Member's download no longer sends the Athlete, so it drops it; if the download fails, the rows still wait
         try {
           // queued like a drain, so a deletion that starts meanwhile waits for it and it cannot refill the phone
-          await exclusive(download);
+          await exclusive(() => download(athleteId));
         } catch {
           throw new Error(NOT_SYNCED);
         }
@@ -1114,8 +1067,23 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         return;
       }
       await server.leave(athleteId);
-      await store.transaction('rw', phoneRows, () => dropAthletes([athleteId]));
+      // the drop may take the chosen Athlete, so the Phone chooses again in the same transaction
+      await store.transaction('rw', phoneRows, async () => {
+        await dropAthletes([athleteId]);
+        await chooseOpening();
+      });
       void flush();
+    },
+
+    /** The Athletes the Owner removed this account from, named, until each one's OK clears it (ADR 0004). Live. */
+    async removedAthletes(): Promise<{ id: string; name: string }[]> {
+      const lines = await store.settings.where('key').startsWith(REMOVED).toArray();
+      return lines.map(({ key, value }) => ({ id: key.slice(REMOVED.length), name: value }));
+    },
+
+    /** The OK on a removal line: it stays cleared, reload included. */
+    async clearRemovedAthlete(athleteId: string): Promise<void> {
+      await store.settings.delete(REMOVED + athleteId);
     },
 
     /** The photos this phone holds, which Sign out clears. Read here, so the Sign out screen needs no connection. */
@@ -1180,10 +1148,15 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
-    /** The "N not synced" badge: how many rows still live only on the phone. Whether the phone is signed in is phoneAccount's (ADR 0007). */
-    async sync(): Promise<{ notSynced: number }> {
+    /** The "N not synced" badge: how many rows still live only on the phone, and whether the server has refused one (Refused Row). Whether the phone is signed in is phoneAccount's (ADR 0007). Live. */
+    async sync(): Promise<{ notSynced: number; refused: boolean }> {
       const pending = await store.outbox.toArray();
-      return { notSynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size };
+      // the notice holds only while the refused row is still queued: its landing or its drop from the Outbox ends it
+      const refusedSeq = (await store.settings.get(REFUSED_ROW))?.value;
+      return {
+        notSynced: new Set(pending.map(({ table, id }) => `${table}:${id}`)).size,
+        refused: pending.some(({ seq }) => String(seq) === refusedSeq),
+      };
     },
 
     /** Where the phone stands: signed out, the first download due, signed in, or the server ended the session (ADR 0007). Live. */

@@ -6,10 +6,10 @@
   --surface: #131a2c;
   --surface-2: #1a2338;
   --border: #26314a;
-  --border-strong: #34415f;
+  --border-strong: #5d6a88;
+  --focus: #5d6a88;
   --text: #f2f4f8;
   --muted: #a9b2c6;
-  --subtle: #8b95ac;
   --accent: #f5b841;
   --accent-ink: #0b1020;
   --accent-text: #f5b841;
@@ -25,23 +25,39 @@
   --surface-2: #e6eaf1;
   --border: #7d879c;
   --border-strong: #5c667d;
+  --focus: #5c667d;
   --text: #0b1020;
   --muted: #2b3650;
-  --subtle: #3d4862;
   --accent-text: #64491a;
   --accent-soft: rgba(245, 184, 65, 0.24);
   --make: #1a7f37;
   --miss: #c9302c;
 }
 
+/* The safe areas (the notch, the home indicator) pad every screen's edges; a tab bar pads the bottom itself. */
 body {
   margin: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   background: var(--bg);
   color: var(--text);
   font: 17px/1.4 Barlow, system-ui, -apple-system, sans-serif;
 }
 
+body:has(.tabs) {
+  padding-bottom: 0;
+}
+
+/* Headings, paragraphs and lists take no browser margin: the grid gaps do all the spacing. */
 h1,
+h2,
+p,
+ul,
+ol {
+  margin: 0;
+}
+
+h1,
+h2,
 .count {
   font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
@@ -146,6 +162,12 @@ button:disabled {
   opacity: 0.5;
 }
 
+/* Keyboard focus shows one ring on every control: 3:1 against the gold buttons and the surface in both themes (#249). */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 /* The Add to Home Screen card, under the screen's own content. */
 .install {
   display: grid;
@@ -157,20 +179,20 @@ button:disabled {
   background: var(--surface);
 }
 
-.install p {
-  margin: 0;
+/* The Undo button's slot: the toast covers that button, so the two share one box. */
+.undo-slot {
+  position: relative;
+  display: grid;
 }
 
-/* Taps pass through the toast, except on its own Undo button. */
+/* Taps pass through the toast, except on its own Undo button. Empty, the status region has no box, so the live screen keeps its height. */
 .toast {
-  position: fixed;
-  left: 16px;
-  right: 16px;
-  bottom: 16px;
+  position: absolute;
+  inset: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 8px 8px 16px;
+  padding: 0 8px 0 16px;
   border-radius: 12px;
   background: var(--text);
   color: var(--bg);
@@ -178,11 +200,16 @@ button:disabled {
   pointer-events: none;
 }
 
+.toast:empty {
+  width: 0;
+  height: 0;
+}
+
 /* The Team–Opponent strip is one card: each side is a label over − count +, and Team's count is gold. */
 .strip {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 8px;
   border-radius: 16px;
   background: var(--surface);
   text-align: center;
@@ -200,17 +227,17 @@ button:disabled {
 
 .strip .side > div {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   align-items: center;
 }
 
 .strip button {
-  width: 56px;
+  width: 44px;
   font-size: 24px;
 }
 
 .strip .count {
-  min-width: 48px;
+  min-width: 40px;
   font-size: 32px;
   font-weight: 600;
 }
@@ -242,12 +269,6 @@ button:disabled {
   flex: none;
 }
 
-.final {
-  font-size: 32px;
-  font-weight: 600;
-  text-align: center;
-}
-
 .toast button {
   pointer-events: auto;
   background: var(--bg);
@@ -264,6 +285,16 @@ button:disabled {
   text-align: right;
   font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
+}
+
+/* A heading a screen reader reads and no one sees: clipped to nothing and out of the grid's flow (#249). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* The basketball live screen, top to bottom: Shift bar, score strip, half court, Free Throw row, stat tiles, then Undo and End Game. */
@@ -384,6 +415,12 @@ button:disabled {
   stroke: none;
 }
 
+/* In Field mode the pending Spot keeps its gold fill and gains a navy ring, so it reads on the white court (#249). */
+:root[data-field] .court .spot {
+  stroke: var(--text);
+  stroke-width: 0.6;
+}
+
 /* 3PT across the top, MAKE and MISS beneath it, the count under those. */
 .shot-controls {
   display: grid;
@@ -464,6 +501,15 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
+}
+
+/* Below 360px the four Pitch and Outcome columns keep their labels with 2px side padding, not 6px (#244). */
+@media (max-width: 359px) {
+  .pitches button,
+  .outcomes button {
+    padding-left: 2px;
+    padding-right: 2px;
+  }
 }
 
 .pitch-count {
@@ -565,6 +611,16 @@ button:disabled {
   height: 220px;
 }
 
+/* Bleacher: the court takes its own row and the Shot controls sit under it at full width, so MAKE and MISS are wider than at Standard (#247). */
+.bleacher .shot-entry {
+  grid-template-columns: 1fr;
+}
+
+/* The Shots | Other stats switch is two parts of the Button Size group's grid (#247). */
+.sizes.pages-switch {
+  grid-template-columns: 1fr 1fr;
+}
+
 .bleacher .tile {
   min-height: 112px;
 }
@@ -580,17 +636,26 @@ button:disabled {
   font-size: 40px;
 }
 
+/* A tab screen is at least the visible phone height, so its tab bar rests at the bottom and only sticks on a taller screen. */
+.tab-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - env(safe-area-inset-top));
+}
+
+/* Last in its tab screen; the bottom padding clears the home indicator. */
 .tabs {
   position: sticky;
   bottom: 0;
+  margin-top: auto;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  padding: 8px 16px;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
   background: var(--bg);
 }
 
-/* Each tab is an icon over its label; the pressed tab's icon sits in a gold-tinted pill and its label is gold text. */
+/* Each tab is an icon over its label; the current tab's icon sits in a gold-tinted pill and its label is gold text. */
 .tabs button {
   display: grid;
   justify-items: center;
@@ -608,12 +673,12 @@ button:disabled {
   border-radius: 999px;
 }
 
-.tabs button[aria-pressed='true'] {
+.tabs button[aria-current='page'] {
   color: var(--accent-text);
   font-weight: 600;
 }
 
-.tabs button[aria-pressed='true'] .tab-icon {
+.tabs button[aria-current='page'] .tab-icon {
   background: var(--accent-soft);
 }
 
@@ -642,12 +707,7 @@ button:disabled {
   text-align: center;
 }
 
-.athlete h1 {
-  margin: 0;
-}
-
 .athlete .number {
-  margin: 0;
   color: var(--muted);
 }
 
@@ -695,8 +755,6 @@ button:disabled {
 
 .card h2,
 form h2 {
-  margin: 0;
-  font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-size: 22px;
 }
 
@@ -720,7 +778,6 @@ form h2 {
 }
 
 .games {
-  margin: 0;
   color: var(--muted);
 }
 
@@ -746,6 +803,12 @@ form h2 {
   line-height: 1.1;
   color: var(--accent-text);
   font-variant-numeric: tabular-nums;
+}
+
+/* A Games-feed day group spaces its heading and rows as a card does: the grid gap does it. */
+.feed-group {
+  display: grid;
+  gap: 12px;
 }
 
 .result-row {
@@ -791,6 +854,7 @@ form h2 {
   font-size: 28px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .result-head {

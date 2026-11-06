@@ -6,7 +6,7 @@ A phone web app a parent uses on the sideline to record one child's games (baske
 
 M1 to M5 are built, and no family is on it yet. `docs/plan.md` lists what stands before the first family.
 
-`npm test` runs everything: typecheck, Vitest (App Core tests and the schema self-check on PGlite), then Playwright at 390×844. GitHub Actions runs it on every pull request into `integration` and `main`, on Chromium and WebKit. In a fleet worktree, run `npm run typecheck` and `npx vitest run` instead and leave Playwright to CI: outside CI it reuses any server already on port 4173, so concurrent ICs would test each other's builds. Netlify deploys `integration` to https://stat-elite.netlify.app; `BASE_URL=https://stat-elite.netlify.app npx playwright test --project=chromium e2e/install.spec.ts e2e/offline.spec.ts` checks the deployed app.
+`npm test` runs everything: typecheck, Vitest (App Core tests and the schema self-check on PGlite), then Playwright at 390×844. GitHub Actions runs it on every pull request into `integration` and `main`, on Chromium and WebKit. In a fleet worktree, run `npm run typecheck` and `npx vitest run` instead and leave Playwright to CI: outside CI it reuses any server already on port 4173, so concurrent ICs would test each other's builds. Netlify deploys `main` to production at https://stat-elite.netlify.app and `integration` to https://integration--stat-elite.netlify.app, both on one Supabase project, so every migration must keep the app on `main` working. `BASE_URL=https://stat-elite.netlify.app npx playwright test --project=chromium e2e/install.spec.ts e2e/offline.spec.ts` checks production, and the other URL checks `integration`.
 
 ## Where things live
 

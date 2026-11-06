@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { createStandInServer, createSupabaseServer, type Server } from './server';
+import { createStandInServer, createSupabaseServer, RowRefused, type Server } from './server';
 import { schemaDatabase, supabaseDouble } from './supabaseDouble';
 
 // One server per test: a new phone on it, and the one clock-dependent state each backend keeps differently.
@@ -134,7 +134,7 @@ for (const [adapter, makeBackend] of contract) {
       await owner.upload('athletes', athlete(me));
       await owner.upload('games', game(me, me));
       await owner.upload('events', event(me, { period: 1 }));
-      await expect(owner.upload('events', event(me, { id: OTHER_EVENT, period: 2 }))).rejects.toBeTruthy();
+      await expect(owner.upload('events', event(me, { id: OTHER_EVENT, period: 2 }))).rejects.toBeInstanceOf(RowRefused);
 
       expect(await owner.download('events')).toMatchObject([{ id: EVENT, period: 1 }]);
     });
@@ -177,6 +177,33 @@ for (const [adapter, makeBackend] of contract) {
       await backend.expireInvite(late);
       const third = await signedIn(backend, 'lee@example.com');
       await expect(third.acceptInvite(late)).rejects.toMatchObject({ reason: 'expired' });
+    });
+
+    test('a Member removed by the Owner, or one that left, reopens its link and is refused as used; a current Member reopening it still resolves', async () => {
+      const owner = await signedIn(backend, 'casey@example.com');
+      const me = (await owner.session())!;
+      await owner.upload('athletes', athlete(me));
+
+      const removed = await signedIn(backend, 'sam@example.com');
+      const removedId = (await removed.session())!;
+      const tokenRemoved = await owner.createInvite(ATHLETE);
+      await removed.acceptInvite(tokenRemoved);
+      await owner.removeMember(ATHLETE, removedId);
+      await expect(removed.acceptInvite(tokenRemoved)).rejects.toMatchObject({ reason: 'used' });
+
+      const left = await signedIn(backend, 'rob@example.com');
+      const tokenLeft = await owner.createInvite(ATHLETE);
+      await left.acceptInvite(tokenLeft);
+      await left.leave(ATHLETE);
+      await expect(left.acceptInvite(tokenLeft)).rejects.toMatchObject({ reason: 'used' });
+
+      const current = await signedIn(backend, 'lee@example.com');
+      const currentId = (await current.session())!;
+      const tokenCurrent = await owner.createInvite(ATHLETE);
+      await current.acceptInvite(tokenCurrent);
+      await expect(current.acceptInvite(tokenCurrent)).resolves.toBe(ATHLETE);
+
+      expect((await owner.members(ATHLETE)).map((m) => m.member_id)).toEqual([currentId]);
     });
 
     test('an Owner sees every Member of its Athlete with the email each accepted with; a Member sees only itself', async () => {
@@ -293,7 +320,9 @@ describe('the Supabase adapter over the double refuses the rows the real schema 
     await owner.upload('athletes', athlete(me));
     await owner.upload('games', game(me, me));
 
-    await expect(owner.upload('events', event(me, { type: 'shot' }))).rejects.toThrow('check constraint');
+    const refused = owner.upload('events', event(me, { type: 'shot' }));
+    await expect(refused).rejects.toBeInstanceOf(RowRefused);
+    await expect(refused).rejects.toMatchObject({ code: '23514', message: expect.stringContaining('check constraint') });
   });
 
   test('a Game naming another Recorder is refused', async () => {
@@ -319,4 +348,25 @@ describe('the Supabase adapter over the double refuses the rows the real schema 
 
     expect(await owner.download('games')).toMatchObject([{ opponent_name: 'Hawks' }]);
   });
+});
+
+// a Supabase client whose write answers the given error and status, as the real client does when the server answers a row
+const answering = (error: { code: string; message: string }, status?: number) =>
+  createSupabaseServer({ from: () => ({ upsert: async () => ({ error, status }) }) } as never);
+
+test('a failed fetch, with no error code, is not a refusal', async () => {
+  await expect(answering({ code: '', message: 'Failed to fetch' }).upload('events', event('me'))).rejects.not.toBeInstanceOf(RowRefused);
+});
+
+test('an expired or bad token (401) is not a refusal', async () => {
+  await expect(answering({ code: 'PGRST301', message: 'JWT expired' }, 401).upload('events', event('me'))).rejects.not.toBeInstanceOf(RowRefused);
+});
+
+test('a server answering 5xx is not a refusal: the row waits with no notice (#237)', async () => {
+  await expect(answering({ code: 'PGRST003', message: 'upstream timeout' }, 504).upload('events', event('me'))).rejects.not.toBeInstanceOf(RowRefused);
+  await expect(answering({ code: '53300', message: 'too many connections' }, 503).upload('events', event('me'))).rejects.not.toBeInstanceOf(RowRefused);
+});
+
+test('a row the server answers with a code on a 4xx is a refusal', async () => {
+  await expect(answering({ code: '23514', message: 'violates check constraint' }, 400).upload('events', event('me'))).rejects.toBeInstanceOf(RowRefused);
 });

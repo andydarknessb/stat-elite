@@ -171,7 +171,7 @@ test('End Game: a refused save leaves the Game live with its STL tile shown', as
   await page.getByRole('button', { name: 'End Game' }).click();
   await failWrites(page);
 
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
 
   await expectNotSaved(page);
   await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();
@@ -267,14 +267,14 @@ test('Plate Appearance: a refused RBI keeps the Outcome armed with no toast, and
   await page.getByRole('button', { name: '2 RBI' }).click();
 
   await expectNotSaved(page);
-  await expect(page.getByRole('group', { name: 'AVG', exact: true })).toContainText('—');
+  await expect(page.locator('.batting-card', { has: page.locator('dt', { hasText: 'AVG' }) })).toContainText('—');
   await expect(page.getByRole('button', { name: '2 RBI' })).toBeVisible();
   await expect(page.getByRole('status')).toBeHidden();
 
   await restoreWrites(page);
   await page.getByRole('button', { name: '2 RBI' }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.getByRole('group', { name: 'AVG', exact: true })).toContainText('1.000');
+  await expect(page.locator('.batting-card', { has: page.locator('dt', { hasText: 'AVG' }) })).toContainText('1.000');
   expect(errors).toEqual([]);
 });
 

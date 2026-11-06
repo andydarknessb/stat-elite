@@ -139,11 +139,8 @@ const pointsOf = (event: EventRow): number => {
   return event.type === 'free_throw' ? 1 : 0;
 };
 
-// the Period a new Event falls in: the newest Period start not retracted, else the first Period
-const currentPeriod = (events: EventRow[]) => {
-  const retracted = retractedIds(events);
-  return events.filter((e) => e.type === 'period_start' && !retracted.has(e.id)).at(-1)?.period ?? 1;
-};
+// the Period a new Event falls in: the newest Period start not retracted, else the first Period (`live` has no retracted Events)
+const currentPeriod = (live: EventRow[]) => live.filter((e) => e.type === 'period_start').at(-1)?.period ?? 1;
 
 const isTile = (type: EventRow['type']): type is TileEventType => (TILE_EVENT_TYPES as readonly string[]).includes(type);
 
@@ -263,12 +260,10 @@ const pitchesOf = (live: EventRow[]) => {
 };
 
 // the strip: the latest Score Snapshot not retracted, plus the points of the made Shots and Free Throws after it (ADR 0002); 0–0 before the first one
-const latestScores = (events: EventRow[]): Scores => {
-  const retracted = retractedIds(events);
+const latestScores = (live: EventRow[]): Scores => {
   let base: Scores = { team: 0, opponent: 0 };
   let added = 0;
-  for (const event of events) {
-    if (retracted.has(event.id)) continue;
+  for (const event of live) {
     const snapshot = snapshotOf(event);
     if (snapshot) {
       base = snapshot;
@@ -293,10 +288,10 @@ export function fold(events: EventRow[], now: string): Fold {
       onCourtSince = undefined;
     }
   }
-  // End Game is always the last Event, so a finished Game ends on its game_end
+  // a Game has ended while its last Event is a game_end; an Undo End Game retracts it and the Game is open again
   const last = events.at(-1);
   const endAt = last?.type === 'game_end' ? last.client_ts : now;
-  const score = latestScores(events);
+  const score = latestScores(live);
   // the Shift still on court runs to the strip's latest scores, and to the End Game once the Game is over
   if (onCourtSince) shifts.push(shiftBetween(onCourtSince, { at: endAt, scores: score }));
   const pitches = pitchesOf(live);
@@ -305,7 +300,7 @@ export function fold(events: EventRow[], now: string): Fold {
     live,
     counts: countOf(live),
     score,
-    period: currentPeriod(events),
+    period: currentPeriod(live),
     onCourt: onCourtSince !== undefined,
     onBase: onBaseOf(live),
     count: pitches.current.length > 0 ? pitchCountOf(pitches.current) : undefined,

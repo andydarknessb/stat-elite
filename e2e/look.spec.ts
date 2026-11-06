@@ -1,5 +1,21 @@
-import { expect, test, type Page } from '@playwright/test';
-import { addFirstAthlete, startGame } from './recorder';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { addFirstAthlete, startGame, tapCourt } from './recorder';
+
+// the px between a section's first two result rows: Recent Games and the Games feed space their rows alike (#243)
+function rowGap(section: Locator): Promise<number> {
+  return section.locator('.result-row').evaluateAll((rows) => rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().bottom);
+}
+
+// Tabs from the page's start until the named button has focus, as a keyboard Recorder reaches it, so the ring shows in every browser (#249)
+async function tabTo(page: Page, name: string) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const button = page.getByRole('button', { name, exact: true });
+  for (let presses = 0; presses < 200; presses++) {
+    if (await button.evaluate((el) => el === document.activeElement)) return;
+    await page.keyboard.press('Tab');
+  }
+  throw new Error(`Tab never reached the ${name} button`);
+}
 
 // runs in the page: one line per failing text element (contrast) or tap target (size)
 function auditScreen(screen: string): string[] {
@@ -66,6 +82,13 @@ function auditScreen(screen: string): string[] {
     }
   }
 
+  // every second-level heading is set in Barlow Condensed, the card, form and Games-feed headings alike (#243)
+  for (const el of Array.from(document.querySelectorAll('h2'))) {
+    if (!shown(el)) continue;
+    const family = getComputedStyle(el).fontFamily;
+    if (!/^"?Barlow Condensed"?/.test(family)) failures.push(`${screen}: "${clean(el.textContent ?? '')}" (h2) is set in ${family}, needs Barlow Condensed`);
+  }
+
   for (const el of Array.from(document.querySelectorAll('button, a[href], input:not([type=hidden]), select'))) {
     if (!shown(el)) continue;
     const r = el.getBoundingClientRect();
@@ -74,6 +97,47 @@ function auditScreen(screen: string): string[] {
     failures.push(
       `${screen}: "${clean(label) || el.tagName.toLowerCase()}" (${el.tagName.toLowerCase()}) is ${r.width.toFixed(1)}×${r.height.toFixed(1)} px, needs 44×44`,
     );
+  }
+
+  // non-text contrast: an input or select's edge is 3:1 against the backdrop it sits on (#249)
+  for (const el of Array.from(document.querySelectorAll('input:not([type=hidden]), select'))) {
+    if (!shown(el) || !el.parentElement) continue;
+    const bg = backdrop(el.parentElement);
+    const ratio = contrast(over(rgba(getComputedStyle(el).borderTopColor), bg), bg);
+    const label = clean((el as HTMLInputElement).labels?.[0]?.textContent ?? el.getAttribute('aria-label') ?? el.tagName.toLowerCase());
+    if (Number.isNaN(ratio)) failures.push(`${screen}: "${label}" (${el.tagName.toLowerCase()}) has an edge colour the guard cannot read`);
+    else if (ratio < 3) failures.push(`${screen}: "${label}" (${el.tagName.toLowerCase()}) edge is ${ratio.toFixed(2)}:1, needs 3:1`);
+  }
+
+  // the focused control's ring is 3:1 against its own fill and against the surface behind it; a ring the guard cannot read fails (#249)
+  const focused = document.activeElement;
+  if (focused && focused.matches(':focus-visible')) {
+    const s = getComputedStyle(focused);
+    const ring = rgba(s.outlineColor);
+    const label = clean(focused.getAttribute('aria-label') ?? focused.textContent ?? '') || focused.tagName.toLowerCase();
+    if (s.outlineStyle !== 'solid' || Number.isNaN(ring[0])) {
+      failures.push(`${screen}: focused "${label}" has no readable focus ring (outline ${s.outlineStyle}, ${s.outlineColor})`);
+    } else {
+      const behind: [string, number[]][] = [
+        ['its own fill', backdrop(focused)],
+        ['the surface behind it', backdrop(focused.parentElement ?? focused)],
+      ];
+      for (const [where, under] of behind) {
+        const ratio = contrast(over(ring, under), under);
+        if (ratio < 3) failures.push(`${screen}: focus ring on "${label}" is ${ratio.toFixed(2)}:1 against ${where}, needs 3:1`);
+      }
+    }
+  }
+
+  // the pending Spot's edge is 3:1 against the court: its navy ring in Field mode, else its gold fill (#249)
+  const spot = document.querySelector('circle.spot');
+  if (spot) {
+    const s = getComputedStyle(spot);
+    const edge = rgba(s.stroke !== 'none' ? s.stroke : s.fill);
+    const court = backdrop(spot.closest('svg') ?? spot);
+    const ratio = contrast(over(edge, court), court);
+    if (Number.isNaN(ratio)) failures.push(`${screen}: the pending Spot's edge has a colour the guard cannot read`);
+    else if (ratio < 3) failures.push(`${screen}: the pending Spot's edge is ${ratio.toFixed(2)}:1 against the court, needs 3:1`);
   }
   return failures;
 }
@@ -89,11 +153,53 @@ async function auditSignIn(page: Page, theme: string): Promise<string[]> {
   return [...email, ...(await page.evaluate(auditScreen, `${theme}, sign-in code step`))];
 }
 
-// the Home-to-Games-to-Settings walk, shared by all three audits: basketball then softball finish, so Home lists both
+// the live screen at 320, 360 and 375px: the page does not scroll sideways; at the 390px phone its controls start and
+// end 16px in from the edges, as the gutters say (#244). Leaves the phone at 390px.
+async function narrowFailures(page: Page, screen: string): Promise<string[]> {
+  const failures: string[] = [];
+  const edges = await page.locator('main.live button, main.live .strip').evaluateAll((els) => {
+    // at Bleacher the Other stats page sits beside the Shots page and partly inside the phone's width, so the gutters
+    // count only the first .page; with no .pages (Standard, Compact) every button counts, as before (#247)
+    const first = document.querySelector('main.live .pages .page');
+    const boxes = els
+      .filter((el) => !el.closest('.pages') || first?.contains(el))
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0);
+    const rect = first?.getBoundingClientRect();
+    return {
+      left: Math.min(...boxes.map((r) => r.left)),
+      right: window.innerWidth - Math.max(...boxes.map((r) => r.right)),
+      firstPage: rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width } : null,
+    };
+  });
+  if (Math.abs(edges.left - 16) >= 0.5 || Math.abs(edges.right - 16) >= 0.5) {
+    const fp = edges.firstPage ? JSON.stringify(edges.firstPage) : 'none (no .pages)';
+    failures.push(
+      `${screen}: the controls start ${edges.left.toFixed(1)}px and end ${edges.right.toFixed(1)}px from the edges, needs 16 and 16; first .page rect ${fp}`,
+    );
+  }
+  for (const width of [320, 360, 375]) {
+    await page.setViewportSize({ width, height: 844 });
+    const [scroll, client] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+    if (scroll !== client) failures.push(`${screen}: the page is ${scroll}px wide at ${width}px, needs ${client}`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  return failures;
+}
+
+// the Home-to-Games-to-Settings walk, shared by all three audits: basketball then softball finish, so Home lists both;
+// the walk closes with a Compact basketball and softball Game for the narrow-width checks (#244)
 async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   const failures: string[] = [];
   const check = async (screen: string) => {
     failures.push(...(await page.evaluate(auditScreen, `${theme}, ${screen}`)));
+  };
+
+  // the tab bar's bottom edge is the phone's bottom edge on the three tab screens, however short they are (#243)
+  const tabBarRests = async (screen: string) => {
+    const bottom = await page.locator('nav.tabs').evaluate((bar) => bar.getBoundingClientRect().bottom);
+    const viewport = await page.evaluate(() => window.innerHeight);
+    expect.soft(bottom, `${screen}: the tab bar ends at ${bottom}, not at the viewport's ${viewport}`).toBeCloseTo(viewport, 0);
   };
 
   // the walk is audited at Standard; assert it, so a changed default cannot quietly audit Compact or Bleacher
@@ -106,22 +212,35 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await expect(page.getByRole('button', { name: 'End Game' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^OREB \d+$/ })).toBeVisible();
   await check('basketball live screen, Standard');
+  failures.push(...(await narrowFailures(page, 'basketball live screen, Standard')));
+  // a tap on the court leaves a pending Spot, whose edge the audit reads (#249)
+  await tapCourt(page, 50, 40);
+  await check('basketball live screen, Spot pending');
   await page.getByRole('button', { name: 'End Game' }).click();
-  await expect(page.getByRole('heading', { name: 'Finish game?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Final Score' })).toBeVisible();
   await check('basketball live screen, End Game form open');
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   // the softball live screen at Standard, with an Outcome armed; then the Game ends and Game Complete shows
   await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await expect(page.getByRole('button', { name: '2B', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await check('softball live screen, Outcome armed');
+  // keyboard focus on the gold Outcome, reached by Tab (#249)
+  await tabTo(page, '2B');
+  expect(await page.evaluate(() => document.activeElement?.matches(':focus-visible') ?? false)).toBe(true);
+  await check('softball live screen, Outcome armed, focused');
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  // the double put the Athlete on second: a single armed now is the Athlete-on-base state the narrow check needs (#244)
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await expect(page.getByRole('button', { name: '1B', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('group', { name: 'Base' })).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'softball live screen, Athlete on base, Outcome armed, Standard')));
   await page.getByRole('button', { name: '0 RBI' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('3');
   await page.getByLabel('Opponent final').fill('1');
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
   await check('Game Complete');
   await page.getByRole('button', { name: 'Done' }).click();
@@ -130,8 +249,18 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await expect(page.getByRole('region', { name: 'Season' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Recent Games' })).toBeVisible();
   await check('Home');
+  await tabBarRests('Home');
+  const recent = page.getByRole('region', { name: 'Recent Games' });
+  await expect(recent.locator('.result-row')).toHaveCount(2);
+  const recentGap = await rowGap(recent);
 
+  // both finished Games are Today, so the feed's Today group holds both rows: its rows must space as Recent Games' do
   await page.getByRole('button', { name: 'Games', exact: true }).click();
+  const today = page.getByRole('region', { name: 'Today' });
+  await expect(today.locator('.result-row')).toHaveCount(2);
+  await tabBarRests('Games tab');
+  expect.soft(await rowGap(today), 'Games rows space as Recent Games rows do').toBeCloseTo(recentGap, 1);
+
   await page.getByRole('button', { name: 'Softball', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Softball', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: /H\/AB/ })).toBeVisible();
@@ -140,11 +269,67 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: 'Insights', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Insights' })).toBeVisible();
   await check('Insights tab');
+  await tabBarRests('Insights tab');
 
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await check('Settings');
+
+  // the same two live screens at Compact, a Game each: the size is set on Settings before the Game starts (#244)
+  const compact = page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Compact', exact: true });
+  await compact.click();
+  await expect(compact).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Done' }).click();
+  await startGame(page);
+  await expect(page.locator('main.live.compact')).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'basketball live screen, Compact')));
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await expect(page.getByRole('button', { name: '1B', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('group', { name: 'Base' })).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'softball live screen, Athlete on base, Outcome armed, Compact')));
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByLabel('Casey final').fill('3');
+  await page.getByLabel('Opponent final').fill('1');
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  // the same two live screens at Bleacher, a Game each: the two-page switch and the shot controls under the court hold 320–375px too (#247)
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const bleacher = page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Bleacher', exact: true });
+  await bleacher.click();
+  await expect(bleacher).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Done' }).click();
+  await startGame(page);
+  await expect(page.locator('main.live.bleacher')).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'basketball live screen, Bleacher')));
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await expect(page.getByRole('button', { name: '1B', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('group', { name: 'Base' })).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'softball live screen, Athlete on base, Outcome armed, Bleacher')));
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByLabel('Casey final').fill('3');
+  await page.getByLabel('Opponent final').fill('1');
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
   return failures;
 }
 

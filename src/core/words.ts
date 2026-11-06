@@ -1,4 +1,4 @@
-import type { AthleteFate, FeedGame, Line } from './appCore';
+import type { AthleteFate, FeedGame, Line, Zone } from './appCore';
 import type { Batting, StrikeKind, Undoable, UndoableType } from './eventLog';
 import type { BaseMove, Outcome, Pitch, TileEventType } from './store';
 
@@ -65,6 +65,17 @@ export const baseLabel = (base: BaseMove, stolen?: boolean) => `${BASE_LABELS[ba
 
 export const freeThrowLabel = (made?: boolean) => (made ? 'Free Throw made' : 'Free Throw missed');
 export const shotLabel = (value: 2 | 3 | undefined, made?: boolean) => `${made ? 'Made' : 'Missed'} ${value}PT`;
+/** A Zone in words, as the court names the place a Shot would count (GLOSSARY: Zone). */
+const ZONE_LABELS: Record<Zone, string> = {
+  rim: 'Rim',
+  'mid-left': 'Mid-range left',
+  'mid-center': 'Mid-range center',
+  'mid-right': 'Mid-range right',
+  'three-left': 'Three-point left',
+  'three-center': 'Three-point center',
+  'three-right': 'Three-point right',
+};
+export const zoneLabel = (zone: Zone) => ZONE_LABELS[zone];
 /** A Shift's time as m:ss. */
 export const clockOf = (ms: number) => {
   const seconds = Math.floor(ms / 1000);
@@ -100,6 +111,18 @@ export const fateLine = (athlete: AthleteFate): string => {
     return `${athlete.name}: deleted with ${athlete.games} ${athlete.games === 1 ? 'Game' : 'Games'} and their Events.`;
   }
   return `${athlete.name}: you leave it; the Games you recorded stay with it.`;
+};
+
+/** A Game's stored calendar date in words: "Thu, Nov 5", with the year when it isn't this year. Read in UTC, so no time zone moves the day. */
+export const gameDateText = (stored: string, today: Date) => {
+  const [year, month, day] = stored.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: year === today.getFullYear() ? undefined : 'numeric',
+    timeZone: 'UTC',
+  }).format(Date.UTC(year, month - 1, day));
 };
 
 /** A count with its sign, as Plus/Minus reads: +3, 0, -2. */

@@ -6,3 +6,7 @@ coverage/
 *.local
 test-results/
 playwright-report/
+.claude
+.vitest
+graphify-out
+supabase/.temp

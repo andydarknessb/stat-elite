@@ -18,7 +18,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 |---|---|---|
 | Sign in | StatElite's name and one line on what it does, install prompt, email with a note on how it is used, then the emailed code. "Getting your Athletes…" with Retry until the first download finishes | — |
 | First run | After sign-in, when the Account has no Athletes: "Add Athlete" form (name, number, optional photo), with "Signed in as" and Sign out | — |
-| Home | Athlete photo, Start Game, Add past Game, season line, recent Games. Tapping the photo switches Athlete when the account has more than one | MyKidDid dashboard |
+| Home | Athlete photo, Start Game, Add past Game, season line, recent Games. A Phone opens on the Athlete with the newest Game that isn't removed, or the first Athlete added when none has one, and keeps that until someone switches. Tapping the photo switches Athlete when the account has more than one | MyKidDid dashboard |
 | Game setup | Sport, Opponent, date, period format, all prefilled from the last Game so starting is one tap | — |
 | Live game, basketball | Shift timer and Sub In/Out toggle on top, Team–Opponent strip, half court for Shots, Free Throw row, 2-column stat tiles with live counts | Stattie (shift bar), Buckets (tiles, Free Throw row) |
 | Live game, softball/baseball | Team–Opponent strip, optional Pitch buttons, Outcome grid, RBI chips, diamond for the Athlete only | spec's Plate Appearance flow |
@@ -28,7 +28,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
 | Athlete sharing | Invite co-parent (link through the share sheet, labelled with the Athlete's name), Members list, Remove Member (Owner only), Leave (Members). Remove and Leave ask first, and a removed Member's phone says so once. The invitee sees the Athlete's name once joined; an old link says it has been used, and a connection failure offers Retry. Members also edit the Athlete's name and number, from Home's Edit | — |
 
-Navigation: bottom tabs Home · Games · Insights · Settings.
+Navigation: bottom tabs Home · Games · Insights. Settings sits behind the gear on Home.
 
 Interaction rules:
 
@@ -85,12 +85,12 @@ Interaction rules:
 
 ## Before the first family
 
-1. The four Must fix tickets from Spec #197 merge into `integration`: #198, #199, #200, #201.
-2. Promotion: a PR from `integration` into `main` that a human merges, once `supabase migration list --remote` shows nothing missing (#212).
-3. Netlify production moves to `main`, and `integration` keeps a branch deploy on the same Supabase project, so every migration must keep the app on `main` working. The `test` check is required on both branches (#212).
-4. On production: a real sign-in from an address outside the Supabase team, and a by-hand iPhone pass (#149).
+- On production: a real sign-in from an address outside the Supabase team (#149), and a by-hand iPhone pass (#242).
+- Fixes from #241: the End Game form, sideways scroll on narrow screens, the floating tab bar, the toast over the Period row, and the safe areas.
 
-The Spec's other tickets ship in later promotions.
+## Promotion
+
+A PR from `integration` into `main`, which a human merges once `supabase migration list --remote` shows nothing missing. It takes a merge commit, because a squash makes the next promotion conflict with itself. The repo's rulesets require the `test` check on both branches. Spec #197's remaining tickets ship in later promotions.
 
 ## Cut from v1
 
@@ -100,6 +100,6 @@ Streak evaluator · video highlights and training log · live viewing · backgro
 
 React + TypeScript + Vite, vite-plugin-pwa 2 (Workbox 7), Dexie 4, supabase-js. The outbox is our own code; PowerSync was rejected in ADR 0001.
 
-Hosting: Netlify serves https://stat-elite.netlify.app, rebuilt from `integration` on every push (`netlify.toml`), until #212 moves production to `main`. The Supabase env vars live in Netlify, not the repo.
+Hosting: Netlify serves production at https://stat-elite.netlify.app, rebuilt from `main` on every push, and `integration` at https://integration--stat-elite.netlify.app. Netlify's project settings name those branches, and `netlify.toml` holds the build. Both deploys use one Supabase project, so every migration must keep the app on `main` working. The Supabase env vars live in Netlify, not the repo.
 
 Minimum platform: iOS 16.4, the first version with OffscreenCanvas, and current Chrome on Android.

@@ -9,7 +9,7 @@ export default defineConfig({
     baseURL: deployed || 'http://localhost:4173',
     viewport: { width: 390, height: 844 },
   },
-  // WebKit is not iOS Safari; the by-hand iPhone pass (#149) stays
+  // WebKit is not iOS Safari; the by-hand iPhone pass (#242) stays
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },
     { name: 'webkit', use: { browserName: 'webkit' } },

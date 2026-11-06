@@ -39,7 +39,8 @@ export async function startGame(page: Page, { sport = 'basketball', periodFormat
     await page.getByRole('button', { name: 'Done', exact: true }).click();
   }
   await page.getByRole('button', { name: 'Start Game' }).click();
-  if (sport !== 'basketball') await page.getByLabel('Sport').selectOption(sport);
+  // always set: the setup form keeps the last sport, so a basketball Game after a softball one would start as softball
+  await page.getByLabel('Sport').selectOption(sport);
   if (periodFormat) await page.getByLabel('Period format').selectOption(periodFormat);
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   if (sport === 'basketball') await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();
@@ -55,7 +56,7 @@ export async function tapCourt(page: Page, x: number, y: number) {
 }
 
 /**
- * Confirms the End Game form, which the caller has open from the live screen: fills the Final Score when one
+ * Saves the Final Score form, which the caller has open from the live screen: fills the Final Score when one
  * is given, then waits for Game Complete. Without a Final Score the form keeps the Game's own score.
  */
 export async function endGame(page: Page, final?: { teamLabel: string; teamScore: string; opponentScore: string }) {
@@ -63,7 +64,7 @@ export async function endGame(page: Page, final?: { teamLabel: string; teamScore
     await page.getByLabel(`${final.teamLabel} final`).fill(final.teamScore);
     await page.getByLabel('Opponent final').fill(final.opponentScore);
   }
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
 }
 

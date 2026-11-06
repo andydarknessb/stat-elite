@@ -34,6 +34,20 @@ export class CodeTooSoon extends Error {
   }
 }
 
+/** A row the server answered with an error code and will not take: a CHECK, a unique key, or row-level security. The phone keeps it queued and says so (Refused Row). */
+export class RowRefused extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+// the stand-in's one address whose uploads the server refuses, so a spec can reach the Refused Row notice (#208)
+const REFUSED_EMAIL = 'refused@example.com';
+// the stand-in's one address whose first Invite accept fails without a refusal, so a spec can reach Retry (#210)
+const NO_ANSWER_EMAIL = 'no-answer@example.com';
+
 /** The backend App Core syncs with: Supabase in a configured build, the in-memory stand-in on localhost. */
 export interface Server {
   /** The signed-in account's id, or undefined when signed out. */
@@ -46,7 +60,7 @@ export interface Server {
   signIn(email: string): Promise<void>;
   /** Signs the account in with the code from the sign-in email. Rejects when the code is wrong or the server cannot be reached. */
   verifyCode(email: string, code: string): Promise<void>;
-  /** Writes one row. Rejects when the server cannot be reached or refuses the row; the outbox keeps it. */
+  /** Writes one row. Rejects with a RowRefused when the server answers that it will not take the row, and otherwise when it cannot be reached; the outbox keeps it either way. */
   upload(table: SyncedTable, row: UploadRow): Promise<void>;
   /** Every row of one table the signed-in account can see. Rejects when the server cannot be reached. */
   download<T extends SyncedTable>(table: T): Promise<SyncedRow[T][]>;
@@ -95,6 +109,7 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       const athlete = athleteOf(table, row);
       return row.owner_id === account || (account !== undefined && athlete !== undefined && members.has(`${athlete} ${account}`));
     };
+    let noAnswer = false;
     return {
       async session() {
         // as Supabase's getSession does, this await leaves Dexie's zone: a liveQuery stops observing at a non-Dexie await
@@ -123,10 +138,12 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       },
       async upload(table: SyncedTable, row: UploadRow) {
         reach();
+        // shortcut: one address stands in for the server refusing every row, so a spec can reach the Refused Row notice; upgrade when a test needs one row refused
+        if (account !== undefined && emails.get(account) === REFUSED_EMAIL) throw new RowRefused('stand-in', 'the server refused this row');
         const copy = rows[table].get(row.id);
         // an Event's (game_id, seq) is unique on the server (ADR 0001): a new Event at a taken seq is refused
         if (table === 'events' && !copy && [...rows.events.values()].some((e) => e.game_id === row.game_id && e.seq === row.seq)) {
-          throw new Error('duplicate key value violates unique constraint "events_game_id_seq_key"');
+          throw new RowRefused('23505', 'duplicate key value violates unique constraint "events_game_id_seq_key"');
         }
         // an Event is never edited, so a repeat changes nothing; an Athlete or Game keeps the newer copy
         if (!copy || (table !== 'events' && (copy.updated_at ?? '') <= (row.updated_at ?? ''))) rows[table].set(row.id, row);
@@ -148,11 +165,16 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       async acceptInvite(token: string) {
         reach();
         if (account === undefined) throw new Error('Sign in before accepting an Invite');
+        // shortcut: the first accept by no-answer@example.com fails without a refusal, so a spec can reach Retry; upgrade when a test needs a real network failure
+        if (emails.get(account) === NO_ANSWER_EMAIL && !noAnswer) {
+          noAnswer = true;
+          throw new Error('The server did not answer');
+        }
         const invite = invites.get(token);
         if (!invite) throw new InviteRefused('unknown');
         if (invite.owner_id === account) throw new InviteRefused('own');
-        // the account that accepted it may accept again: a retry after a failed download
-        if (invite.used_by === account) return invite.athlete_id;
+        // the account that accepted it may accept again while it is still a Member: a retry after a failed download
+        if (invite.used_by === account && members.has(`${invite.athlete_id} ${account}`)) return invite.athlete_id;
         if (invite.used_by !== undefined) throw new InviteRefused('used');
         if (invite.expires <= Date.now()) throw new InviteRefused('expired');
         members.set(`${invite.athlete_id} ${account}`, { joined_at: new Date().toISOString(), email: emails.get(account) ?? null });
@@ -222,6 +244,10 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
   return { ...phone(), rows, uploads, invites, phone };
 }
 
+/** A failed write as the server answered it: an error with a code on a 4xx is a refusal; a 401 is an expired or bad token, a sign-in problem; a 5xx is the server not answering now, so its row waits with no notice (#237), a persistent one too, so a server bug that answers 500 shows only the count; a failed fetch has no code. */
+const rowFailure = (error: { code?: string; message: string }, status?: number) =>
+  error.code && status !== 401 && (status ?? 0) < 500 ? new RowRefused(error.code, error.message) : error;
+
 /** Supabase through its client: the server the deployed app syncs with. */
 export function createSupabaseServer(client: SupabaseClient): Server {
   const session = async () => (await client.auth.getSession()).data.session?.user.id;
@@ -257,13 +283,13 @@ export function createSupabaseServer(client: SupabaseClient): Server {
       const memberEdit = table === 'athletes' && (await isMemberOf(row));
       if (!memberEdit) {
         // Events are insert-only: a repeat of one already on the server is ignored (ADR 0001)
-        const { error } = await client.from(table).upsert(row, { ignoreDuplicates: true });
-        if (error) throw error;
+        const { error, status } = await client.from(table).upsert(row, { ignoreDuplicates: true });
+        if (error) throw rowFailure(error, status);
       }
       // an Athlete or Game is replaced only by a copy at least as new: latest edit wins
       if (table !== 'events') {
-        const { error: stale } = await client.from(table).update(row).eq('id', row.id).lte('updated_at', row.updated_at);
-        if (stale) throw stale;
+        const { error: stale, status } = await client.from(table).update(row).eq('id', row.id).lte('updated_at', row.updated_at);
+        if (stale) throw rowFailure(stale, status);
       }
     },
     async download<T extends SyncedTable>(table: T) {

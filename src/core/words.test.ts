@@ -1,7 +1,37 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { AthleteFate } from './appCore';
 import type { Undoable } from './eventLog';
-import { clockOf, fateLine, initials, rateText, resultOf, undoLabel } from './words';
+import { clockOf, fateLine, gameDateText, initials, rateText, resultOf, undoLabel, zoneLabel } from './words';
+
+const GAME_DATE_ROWS = [
+  ['2026-11-05', 'Thu, Nov 5'],
+  ['2025-11-08', 'Sat, Nov 8, 2025'],
+] as const;
+
+it.each(GAME_DATE_ROWS)('gameDateText(%s) is %s, with today 2026-11-05', (stored, text) => {
+  expect(gameDateText(stored, new Date(2026, 10, 5))).toBe(text);
+});
+
+it('gameDateText reads the same dates with the process time zone set to America/Los_Angeles', () => {
+  vi.stubEnv('TZ', 'America/Los_Angeles');
+  try {
+    expect(GAME_DATE_ROWS.map(([stored]) => gameDateText(stored, new Date(2026, 10, 5)))).toEqual(GAME_DATE_ROWS.map(([, text]) => text));
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it.each([
+  ['rim', 'Rim'],
+  ['mid-left', 'Mid-range left'],
+  ['mid-center', 'Mid-range center'],
+  ['mid-right', 'Mid-range right'],
+  ['three-left', 'Three-point left'],
+  ['three-center', 'Three-point center'],
+  ['three-right', 'Three-point right'],
+] as const)('zoneLabel(%s) is %s', (zone, label) => {
+  expect(zoneLabel(zone)).toBe(label);
+});
 
 it.each([
   [1 / 3, '.333'],

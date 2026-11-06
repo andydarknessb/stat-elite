@@ -1,16 +1,27 @@
 import type { CardInput } from './shareCard';
+import barlowCondensed from '@fontsource/barlow-condensed/files/barlow-condensed-latin-700-normal.woff2?url';
 
 // the card's side in pixels (plan: M4, a 1200×1200 card)
 const SIDE = 1200;
 const MARGIN = 60;
 
+// Barlow Condensed from the precached file, so it draws with no signal; a failed load leaves the font stack's system-ui
+async function loadFont(): Promise<void> {
+  try {
+    const face = new FontFace('Barlow Condensed', `url(${barlowCondensed})`, { weight: '700' });
+    (self as typeof self & { fonts: FontFaceSet }).fonts.add(await face.load());
+  } catch {
+    // no font: the card draws in system-ui, as before
+  }
+}
+
 /** One line of text, centred at height y, shrunk to fit the card's width. shortcut: no wrapping, so a long name shrinks rather than breaking, upgrade to wrapping if names get cut */
 function drawLine(ctx: OffscreenCanvasRenderingContext2D, text: string, y: number, size: number) {
   let px = size;
-  ctx.font = `bold ${px}px system-ui, sans-serif`;
+  ctx.font = `bold ${px}px "Barlow Condensed", system-ui, sans-serif`;
   while (ctx.measureText(text).width > SIDE - 2 * MARGIN && px > 24) {
     px -= 4;
-    ctx.font = `bold ${px}px system-ui, sans-serif`;
+    ctx.font = `bold ${px}px "Barlow Condensed", system-ui, sans-serif`;
   }
   ctx.fillText(text, SIDE / 2, y);
 }
@@ -25,10 +36,11 @@ async function decode(photo: Blob): Promise<ImageBitmap | undefined> {
 }
 
 async function drawCard({ athlete, photo, opponent, final, line }: CardInput): Promise<Blob> {
+  await loadFont();
   const canvas = new OffscreenCanvas(SIDE, SIDE);
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('no 2d context');
-  ctx.fillStyle = '#0f1216';
+  ctx.fillStyle = '#0b1020';
   ctx.fillRect(0, 0, SIDE, SIDE);
   const bitmap = photo ? await decode(photo) : undefined;
   if (bitmap) {
@@ -48,7 +60,9 @@ async function drawCard({ athlete, photo, opponent, final, line }: CardInput): P
   ctx.textBaseline = 'middle';
   drawLine(ctx, athlete, SIDE * 0.62, 110);
   drawLine(ctx, `vs ${opponent}`, SIDE * 0.7, 60);
+  ctx.fillStyle = '#f5b841';
   drawLine(ctx, `${final.team}–${final.opponent}`, SIDE * 0.82, 200);
+  ctx.fillStyle = '#ffffff';
   drawLine(ctx, line, SIDE * 0.92, 44);
   return canvas.convertToBlob({ type: 'image/png' });
 }

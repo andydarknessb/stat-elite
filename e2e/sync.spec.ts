@@ -20,7 +20,7 @@ test('a Game recorded offline uploads once the connection returns, and the badge
   await startGame(page);
   await page.getByRole('button', { name: /^STL/ }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   // the Athlete, the Game, the steal and the End Game
   await expect(page.getByText('4 not synced')).toBeVisible();
 
@@ -49,6 +49,35 @@ test('a wrong code on the sign-in screen offers a new code with the email kept, 
   await expect(page.getByText('0 not synced')).toBeVisible();
 });
 
+// Signed in as refused@example.com, the stand-in refuses every upload: Home says so, and the live screen does not (#208).
+test("a row the server refuses shows Home's notice, and the live screen does not", async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Email').fill('refused@example.com');
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await page.getByLabel('Code').fill('123456');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await addAthlete(page);
+
+  const notice = page.getByText("Some Games can't upload right now. They're safe on this phone.");
+  await expect(notice).toBeVisible();
+  await startGame(page);
+  await expect(notice).toBeHidden();
+});
+
+// Offline, with no row refused, Home does not show the notice while its rows wait on the phone (#208).
+test('offline, with rows waiting and none refused, Home does not show the notice', async ({ page, context }) => {
+  await addFirstAthlete(page);
+  await context.setOffline(true);
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
+  await expect(page.getByText(/^[1-9][0-9]* not synced$/)).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
+  await expect(page.getByText("Some Games can't upload right now. They're safe on this phone.")).toHaveCount(0);
+});
+
 // A Game recorded offline after sign-in uploads when the connection returns, with no tap in between (#48).
 test('a Game recorded offline after sign-in uploads when the connection returns, with no tap', async ({ page, context }) => {
   // the second guard as the first test has it: no request reaches Supabase from this flow (#76)
@@ -61,7 +90,7 @@ test('a Game recorded offline after sign-in uploads when the connection returns,
   await startGame(page);
   await page.getByRole('button', { name: /^STL/ }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByText('0 not synced')).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
 

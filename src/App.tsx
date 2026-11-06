@@ -1,38 +1,16 @@
-import { useEffect, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   BUTTON_SIZES,
   HALF_COURT,
   arcPreset,
-  backlogProblem,
-  BASE_LABELS,
-  baseLabel,
-  clockOf,
-  countFields,
-  EVENT_LABELS,
-  fateLine,
-  freeThrowLabel,
-  gameLineText,
-  initials,
   movesFrom,
-  notWhole,
-  OUTCOME_LABELS,
-  outcomeLabel,
-  PITCH_LABELS,
-  rateText,
-  resultOf,
+  zoneOf,
   SCORE_MAX,
   SIGN_OUT_REFUSED,
-  shotLabel,
-  signed,
-  TILE_LABELS,
-  textOf,
-  totalsOf,
-  undoLabel,
   type AppCore,
   type BacklogEntry,
   type Base,
   type ButtonSize,
-  type CountField,
   type GameFormat,
   type GameSetup,
   type FeedGame,
@@ -45,6 +23,29 @@ import {
   type Season,
   type TileEventType,
 } from './core/appCore';
+import { backlogProblem, countFields, notWhole, textOf, totalsOf, type CountField } from './core/totals';
+import { shrinkPhoto } from './photo';
+import {
+  BASE_LABELS,
+  baseLabel,
+  clockOf,
+  EVENT_LABELS,
+  fateLine,
+  freeThrowLabel,
+  gameDateText,
+  gameLineText,
+  initials,
+  OUTCOME_LABELS,
+  outcomeLabel,
+  PITCH_LABELS,
+  rateText,
+  resultOf,
+  shotLabel,
+  signed,
+  TILE_LABELS,
+  undoLabel,
+  zoneLabel,
+} from './core/words';
 import { CodeTooSoon, InviteRefused } from './core/server';
 import { renderShareCard } from './core/shareCard';
 import { OUTCOMES, PITCHES, type BaseMove, type Outcome, type Pitch } from './core/store';
@@ -99,6 +100,7 @@ function Screens() {
   if (!gameId && (phone.state === 'first-download' || (phone.state === 'session-ended' && phone.firstDownload))) return <FirstDownload />;
   return (
     <>
+      <RemovedAthletes />
       <NotSynced />
       {!home.athlete ? (
         <FirstRun />
@@ -116,16 +118,18 @@ function InviteScreen({ token, onDone }: { token: string; onDone: () => void }) 
   const phone = useLive((live) => live.phoneAccount(), []);
   const { run } = useCommand();
   const [athleteName, setAthleteName] = useState<string>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<unknown>();
+  // bumped by Retry, so the accept runs again with the link kept
+  const [attempt, setAttempt] = useState(0);
   // a phone whose session ended is not signed in until its remembered address signs in again (ADR 0007)
   const signedIn = phone?.state === 'signed-in' || phone?.state === 'first-download';
   useEffect(() => {
     if (!signedIn) return;
     run((core) => core.acceptInvite(token), {
       onDone: setAthleteName,
-      onRefused: (refused) => setError(refusalMessage(refused)),
+      onRefused: (refused) => setError(refused),
     });
-  }, [token, signedIn]);
+  }, [token, signedIn, attempt]);
   if (!phone) return null;
   if (!signedIn) {
     return (
@@ -146,10 +150,15 @@ function InviteScreen({ token, onDone }: { token: string; onDone: () => void }) 
     );
   }
   if (error) {
+    // a failure that is not a refusal keeps the link: Retry tries again, and Continue drops it beside it
+    const refused = error instanceof InviteRefused;
     return (
       <main>
-        <p role="alert">{error}</p>
-        <button className="primary" onClick={onDone}>Continue</button>
+        <p role="alert">{refusalMessage(error)}</p>
+        {!refused && (
+          <button className="primary" onClick={() => { setError(undefined); setAttempt((n) => n + 1); }}>Retry</button>
+        )}
+        <button className={refused ? 'primary' : undefined} onClick={onDone}>Continue</button>
       </main>
     );
   }
@@ -174,6 +183,17 @@ function SignInAgain() {
       <h2>Sign in again to sync</h2>
       <p>Recording still works on this phone.</p>
       <SignInForm remembered={phone.email} />
+    </section>
+  );
+}
+
+/** Home's notice while the server refuses a row: the row stays on this phone, and the notice clears once that row leaves the Outbox (#208, #237). */
+function RefusedRow() {
+  const sync = useLive((live) => live.sync(), [], { optional: true });
+  if (!sync?.refused) return null;
+  return (
+    <section className="card">
+      <p>Some Games can&apos;t upload right now. They&apos;re safe on this phone.</p>
     </section>
   );
 }
@@ -282,6 +302,26 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
   );
 }
 
+/** A line per Athlete an Owner removed this account from, until its OK clears it: the root, so Home and first run both show it (ADR 0004). */
+function RemovedAthletes() {
+  const removed = useLive((live) => live.removedAthletes(), []);
+  const { run, alert } = useCommand();
+  if (!removed?.length) return null;
+  return (
+    <>
+      {removed.map(({ id, name }) => (
+        <section key={id}>
+          <p role="alert">You&apos;re no longer a Member of {name}. Anything not synced is gone.</p>
+          <button className="primary" onClick={() => run((core) => core.clearRemovedAthlete(id))}>
+            OK
+          </button>
+        </section>
+      ))}
+      {alert && <p role="alert">{alert}</p>}
+    </>
+  );
+}
+
 /** The "N not synced" badge: the rows that still live only on the phone. */
 function NotSynced() {
   const sync = useLive((live) => live.sync(), [], { optional: true });
@@ -357,6 +397,7 @@ function SignInForm({ remembered }: { remembered?: string }) {
   const address = (remembered ?? typed).trim();
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    setError(undefined);
     run((core) => core.signIn(address), {
       onDone: () => setSent(true),
       onRefused: (refusal) =>
@@ -369,6 +410,7 @@ function SignInForm({ remembered }: { remembered?: string }) {
   };
   const submitCode = (e: FormEvent) => {
     e.preventDefault();
+    setError(undefined);
     run((core) => core.verifyCode(address, code.trim()), {
       onRefused: () => setError('That code did not work. Check it and try again, or send a new code.'),
     });
@@ -439,11 +481,14 @@ function AthleteForm({ athlete, onDone }: { athlete?: AthleteFields; onDone?: ()
     e.preventDefault();
     // a second tap while the save is in flight would add a second Athlete: run's block refuses it
     if (!name.trim()) return;
-    const fields = { name: name.trim(), jerseyNumber: number, photo };
-    run<unknown>((core) => (athlete ? core.editAthlete({ id: athlete.id, ...fields }) : core.addAthlete(fields)), {
-      block: true,
-      onDone: () => onDone?.(),
-    });
+    // the photo is scaled inside the blocked command, so a second tap while it scales is refused as well
+    run<unknown>(
+      async (core) => {
+        const fields = { name: name.trim(), jerseyNumber: number, photo: photo && (await shrinkPhoto(photo)) };
+        return athlete ? core.editAthlete({ id: athlete.id, ...fields }) : core.addAthlete(fields);
+      },
+      { block: true, onDone: () => onDone?.() },
+    );
   };
   return (
     <main>
@@ -622,14 +667,14 @@ function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['nex
   }
   if (tab === 'games' || tab === 'insights') {
     return (
-      <>
+      <div className="tab-screen">
         {tab === 'games' ? <GamesTab key={athlete.id} athleteId={athlete.id} onOpen={setSummary} /> : <InsightsTab athleteId={athlete.id} />}
         <TabBar tab={tab} onTab={setTab} />
-      </>
+      </div>
     );
   }
   return (
-    <>
+    <div className="tab-screen">
       <main>
         <header className="home-head">
           <div className="wordmark" role="img" aria-label="StatElite">
@@ -641,6 +686,7 @@ function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['nex
           </button>
         </header>
         <SignInAgain />
+        <RefusedRow />
         <div className="athlete">
           <SwitchPhoto athlete={athlete} next={next} />
           <h1>{athlete.name}</h1>
@@ -665,9 +711,9 @@ function HomeScreen({ athlete, next }: { athlete: AthleteFields; next: Home['nex
           <Members athleteId={athlete.id} name={athlete.name} />
         </section>
       </main>
-      <TabBar tab={tab} onTab={setTab} />
       <InstallPrompt />
-    </>
+      <TabBar tab={tab} onTab={setTab} />
+    </div>
   );
 }
 
@@ -718,19 +764,19 @@ function Icon({ name }: { name: keyof typeof ICONS }) {
 function TabBar({ tab, onTab }: { tab: Tab; onTab: (tab: Tab) => void }) {
   return (
     <nav className="tabs" aria-label="Tabs">
-      <button aria-pressed={tab === 'home'} onClick={() => onTab('home')}>
+      <button aria-current={tab === 'home' ? 'page' : undefined} onClick={() => onTab('home')}>
         <span className="tab-icon">
           <Icon name="home" />
         </span>
         Home
       </button>
-      <button aria-pressed={tab === 'games'} onClick={() => onTab('games')}>
+      <button aria-current={tab === 'games' ? 'page' : undefined} onClick={() => onTab('games')}>
         <span className="tab-icon">
           <Icon name="games" />
         </span>
         Games
       </button>
-      <button aria-pressed={tab === 'insights'} onClick={() => onTab('insights')}>
+      <button aria-current={tab === 'insights' ? 'page' : undefined} onClick={() => onTab('insights')}>
         <span className="tab-icon">
           <Icon name="insights" />
         </span>
@@ -756,7 +802,7 @@ function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: strin
         const rows = games.filter((game) => game.group === group);
         if (rows.length === 0) return null;
         return (
-          <section key={group} aria-label={GROUP_LABELS[group]}>
+          <section key={group} className="feed-group" aria-label={GROUP_LABELS[group]}>
             <h2>{GROUP_LABELS[group]}</h2>
             {rows.map((game) => (
               <ResultRow key={game.id} game={game} onOpen={onOpen} />
@@ -768,13 +814,12 @@ function FeedRows({ games, onOpen }: { games: FeedGame[]; onOpen: (gameId: strin
   );
 }
 
-const SPORT_ORDER: Season['sport'][] = ['basketball', 'softball', 'baseball'];
 const SPORT_LABELS: Record<Season['sport'], string> = { basketball: 'Basketball', softball: 'Softball', baseball: 'Baseball' };
 
 /** Home's season card: a chip for each sport with finished Games, its headline numbers and its Games count. The chip choice is screen state. */
 function SeasonCard({ feed }: { feed: GameFeed }) {
   const [chosen, setChosen] = useState<Season['sport']>();
-  const seasons = SPORT_ORDER.flatMap((sport) => feed.seasons.filter((season) => season.sport === sport));
+  const seasons = feed.seasons;
   const season = seasons.find((s) => s.sport === chosen) ?? seasons[0];
   if (!season) return null;
   const games = feed.games.filter((game) => game.sport === season.sport).length;
@@ -826,7 +871,7 @@ function ResultRow({ game, onOpen }: { game: FeedGame; onOpen: (gameId: string) 
       <span className="result-text">
         <span className="opponent">{game.opponent}</span>
         <span className="line">
-          {game.gameDate} · {gameLineText(game)}
+          {gameDateText(game.gameDate, new Date())} · {gameLineText(game)}
         </span>
         {game.sport === 'basketball' && <span className="line">Plus/Minus {game.backlogged ? '—' : signed(game.line.plusMinus)}</span>}
       </span>
@@ -897,7 +942,7 @@ function GamesTab({ athleteId, onOpen }: { athleteId: string; onOpen: (gameId: s
   const feed = useLive((live) => live.gameFeed(athleteId), [athleteId]);
   const [chosen, setChosen] = useState<Season['sport']>();
   if (!feed) return null;
-  const seasons = SPORT_ORDER.flatMap((sport) => feed.seasons.filter((season) => season.sport === sport));
+  const seasons = feed.seasons;
   const season = seasons.find((s) => s.sport === chosen);
   const games = season ? feed.games.filter((game) => game.sport === season.sport) : feed.games;
   return (
@@ -976,7 +1021,7 @@ function GameSummary({ gameId, onBack, onEdit, onRemoved }: { gameId: string; on
           </p>
         </div>
         <h1>{game.opponent}</h1>
-        <p>{game.gameDate}</p>
+        <p>{gameDateText(game.gameDate, new Date())}</p>
         <p>{gameLineText(game)}</p>
         {game.sport === 'basketball' && (
           <>
@@ -1285,6 +1330,7 @@ function ScoreSide({ label, value, onAdjust }: { label: string; value: number; o
 
 /** End Game: the Final Score, prefilled from the strip. Submit stays disabled until both sides have a whole number. */
 function EndGameForm({
+  formRef,
   run,
   gameId,
   athleteName,
@@ -1292,6 +1338,7 @@ function EndGameForm({
   onEnded,
   onCancel,
 }: {
+  formRef: RefObject<HTMLFormElement | null>;
   run: Run;
   gameId: string;
   athleteName: string;
@@ -1312,8 +1359,8 @@ function EndGameForm({
     run((core) => core.endGame(gameId, { teamScore: Number(team), opponentScore: Number(opponent) }));
   };
   return (
-    <form onSubmit={submit}>
-      <h2>Finish game?</h2>
+    <form ref={formRef} onSubmit={submit}>
+      <h2>Final Score</h2>
       <label>
         <ScoreLabel name={athleteName}>final</ScoreLabel>
         <input value={team} onChange={(e) => setTeam(e.target.value)} inputMode="numeric" autoComplete="off" />
@@ -1324,7 +1371,7 @@ function EndGameForm({
       </label>
       {!valid && <p role="alert">Scores are whole numbers from 0 to {SCORE_MAX}.</p>}
       <button className="primary" disabled={!valid}>
-        End Game
+        Save Final Score
       </button>
       <button type="button" onClick={onCancel}>
         Keep playing
@@ -1452,6 +1499,11 @@ const THREE_POINT_LINE = `M ${cornerFt} 0 V ${cornerEndFt} A ${arcFt} ${arcFt} 0
 
 /** A tap on the half court, and the value the arc presets it to, until MAKE or MISS records it. */
 type PendingShot = { x: number; y: number; value: 2 | 3 };
+// a keyboard Recorder's Spot starts in the key, a 2 (#248); one arrow press moves it 2% of the court, about a foot
+const KEY_START = { x: 50, y: 40 };
+const ARROW_STEP = 2;
+const ARROW_STEPS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+const clampSpot = (n: number) => Math.min(100, Math.max(0, n));
 
 /** Shot entry: tap the spot, then MAKE or MISS. Nothing is saved until the result tap (plan: Shot entry). */
 function ShotEntry({
@@ -1475,6 +1527,18 @@ function ShotEntry({
     const y = ((e.clientY - box.top) / box.height) * 100;
     setPending({ x, y, value: arcPreset(x, y) });
   };
+  // an arrow key steps the pending Spot, or the key's start when none is pending; the preset follows it as a tap's does (#248)
+  const nudge = (e: KeyboardEvent<SVGSVGElement>) => {
+    const step = ARROW_STEPS[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const from = pending ?? KEY_START;
+    const x = clampSpot(from.x + step[0] * ARROW_STEP);
+    const y = clampSpot(from.y + step[1] * ARROW_STEP);
+    setPending({ x, y, value: arcPreset(x, y) });
+  };
+  // the court's name says the Zone its Shot would count in, from the Spot and its current value (#248)
+  const name = pending ? `Half court, ${zoneLabel(zoneOf(pending.x, pending.y, pending.value))}, ${pending.value}PT` : 'Half court';
   // the arc presets the value; the Recorder can flip it until the result tap
   const flip = () => {
     if (pending) setPending({ ...pending, value: pending.value === 2 ? 3 : 2 });
@@ -1496,8 +1560,10 @@ function ShotEntry({
         viewBox={`0 0 ${widthFt} ${lengthFt}`}
         style={{ aspectRatio: `${widthFt} / ${lengthFt}` }}
         role="img"
-        aria-label="Half court"
+        aria-label={name}
+        tabIndex={0}
         onClick={place}
+        onKeyDown={nudge}
       >
         <rect x="0" y="0" width={widthFt} height={lengthFt} />
         <path d={THREE_POINT_LINE} />
@@ -1533,6 +1599,40 @@ function Diamond({ onBase }: { onBase: Base }) {
   );
 }
 
+/** Bleacher: two swipe pages, Shots then Other stats, under a switch that shows the page in view and scrolls to the other on tap (#247). */
+function BleacherPages({ shots, otherStats }: { shots: ReactNode; otherStats: ReactNode }) {
+  const pages = useRef<HTMLDivElement>(null);
+  const [inView, setInView] = useState<'Shots' | 'Other stats'>('Shots');
+  // a swipe or a tap that moves the pages past half their width puts the other page in view
+  const onScroll = () => {
+    const el = pages.current;
+    if (el) setInView(el.scrollLeft * 2 >= el.clientWidth ? 'Other stats' : 'Shots');
+  };
+  const show = (page: 'Shots' | 'Other stats') => {
+    const el = pages.current;
+    if (el) el.scrollTo({ left: page === 'Other stats' ? el.clientWidth : 0, behavior: 'smooth' });
+  };
+  return (
+    <>
+      <div className="sizes pages-switch">
+        {(['Shots', 'Other stats'] as const).map((page) => (
+          <button key={page} aria-pressed={inView === page} className={inView === page ? 'primary' : undefined} onClick={() => show(page)}>
+            {page}
+          </button>
+        ))}
+      </div>
+      <div className="pages" ref={pages} onScroll={onScroll}>
+        <section className="page" aria-label="Shots">
+          {shots}
+        </section>
+        <section className="page" aria-label="Other stats">
+          {otherStats}
+        </section>
+      </div>
+    </>
+  );
+}
+
 function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameId: string) => void; onDone: () => void }) {
   // the live Game re-reads each second, so the Shift timer and Playing Share keep running
   // shortcut: re-reads every Event of the Game each second, fine for one Game; upgrade to a UI-side clock if a Game's read gets slow
@@ -1549,6 +1649,12 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   // a write the store refused: the alert shows until the next write lands
   const { run, alert } = useCommand();
   const [ending, setEnding] = useState(false);
+  // the Final Score form opens at the screen's bottom edge, so Keep playing sits about where End Game was (#245)
+  const endForm = useRef<HTMLFormElement>(null);
+  const bringFormIntoView = () => endForm.current?.scrollIntoView({ block: 'end' });
+  useLayoutEffect(() => {
+    if (ending) bringFormIntoView();
+  }, [ending]);
   // the Outcome picked on softball or baseball, waiting for its RBI chip
   const [pending, setPending] = useState<Outcome>();
   // the Stole option: on while the next base move is a steal
@@ -1575,9 +1681,12 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   }, [game]);
   if (!game) return null;
   if (game.final) {
+    // Undo End Game until Done: it retracts the End Game, and the Game returns to the live screen (ADR 0001)
     return (
       <main>
         <GameComplete gameId={gameId} onDone={onDone} />
+        {alert && <p role="alert">{alert}</p>}
+        <button onClick={() => run((core) => core.undo(gameId))}>Undo End Game</button>
         <button onClick={onDone}>
           Done
         </button>
@@ -1728,7 +1837,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
           ['OBP', rateText(game.batting.obp)],
           ['SLG', rateText(game.batting.slg)],
         ].map(([stat, value]) => (
-          <div key={stat} className="batting-card" role="group" aria-label={stat}>
+          <div key={stat} className="batting-card">
             <dt>{stat}</dt>
             <dd>{value}</dd>
           </div>
@@ -1738,6 +1847,8 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   );
   return (
     <main className={`live ${size}`}>
+      {/* the screen's one heading, read by a screen reader and not shown (#249) */}
+      <h1 className="visually-hidden">{`${game.athleteName}'s live ${game.sport} Game`}</h1>
       {game.sport === 'basketball' && (
         <section className="shift" aria-label="Shift">
           <button className={game.onCourt ? 'primary' : undefined} onClick={sub}>
@@ -1778,32 +1889,37 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       {game.sport !== 'basketball' ? (
         plateAppearance
       ) : size === 'bleacher' ? (
-        <div className="pages">
-          <section className="page" aria-label="Shots">
-            {shots}
-          </section>
-          <section className="page" aria-label="Other stats">
-            {otherStats}
-          </section>
-        </div>
+        <BleacherPages shots={shots} otherStats={otherStats} />
       ) : (
         <>
           {shots}
           {otherStats}
         </>
       )}
-      <button className="undo" disabled={!game.undoable} onClick={undo}>
-        {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
-      </button>
+      <div className="undo-slot">
+        <button className="undo" disabled={!game.undoable} onClick={undo}>
+          {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
+        </button>
+        {/* the toast covers the Undo button it names; its status region is mounted from the start, so each new text is announced (#246) */}
+        <div className="toast" role="status">
+          {toast && (
+            <>
+              <span>
+                <span aria-hidden="true">✓</span> {toast.label}
+              </span>
+              <button onClick={undo}>Undo</button>
+            </>
+          )}
+        </div>
+      </div>
       {/* the Period sits on the End Game row, so the live screen keeps its height at every Button Size */}
       <div className="period-row">
-        {game.periodLabel && (
-          <>
-            <span className="period">{game.periodLabel}</span>
-            <button onClick={nextPeriod}>Next period</button>
-          </>
-        )}
-        {!ending && <button onClick={() => setEnding(true)}>End Game</button>}
+        <span className="period">{game.periodLabel}</span>
+        <button onClick={nextPeriod}>Next period</button>
+        {/* a second tap while the form is open only brings it back into view */}
+        <button className={ending ? 'primary' : undefined} aria-expanded={ending} onClick={() => (ending ? bringFormIntoView() : setEnding(true))}>
+          End Game
+        </button>
         <button
           aria-label="Field mode"
           aria-pressed={field}
@@ -1818,6 +1934,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       </div>
       {ending && (
         <EndGameForm
+          formRef={endForm}
           run={run}
           gameId={gameId}
           athleteName={game.athleteName}
@@ -1828,14 +1945,6 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
             onEnded(gameId);
           }}
         />
-      )}
-      {toast && (
-        <div className="toast" role="status">
-          <span>
-            <span aria-hidden="true">✓</span> {toast.label}
-          </span>
-          <button onClick={undo}>Undo</button>
-        </div>
       )}
     </main>
   );

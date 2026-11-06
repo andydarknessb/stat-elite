@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { gameDateText } from '../src/core/words';
 import { addFirstAthlete, startGame } from './recorder';
 
 /** A local calendar date, the given number of days from today (negative is back), as a date input reads it. */
@@ -40,7 +41,7 @@ test('a basketball Game added from Home opens its summary with no Game Complete,
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   const earlier = page.getByRole('region', { name: 'Earlier' });
-  await expect(earlier.getByRole('button', { name: /Lions/ })).toContainText(played);
+  await expect(earlier.getByRole('button', { name: /Lions/ })).toContainText(gameDateText(played, new Date()));
   await expect(earlier.getByRole('button', { name: /Lions/ })).toContainText('Plus/Minus —');
 });
 
@@ -109,7 +110,7 @@ test('a live Game has no Remove button, and a finished Game recorded here has Re
   await startGame(page);
   await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
@@ -123,7 +124,7 @@ test('a finished Game recorded here is removed from its summary after confirming
   await addFirstAthlete(page);
   await startGame(page);
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();

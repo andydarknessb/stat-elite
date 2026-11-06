@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { addFirstAthlete } from './recorder';
 
 const IPHONE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Mobile/15E148 Safari/604.1';
@@ -11,6 +12,17 @@ test.describe('on iPhone', () => {
     await page.goto('/');
     const card = page.getByRole('region', { name: 'Add to Home Screen' });
     await expect(card).toContainText('tap Share, then Add to Home Screen');
+  });
+
+  test('on Home, the install card sits above the tab bar', async ({ page }) => {
+    await addFirstAthlete(page);
+    // a viewport taller than Home leaves the page unscrolled, so the tab bar sits in its flow place and is not pinned over the card
+    await page.setViewportSize({ width: 390, height: 2000 });
+    const card = page.getByRole('region', { name: 'Add to Home Screen' });
+    await expect(card).toBeVisible();
+    const cardBox = await card.boundingBox();
+    const tabsBox = await page.locator('nav.tabs').boundingBox();
+    expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(tabsBox!.y);
   });
 
   test('the sign-in screen puts the install card above the Email field, and dismissing it leaves the form usable', async ({ page }) => {

@@ -207,3 +207,77 @@ test('accepting an Invite resolves to the Athlete’s name, and the Athlete is o
   expect(await member.core.acceptInvite(token)).toBe('Casey');
   expect(await member.inspect.athletes.get(athleteId)).toMatchObject({ id: athleteId, name: 'Casey' });
 });
+
+test('the Owner removes a Member: its next download lists the Athlete by name, and the OK clears it', async () => {
+  const db = await schemaDatabase();
+  const owner = phone(db);
+  const member = phone(db);
+
+  await signIn(owner.core, 'casey@example.com');
+  const athleteId = await owner.core.addAthlete({ name: 'Casey' });
+  await settled(owner);
+  const token = await owner.core.createInvite(athleteId);
+
+  await signIn(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  await member.core.refresh();
+  await settled(member);
+
+  const [{ member_id }] = await owner.core.members(athleteId);
+  await owner.core.removeMember(athleteId, member_id);
+  await member.core.refresh();
+  await settled(member);
+
+  expect(await member.core.removedAthletes()).toEqual([{ id: athleteId, name: 'Casey' }]);
+  await member.core.clearRemovedAthlete(athleteId);
+  expect(await member.core.removedAthletes()).toEqual([]);
+});
+
+test('a Member who leaves records no removal, whether its rows were synced or still queued on the Athlete', async () => {
+  const db = await schemaDatabase();
+  const owner = phone(db);
+  const member = phone(db);
+
+  await signIn(owner.core, 'casey@example.com');
+  const athleteId = await owner.core.addAthlete({ name: 'Casey' });
+  await settled(owner);
+  const token = await owner.core.createInvite(athleteId);
+
+  await signIn(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  await member.core.refresh();
+  await settled(member);
+
+  await member.core.leave(athleteId);
+  expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
+  expect(await member.core.removedAthletes()).toEqual([]);
+});
+
+test('a Member who leaves with rows still queued on the Athlete drops it and records no removal', async () => {
+  const db = await schemaDatabase();
+  const owner = phone(db);
+  const member = phone(db);
+
+  await signIn(owner.core, 'casey@example.com');
+  const athleteId = await owner.core.addAthlete({ name: 'Casey' });
+  await settled(owner);
+  const token = await owner.core.createInvite(athleteId);
+
+  await signIn(member.core, 'sam@example.com');
+  await member.core.acceptInvite(token);
+  await member.core.refresh();
+  await settled(member);
+  const gameId = await member.core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-30', sport: 'basketball', periodFormat: 'quarters' });
+  await settled(member);
+
+  // the Owner removes the Member first, so the server refuses the rows this phone records next
+  const [{ member_id }] = await owner.core.members(athleteId);
+  await owner.core.removeMember(athleteId, member_id);
+  await member.core.recordTile(gameId, 'steal');
+  await member.core.flush();
+  expect((await member.core.sync()).notSynced).toBeGreaterThan(0);
+
+  await member.core.leave(athleteId);
+  expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
+  expect(await member.core.removedAthletes()).toEqual([]);
+});
