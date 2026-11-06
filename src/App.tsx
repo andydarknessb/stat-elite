@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   BUTTON_SIZES,
   HALF_COURT,
   arcPreset,
   movesFrom,
+  zoneOf,
   SCORE_MAX,
   SIGN_OUT_REFUSED,
   type AppCore,
@@ -41,6 +42,7 @@ import {
   signed,
   TILE_LABELS,
   undoLabel,
+  zoneLabel,
 } from './core/words';
 import { CodeTooSoon, InviteRefused } from './core/server';
 import { renderShareCard } from './core/shareCard';
@@ -1492,6 +1494,11 @@ const THREE_POINT_LINE = `M ${cornerFt} 0 V ${cornerEndFt} A ${arcFt} ${arcFt} 0
 
 /** A tap on the half court, and the value the arc presets it to, until MAKE or MISS records it. */
 type PendingShot = { x: number; y: number; value: 2 | 3 };
+// a keyboard Recorder's Spot starts in the key, a 2 (#248); one arrow press moves it 2% of the court, about a foot
+const KEY_START = { x: 50, y: 40 };
+const ARROW_STEP = 2;
+const ARROW_STEPS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+const clampSpot = (n: number) => Math.min(100, Math.max(0, n));
 
 /** Shot entry: tap the spot, then MAKE or MISS. Nothing is saved until the result tap (plan: Shot entry). */
 function ShotEntry({
@@ -1515,6 +1522,18 @@ function ShotEntry({
     const y = ((e.clientY - box.top) / box.height) * 100;
     setPending({ x, y, value: arcPreset(x, y) });
   };
+  // an arrow key steps the pending Spot, or the key's start when none is pending; the preset follows it as a tap's does (#248)
+  const nudge = (e: KeyboardEvent<SVGSVGElement>) => {
+    const step = ARROW_STEPS[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const from = pending ?? KEY_START;
+    const x = clampSpot(from.x + step[0] * ARROW_STEP);
+    const y = clampSpot(from.y + step[1] * ARROW_STEP);
+    setPending({ x, y, value: arcPreset(x, y) });
+  };
+  // the court's name says the Zone its Shot would count in, from the Spot and its current value (#248)
+  const name = pending ? `Half court, ${zoneLabel(zoneOf(pending.x, pending.y, pending.value))}, ${pending.value}PT` : 'Half court';
   // the arc presets the value; the Recorder can flip it until the result tap
   const flip = () => {
     if (pending) setPending({ ...pending, value: pending.value === 2 ? 3 : 2 });
@@ -1536,8 +1555,10 @@ function ShotEntry({
         viewBox={`0 0 ${widthFt} ${lengthFt}`}
         style={{ aspectRatio: `${widthFt} / ${lengthFt}` }}
         role="img"
-        aria-label="Half court"
+        aria-label={name}
+        tabIndex={0}
         onClick={place}
+        onKeyDown={nudge}
       >
         <rect x="0" y="0" width={widthFt} height={lengthFt} />
         <path d={THREE_POINT_LINE} />

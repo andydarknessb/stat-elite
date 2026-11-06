@@ -397,6 +397,12 @@ button:disabled {
   stroke: none;
 }
 
+/* The court takes keyboard focus (#248); the ring shows for keys, not taps. */
+.court:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* 3PT across the top, MAKE and MISS beneath it, the count under those. */
 .shot-controls {
   display: grid;
