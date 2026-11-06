@@ -165,12 +165,17 @@ test('the card with no photo draws the background and the Final Score', async ({
   expect(card.goldInScoreRows).toBeGreaterThan(1000);
 });
 
-test('with the Barlow Condensed files blocked, the card still draws', async ({ page }) => {
-  await keepSharedFiles(page);
-  await page.route(/barlow-condensed/, (route) => route.abort());
-  await endGameForShareCard(page);
-  const card = await tapShareCard(page);
-  expect(card).toMatchObject({ type: 'image/png', width: 1200, height: 1200 });
+test.describe('with the Barlow Condensed files blocked', () => {
+  // the service worker answers the font from precache where page.route never sees it, so it is blocked here
+  test.use({ serviceWorkers: 'block' });
+
+  test('the card still draws', async ({ page }) => {
+    await keepSharedFiles(page);
+    await page.route(/barlow-condensed/, (route) => route.abort());
+    await endGameForShareCard(page);
+    const card = await tapShareCard(page);
+    expect(card).toMatchObject({ type: 'image/png', width: 1200, height: 1200 });
+  });
 });
 
 test('where file sharing is unsupported, Share card downloads the 1200×1200 image', async ({ page }) => {
