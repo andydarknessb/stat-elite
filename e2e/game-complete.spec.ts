@@ -16,7 +16,7 @@ test('ending a Game opens Game Complete with the Final Score, the line and Plus/
   await page.getByRole('button', { name: /^AST \d+$/ }).click();
   await page.getByRole('button', { name: 'Sub Out' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();
   await expect(page.getByText('Casey 3 – Opponent 0')).toBeVisible();

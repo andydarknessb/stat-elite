@@ -56,7 +56,7 @@ export async function tapCourt(page: Page, x: number, y: number) {
 }
 
 /**
- * Confirms the End Game form, which the caller has open from the live screen: fills the Final Score when one
+ * Saves the Final Score form, which the caller has open from the live screen: fills the Final Score when one
  * is given, then waits for Game Complete. Without a Final Score the form keeps the Game's own score.
  */
 export async function endGame(page: Page, final?: { teamLabel: string; teamScore: string; opponentScore: string }) {
@@ -64,7 +64,7 @@ export async function endGame(page: Page, final?: { teamLabel: string; teamScore
     await page.getByLabel(`${final.teamLabel} final`).fill(final.teamScore);
     await page.getByLabel('Opponent final').fill(final.opponentScore);
   }
-  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
 }
 

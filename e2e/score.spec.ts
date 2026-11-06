@@ -17,10 +17,10 @@ test('a Recorder adjusts the strip, reloads and still sees the score, then ends 
 
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('');
-  await expect(page.getByRole('button', { name: 'End Game' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save Final Score', exact: true })).toBeDisabled();
   await page.getByLabel('Casey final').fill('9');
   await page.getByLabel('Opponent final').fill('7');
-  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();
   await expect(page.getByText('Casey 9 – Opponent 7')).toBeVisible();
@@ -31,20 +31,20 @@ test('a Recorder adjusts the strip, reloads and still sees the score, then ends 
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
 });
 
-test('End Game opens the Finish game form inline, and Keep playing closes it with the Game still live', async ({ page }) => {
+test('End Game opens the Final Score form inline, and Keep playing closes it with the Game still live', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page);
 
   await page.getByRole('button', { name: 'End Game' }).click();
-  await expect(page.getByText('Finish game?')).toBeVisible();
-  const title = page.getByRole('heading', { name: 'Finish game?' });
+  await expect(page.getByRole('heading', { name: 'Final Score' })).toBeVisible();
+  const title = page.getByRole('heading', { name: 'Final Score' });
   await expect(title).toHaveCSS('font-size', '22px');
   await expect(title).toHaveCSS('font-family', /Barlow Condensed/);
   await expect(title).toHaveCSS('margin-top', '0px');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Keep playing' }).click();
-  await expect(page.getByText('Finish game?')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Final Score' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'End Game' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Casey +1' }).click();
@@ -57,10 +57,10 @@ test('End Game refuses a Final Score above 999 with the whole-number message, an
 
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('1000');
-  await expect(page.getByRole('button', { name: 'End Game' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save Final Score', exact: true })).toBeDisabled();
   await expect(page.getByText('Scores are whole numbers from 0 to 999.')).toBeVisible();
   await page.getByLabel('Casey final').fill('999');
-  await expect(page.getByRole('button', { name: 'End Game' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Save Final Score', exact: true })).toBeEnabled();
 });
 
 test("the strip seeded at 999 disables Casey's +1", async ({ page }) => {
