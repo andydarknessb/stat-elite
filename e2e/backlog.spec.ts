@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { gameDateText } from '../src/core/words';
 import { addFirstAthlete, startGame } from './recorder';
 
 /** A local calendar date, the given number of days from today (negative is back), as a date input reads it. */
@@ -40,7 +41,7 @@ test('a basketball Game added from Home opens its summary with no Game Complete,
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   const earlier = page.getByRole('region', { name: 'Earlier' });
-  await expect(earlier.getByRole('button', { name: /Lions/ })).toContainText(played);
+  await expect(earlier.getByRole('button', { name: /Lions/ })).toContainText(gameDateText(played, new Date()));
   await expect(earlier.getByRole('button', { name: /Lions/ })).toContainText('Plus/Minus —');
 });
 
