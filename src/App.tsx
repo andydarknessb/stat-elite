@@ -759,19 +759,19 @@ function Icon({ name }: { name: keyof typeof ICONS }) {
 function TabBar({ tab, onTab }: { tab: Tab; onTab: (tab: Tab) => void }) {
   return (
     <nav className="tabs" aria-label="Tabs">
-      <button aria-pressed={tab === 'home'} onClick={() => onTab('home')}>
+      <button aria-current={tab === 'home' ? 'page' : undefined} onClick={() => onTab('home')}>
         <span className="tab-icon">
           <Icon name="home" />
         </span>
         Home
       </button>
-      <button aria-pressed={tab === 'games'} onClick={() => onTab('games')}>
+      <button aria-current={tab === 'games' ? 'page' : undefined} onClick={() => onTab('games')}>
         <span className="tab-icon">
           <Icon name="games" />
         </span>
         Games
       </button>
-      <button aria-pressed={tab === 'insights'} onClick={() => onTab('insights')}>
+      <button aria-current={tab === 'insights' ? 'page' : undefined} onClick={() => onTab('insights')}>
         <span className="tab-icon">
           <Icon name="insights" />
         </span>
@@ -1832,7 +1832,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
           ['OBP', rateText(game.batting.obp)],
           ['SLG', rateText(game.batting.slg)],
         ].map(([stat, value]) => (
-          <div key={stat} className="batting-card" role="group" aria-label={stat}>
+          <div key={stat} className="batting-card">
             <dt>{stat}</dt>
             <dd>{value}</dd>
           </div>
@@ -1842,6 +1842,8 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   );
   return (
     <main className={`live ${size}`}>
+      {/* the screen's one heading, read by a screen reader and not shown (#249) */}
+      <h1 className="visually-hidden">{`${game.athleteName}'s live ${game.sport} Game`}</h1>
       {game.sport === 'basketball' && (
         <section className="shift" aria-label="Shift">
           <button className={game.onCourt ? 'primary' : undefined} onClick={sub}>

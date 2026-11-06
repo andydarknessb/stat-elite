@@ -189,6 +189,23 @@ test('at Bleacher the toast sits exactly over the Undo button after a tap, and n
   await expectToastOverUndo(page);
 });
 
+// the live screen has one level-one heading, its batting line reads as terms with their values, and the active tab is the current page (#249)
+test('the softball live screen has one level-one heading, its batting line reads as terms, and the active tab is the current page', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
+
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+  const batting = page.locator('dl.batting');
+  await expect(batting.getByRole('group')).toHaveCount(0);
+  await expect(batting.getByRole('term')).toHaveText(['AVG', 'OBP', 'SLG']);
+  await expect(batting.getByRole('definition')).toHaveCount(3);
+
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveAttribute('aria-current', 'page');
+});
+
 test.describe('under dark', () => {
   test.use({ colorScheme: 'dark' });
 

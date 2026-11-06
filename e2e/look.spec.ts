@@ -1,9 +1,20 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { addFirstAthlete, startGame } from './recorder';
+import { addFirstAthlete, startGame, tapCourt } from './recorder';
 
 // the px between a section's first two result rows: Recent Games and the Games feed space their rows alike (#243)
 function rowGap(section: Locator): Promise<number> {
   return section.locator('.result-row').evaluateAll((rows) => rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().bottom);
+}
+
+// Tabs from the page's start until the named button has focus, as a keyboard Recorder reaches it, so the ring shows in every browser (#249)
+async function tabTo(page: Page, name: string) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const button = page.getByRole('button', { name, exact: true });
+  for (let presses = 0; presses < 200; presses++) {
+    if (await button.evaluate((el) => el === document.activeElement)) return;
+    await page.keyboard.press('Tab');
+  }
+  throw new Error(`Tab never reached the ${name} button`);
 }
 
 // runs in the page: one line per failing text element (contrast) or tap target (size)
@@ -87,6 +98,47 @@ function auditScreen(screen: string): string[] {
       `${screen}: "${clean(label) || el.tagName.toLowerCase()}" (${el.tagName.toLowerCase()}) is ${r.width.toFixed(1)}×${r.height.toFixed(1)} px, needs 44×44`,
     );
   }
+
+  // non-text contrast: an input or select's edge is 3:1 against the backdrop it sits on (#249)
+  for (const el of Array.from(document.querySelectorAll('input:not([type=hidden]), select'))) {
+    if (!shown(el) || !el.parentElement) continue;
+    const bg = backdrop(el.parentElement);
+    const ratio = contrast(over(rgba(getComputedStyle(el).borderTopColor), bg), bg);
+    const label = clean((el as HTMLInputElement).labels?.[0]?.textContent ?? el.getAttribute('aria-label') ?? el.tagName.toLowerCase());
+    if (Number.isNaN(ratio)) failures.push(`${screen}: "${label}" (${el.tagName.toLowerCase()}) has an edge colour the guard cannot read`);
+    else if (ratio < 3) failures.push(`${screen}: "${label}" (${el.tagName.toLowerCase()}) edge is ${ratio.toFixed(2)}:1, needs 3:1`);
+  }
+
+  // the focused control's ring is 3:1 against its own fill and against the surface behind it; a ring the guard cannot read fails (#249)
+  const focused = document.activeElement;
+  if (focused && focused.matches(':focus-visible')) {
+    const s = getComputedStyle(focused);
+    const ring = rgba(s.outlineColor);
+    const label = clean(focused.getAttribute('aria-label') ?? focused.textContent ?? '') || focused.tagName.toLowerCase();
+    if (s.outlineStyle !== 'solid' || Number.isNaN(ring[0])) {
+      failures.push(`${screen}: focused "${label}" has no readable focus ring (outline ${s.outlineStyle}, ${s.outlineColor})`);
+    } else {
+      const behind: [string, number[]][] = [
+        ['its own fill', backdrop(focused)],
+        ['the surface behind it', backdrop(focused.parentElement ?? focused)],
+      ];
+      for (const [where, under] of behind) {
+        const ratio = contrast(over(ring, under), under);
+        if (ratio < 3) failures.push(`${screen}: focus ring on "${label}" is ${ratio.toFixed(2)}:1 against ${where}, needs 3:1`);
+      }
+    }
+  }
+
+  // the pending Spot's edge is 3:1 against the court: its navy ring in Field mode, else its gold fill (#249)
+  const spot = document.querySelector('circle.spot');
+  if (spot) {
+    const s = getComputedStyle(spot);
+    const edge = rgba(s.stroke !== 'none' ? s.stroke : s.fill);
+    const court = backdrop(spot.closest('svg') ?? spot);
+    const ratio = contrast(over(edge, court), court);
+    if (Number.isNaN(ratio)) failures.push(`${screen}: the pending Spot's edge has a colour the guard cannot read`);
+    else if (ratio < 3) failures.push(`${screen}: the pending Spot's edge is ${ratio.toFixed(2)}:1 against the court, needs 3:1`);
+  }
   return failures;
 }
 
@@ -161,6 +213,9 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await expect(page.getByRole('button', { name: /^OREB \d+$/ })).toBeVisible();
   await check('basketball live screen, Standard');
   failures.push(...(await narrowFailures(page, 'basketball live screen, Standard')));
+  // a tap on the court leaves a pending Spot, whose edge the audit reads (#249)
+  await tapCourt(page, 50, 40);
+  await check('basketball live screen, Spot pending');
   await page.getByRole('button', { name: 'End Game' }).click();
   await expect(page.getByRole('heading', { name: 'Final Score' })).toBeVisible();
   await check('basketball live screen, End Game form open');
@@ -171,7 +226,10 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await expect(page.getByRole('button', { name: '2B', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await check('softball live screen, Outcome armed');
+  // keyboard focus on the gold Outcome, reached by Tab (#249)
+  await tabTo(page, '2B');
+  expect(await page.evaluate(() => document.activeElement?.matches(':focus-visible') ?? false)).toBe(true);
+  await check('softball live screen, Outcome armed, focused');
   await page.getByRole('button', { name: '0 RBI' }).click();
   // the double put the Athlete on second: a single armed now is the Athlete-on-base state the narrow check needs (#244)
   await page.getByRole('button', { name: '1B', exact: true }).click();

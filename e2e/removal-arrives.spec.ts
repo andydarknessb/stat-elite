@@ -72,7 +72,7 @@ test('a removal arriving on a summary opened from Games returns to the Games tab
   await removeFromOtherTab(context);
 
   await expect(page.getByRole('heading', { name: 'Games', level: 1 })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('button', { name: /Lions/ })).toHaveCount(0);
 });
 
@@ -82,7 +82,7 @@ test('a removal arriving on a summary opened from Home returns to Home', async (
   await removeFromOtherTab(context);
 
   await expect(page.getByRole('button', { name: 'Start Game' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('a removal arriving on an open Edit form keeps its entry, and Cancel then leaves the summary', async ({ page, context }) => {
@@ -113,7 +113,7 @@ test('Leave in another tab while an Edit form is open leaves the form, and the G
   await other.getByRole('button', { name: 'Yes, leave', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: 'Games', level: 1 })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Games', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('Leave asks first: Cancel keeps Casey on the Phone, and Yes, leave removes it', async ({ page, context }) => {
