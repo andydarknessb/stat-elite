@@ -192,7 +192,7 @@ button:disabled {
 .strip {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 16px;
   border-radius: 16px;
   background: var(--surface);
   text-align: center;
@@ -210,17 +210,17 @@ button:disabled {
 
 .strip .side > div {
   display: flex;
-  gap: 4px;
+  gap: 8px;
   align-items: center;
 }
 
 .strip button {
-  width: 44px;
+  width: 56px;
   font-size: 24px;
 }
 
 .strip .count {
-  min-width: 40px;
+  min-width: 48px;
   font-size: 32px;
   font-weight: 600;
 }
@@ -468,15 +468,6 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
-}
-
-/* Below 360px the four Pitch and Outcome columns keep their labels with 2px side padding, not 6px (#244). */
-@media (max-width: 359px) {
-  .pitches button,
-  .outcomes button {
-    padding-left: 2px;
-    padding-right: 2px;
-  }
 }
 
 .pitch-count {
