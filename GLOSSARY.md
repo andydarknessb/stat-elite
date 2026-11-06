@@ -104,12 +104,16 @@ _Avoid_: deletion, tombstone
 
 ## Basketball
 
+**Spot**:
+Where on the half court a Shot was taken, read across the court's width and along its length from the baseline.
+_Avoid_: location, coordinates, position
+
 **Shot**:
-A field-goal attempt: a spot on the court, a result (make or miss), and a value of 2 or 3.
+A field-goal attempt: a Spot, a result (make or miss), and a value of 2 or 3.
 _Avoid_: FG, attempt
 
 **Free Throw**:
-A one-point attempt from the line, recorded with a result and no spot.
+A one-point attempt from the line, recorded with a result and no Spot.
 _Avoid_: foul shot
 
 **Shift**:
@@ -173,7 +177,7 @@ Drill recommendations drawn from the Athlete's recent Games.
 _Avoid_: insights, practice insights, recommendations
 
 **Zone**:
-One of the places a Shot counts for Practice Focus: `rim` under 8 ft from the basket, or `mid` or `three` by the Shot's value, each on the `left` (`court_x` under 40), `center` (40 to 60 inclusive) or `right` (over 60) side.
+One of the places a Shot counts for Practice Focus: `rim` under 8 ft from the basket, or `mid` or `three` by the Shot's value, each on the `left` (the left 40% of the court's width), `center` (the middle 20%, edges included) or `right` (the right 40%) side.
 _Avoid_: area, section, region
 
 ## App
