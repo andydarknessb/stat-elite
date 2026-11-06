@@ -171,21 +171,30 @@ button:disabled {
   background: var(--surface);
 }
 
-/* Taps pass through the toast, except on its own Undo button. */
+/* The Undo button's slot: the toast covers that button, so the two share one box. */
+.undo-slot {
+  position: relative;
+  display: grid;
+}
+
+/* Taps pass through the toast, except on its own Undo button. Empty, the status region has no box, so the live screen keeps its height. */
 .toast {
-  position: fixed;
-  left: 16px;
-  right: 16px;
-  bottom: 16px;
+  position: absolute;
+  inset: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 8px 8px 16px;
+  padding: 0 8px 0 16px;
   border-radius: 12px;
   background: var(--text);
   color: var(--bg);
   font-weight: 600;
   pointer-events: none;
+}
+
+.toast:empty {
+  width: 0;
+  height: 0;
 }
 
 /* The Team–Opponent strip is one card: each side is a label over − count +, and Team's count is gold. */

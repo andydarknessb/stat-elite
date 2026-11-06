@@ -1,5 +1,25 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { addFirstAthlete, startGame } from './recorder';
+
+// The toast is the Undo button's box, so no Period row button sits under it (#246)
+async function expectToastOverUndo(page: Page) {
+  const toast = await page.getByRole('status').boundingBox();
+  const undo = await page.getByRole('button', { name: /^Undo \(last Event\)/ }).boundingBox();
+  if (!toast || !undo) throw new Error('the toast or the Undo button is not on screen');
+  // the boxes go into each failure message, so a red run shows where each element sat
+  const periodRow = [];
+  for (const button of await page.locator('.period-row button').all()) periodRow.push(await button.boundingBox());
+  const slot = await page.locator('.undo-slot').boundingBox();
+  const diagnostics = JSON.stringify({ toast, undo, slot, periodRow, viewport: page.viewportSize() });
+  for (const key of ['x', 'y', 'width', 'height'] as const) {
+    expect(Math.abs(toast[key] - undo[key]), `toast and Undo differ in ${key}: ${diagnostics}`).toBeLessThanOrEqual(1);
+  }
+  for (const box of periodRow) {
+    if (!box) throw new Error(`a Period row button is not on screen: ${diagnostics}`);
+    const overlaps = box.x < toast.x + toast.width && toast.x < box.x + box.width && box.y < toast.y + toast.height && toast.y < box.y + box.height;
+    expect(overlaps, `the toast overlaps a Period row button: ${diagnostics}`).toBe(false);
+  }
+}
 
 test('at Standard the basketball live screen fits a 390×844 phone with no vertical scroll', async ({ page }) => {
   await addFirstAthlete(page);
@@ -16,6 +36,41 @@ test('at Standard the basketball live screen fits a 390×844 phone with no verti
   await expect(page.getByRole('button', { name: 'End Game' })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
   await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('the toast sits exactly over the Undo button after a tap, and no Period row button is under it', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: /^STL/ }).click();
+
+  await expect(page.getByRole('status')).toBeVisible();
+  await expectToastOverUndo(page);
+});
+
+test('on softball, with the Athlete on base and an Outcome armed, the toast still sits over the Undo button', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Base', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'RBI' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Ball', exact: true }).click();
+  await expect(page.getByRole('status')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'RBI' })).toBeVisible();
+  // the Ball adds a Count line above the Undo button, which moves it down; the boxes are read once that line has landed
+  await expect(page.getByText(/^Count /)).toBeVisible();
+  await expectToastOverUndo(page);
+});
+
+test('the live screen has its status region before the first tap, and a tap names its Event in it', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  await expect(page.getByRole('status')).toHaveCount(1);
+
+  await page.getByRole('button', { name: /^STL/ }).click();
+  await expect(page.getByRole('status')).toContainText('STL');
 });
 
 test('a Free Throw records MAKE or MISS with no spot, and the row reads made/attempted', async ({ page }) => {
