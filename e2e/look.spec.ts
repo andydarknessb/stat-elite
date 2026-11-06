@@ -206,10 +206,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   // the same two live screens at Compact, a Game each: the size is set on Settings before the Game starts (#244)
   await page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Compact', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click();
-  // diagnostic (temporary): the page's accessible tree when the Compact Game does not reach its STL tile
-  await startGame(page).catch(async (error: Error) => {
-    throw new Error(`${error.message}\n${(await page.locator('body').ariaSnapshot()).slice(0, 6000)}`);
-  });
+  await startGame(page);
   failures.push(...(await narrowFailures(page, 'basketball live screen, Compact')));
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByRole('button', { name: 'End Game', exact: true }).click();
