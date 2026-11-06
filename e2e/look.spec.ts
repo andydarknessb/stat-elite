@@ -101,6 +101,26 @@ async function auditSignIn(page: Page, theme: string): Promise<string[]> {
   return [...email, ...(await page.evaluate(auditScreen, `${theme}, sign-in code step`))];
 }
 
+// the live screen at 320, 360 and 375px: the page does not scroll sideways; at the 390px phone its controls start and
+// end 16px in from the edges, as the gutters say (#244). Leaves the phone at 390px.
+async function narrowFailures(page: Page, screen: string): Promise<string[]> {
+  const failures: string[] = [];
+  const edges = await page.locator('main.live button, main.live .strip').evaluateAll((els) => {
+    const boxes = els.map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
+    return { left: Math.min(...boxes.map((r) => r.left)), right: window.innerWidth - Math.max(...boxes.map((r) => r.right)) };
+  });
+  if (Math.abs(edges.left - 16) >= 0.5 || Math.abs(edges.right - 16) >= 0.5) {
+    failures.push(`${screen}: the controls start ${edges.left.toFixed(1)}px and end ${edges.right.toFixed(1)}px from the edges, needs 16 and 16`);
+  }
+  for (const width of [320, 360, 375]) {
+    await page.setViewportSize({ width, height: 844 });
+    const [scroll, client] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+    if (scroll !== client) failures.push(`${screen}: the page is ${scroll}px wide at ${width}px, needs ${client}`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  return failures;
+}
+
 // the Home-to-Games-to-Settings walk, shared by all three audits: basketball then softball finish, so Home lists both
 async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   const failures: string[] = [];
@@ -125,6 +145,7 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await expect(page.getByRole('button', { name: 'End Game' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^OREB \d+$/ })).toBeVisible();
   await check('basketball live screen, Standard');
+  failures.push(...(await narrowFailures(page, 'basketball live screen, Standard')));
   await page.getByRole('button', { name: 'End Game' }).click();
   await expect(page.getByRole('heading', { name: 'Finish game?' })).toBeVisible();
   await check('basketball live screen, End Game form open');
@@ -136,6 +157,12 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await expect(page.getByRole('button', { name: '2B', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await check('softball live screen, Outcome armed');
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  // the double put the Athlete on second: a single armed now is the Athlete-on-base state the narrow check needs (#244)
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await expect(page.getByRole('button', { name: '1B', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('group', { name: 'Base' })).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'softball live screen, Athlete on base, Outcome armed, Standard')));
   await page.getByRole('button', { name: '0 RBI' }).click();
   await page.getByRole('button', { name: 'End Game' }).click();
   await page.getByLabel('Casey final').fill('3');
@@ -175,6 +202,29 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await check('Settings');
+
+  // the same two live screens at Compact, a Game each: the size is set on Settings before the Game starts (#244)
+  await page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Compact', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
+  await startGame(page);
+  failures.push(...(await narrowFailures(page, 'basketball live screen, Compact')));
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await expect(page.getByRole('button', { name: '1B', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  failures.push(...(await narrowFailures(page, 'softball live screen, Athlete on base, Outcome armed, Compact')));
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByLabel('Casey final').fill('3');
+  await page.getByLabel('Opponent final').fill('1');
+  await page.getByRole('button', { name: 'End Game', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
   return failures;
 }
 
