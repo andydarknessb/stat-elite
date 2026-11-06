@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { gameDateText } from '../src/core/words';
 import { addFirstAthlete, startGame, tapCourt } from './recorder';
 
 test('Home shows the season line, and the Games tab lists the finished Game, whose row opens its summary', async ({ page }) => {
@@ -28,8 +29,15 @@ test('Home shows the season line, and the Games tab lists the finished Game, who
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
   // basketball keeps Plus/Minus on its feed row, and its summary keeps the tiles
   await expect(page.getByRole('button', { name: /Opponent/ })).toContainText('Plus/Minus +3');
+  // the Game is dated today: its row and its summary read the date the helper writes, never YYYY-MM-DD
+  const now = new Date();
+  const dateText = gameDateText(now.toLocaleDateString('en-CA'), now);
+  await expect(page.getByRole('button', { name: /Opponent/ })).toContainText(dateText);
+  await expect(page.getByRole('button', { name: /Opponent/ })).not.toContainText(/\d{4}-\d{2}-\d{2}/);
   await page.getByRole('button', { name: /Opponent/ }).click();
   await expect(page.getByRole('heading', { name: 'Opponent' })).toBeVisible();
+  await expect(page.getByText(dateText, { exact: true })).toBeVisible();
+  await expect(page.locator('main')).not.toContainText(/\d{4}-\d{2}-\d{2}/);
   await expect(page.getByRole('img', { name: 'Won' })).toBeVisible();
   await expect(page.getByText('Casey 3 – Opponent 0')).toBeVisible();
   await expect(page.getByText('Plus/Minus +3 · Playing Share')).toBeVisible();

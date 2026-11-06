@@ -31,6 +31,7 @@ import {
   EVENT_LABELS,
   fateLine,
   freeThrowLabel,
+  gameDateText,
   gameLineText,
   initials,
   OUTCOME_LABELS,
@@ -866,7 +867,7 @@ function ResultRow({ game, onOpen }: { game: FeedGame; onOpen: (gameId: string) 
       <span className="result-text">
         <span className="opponent">{game.opponent}</span>
         <span className="line">
-          {game.gameDate} · {gameLineText(game)}
+          {gameDateText(game.gameDate, new Date())} · {gameLineText(game)}
         </span>
         {game.sport === 'basketball' && <span className="line">Plus/Minus {game.backlogged ? '—' : signed(game.line.plusMinus)}</span>}
       </span>
@@ -1016,7 +1017,7 @@ function GameSummary({ gameId, onBack, onEdit, onRemoved }: { gameId: string; on
           </p>
         </div>
         <h1>{game.opponent}</h1>
-        <p>{game.gameDate}</p>
+        <p>{gameDateText(game.gameDate, new Date())}</p>
         <p>{gameLineText(game)}</p>
         {game.sport === 'basketball' && (
           <>

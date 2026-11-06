@@ -113,6 +113,18 @@ export const fateLine = (athlete: AthleteFate): string => {
   return `${athlete.name}: you leave it; the Games you recorded stay with it.`;
 };
 
+/** A Game's stored calendar date in words: "Thu, Nov 5", with the year when it isn't this year. Read in UTC, so no time zone moves the day. */
+export const gameDateText = (stored: string, today: Date) => {
+  const [year, month, day] = stored.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: year === today.getFullYear() ? undefined : 'numeric',
+    timeZone: 'UTC',
+  }).format(Date.UTC(year, month - 1, day));
+};
+
 /** A count with its sign, as Plus/Minus reads: +3, 0, -2. */
 export const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
