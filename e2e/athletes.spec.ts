@@ -1,6 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { openApp } from './openApp';
-import { addFirstAthlete } from './recorder';
+import { addFirstAthlete, type Photo } from './recorder';
 
 // A 1x1 PNG, enough for the photo to render.
 const PHOTO = {
@@ -11,6 +11,30 @@ const PHOTO = {
     'base64',
   ),
 };
+
+// a solid PNG of the given size, drawn in the page with a canvas, so the test picks a real image of that size
+async function picture(page: Page, width: number, height: number): Promise<Photo> {
+  const base64 = await page.evaluate(
+    ([w, h]) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d')!.fillRect(0, 0, w, h);
+      return canvas.toDataURL('image/png').split(',')[1];
+    },
+    [width, height],
+  );
+  return { name: `${width}x${height}.png`, mimeType: 'image/png', buffer: Buffer.from(base64, 'base64') };
+}
+
+// Home's photo has this natural size once the image it shows has loaded
+async function expectPhotoSize(page: Page, width: number, height: number) {
+  await expect
+    .poll(() => page.locator('.photo img').evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight]), {
+      timeout: 10_000,
+    })
+    .toEqual([width, height]);
+}
 
 test('first run asks for an Athlete, then leads to Home and stays there after a reload', async ({ page }) => {
   await openApp(page);
@@ -59,6 +83,21 @@ test('the photo shows on Home and nothing is uploaded', async ({ page }) => {
 
   await expect(page.locator('.photo img')).toBeVisible();
   expect(writes).toEqual([]);
+});
+
+test('a picked photo is stored at 1200px on its short side, never up, and a portrait stays upright', async ({ page }) => {
+  await addFirstAthlete(page, { name: 'Casey', photo: await picture(page, 4000, 3000) });
+  await expectPhotoSize(page, 1600, 1200);
+
+  await page.getByRole('button', { name: 'Edit' }).click();
+  await page.getByLabel('Photo (optional)').setInputFiles(await picture(page, 3000, 4000));
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expectPhotoSize(page, 1200, 1600);
+
+  await page.getByRole('button', { name: 'Edit' }).click();
+  await page.getByLabel('Photo (optional)').setInputFiles(await picture(page, 1000, 800));
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expectPhotoSize(page, 1000, 800);
 });
 
 test('editing an Athlete changes name and number on Home and keeps them after a reload', async ({ page }) => {

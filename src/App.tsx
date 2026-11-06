@@ -24,6 +24,7 @@ import {
   type TileEventType,
 } from './core/appCore';
 import { backlogProblem, countFields, notWhole, textOf, totalsOf, type CountField } from './core/totals';
+import { shrinkPhoto } from './photo';
 import {
   BASE_LABELS,
   baseLabel,
@@ -480,11 +481,14 @@ function AthleteForm({ athlete, onDone }: { athlete?: AthleteFields; onDone?: ()
     e.preventDefault();
     // a second tap while the save is in flight would add a second Athlete: run's block refuses it
     if (!name.trim()) return;
-    const fields = { name: name.trim(), jerseyNumber: number, photo };
-    run<unknown>((core) => (athlete ? core.editAthlete({ id: athlete.id, ...fields }) : core.addAthlete(fields)), {
-      block: true,
-      onDone: () => onDone?.(),
-    });
+    // the photo is scaled inside the blocked command, so a second tap while it scales is refused as well
+    run<unknown>(
+      async (core) => {
+        const fields = { name: name.trim(), jerseyNumber: number, photo: photo && (await shrinkPhoto(photo)) };
+        return athlete ? core.editAthlete({ id: athlete.id, ...fields }) : core.addAthlete(fields);
+      },
+      { block: true, onDone: () => onDone?.() },
+    );
   };
   return (
     <main>
