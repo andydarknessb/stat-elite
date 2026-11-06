@@ -59,6 +59,8 @@ test('on softball, with the Athlete on base and an Outcome armed, the toast stil
   await page.getByRole('button', { name: 'Ball', exact: true }).click();
   await expect(page.getByRole('status')).toBeVisible();
   await expect(page.getByRole('group', { name: 'RBI' })).toBeVisible();
+  // the Ball adds a Count line above the Undo button, which moves it down; the boxes are read once that line has landed
+  await expect(page.getByText(/^Count /)).toBeVisible();
   await expectToastOverUndo(page);
 });
 
