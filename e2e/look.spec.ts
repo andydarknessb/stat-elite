@@ -230,6 +230,34 @@ async function visitEveryScreen(page: Page, theme: string): Promise<string[]> {
   await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
+
+  // the same two live screens at Bleacher, a Game each: the two-page switch and the shot controls under the court hold 320–375px too (#247)
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const bleacher = page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: 'Bleacher', exact: true });
+  await bleacher.click();
+  await expect(bleacher).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Done' }).click();
+  await startGame(page);
+  await expect(page.locator('main.live.bleacher')).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'basketball live screen, Bleacher')));
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await expect(page.getByRole('button', { name: '1B', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('group', { name: 'Base' })).toBeVisible();
+  failures.push(...(await narrowFailures(page, 'softball live screen, Athlete on base, Outcome armed, Bleacher')));
+  await page.getByRole('button', { name: '0 RBI' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await page.getByLabel('Casey final').fill('3');
+  await page.getByLabel('Opponent final').fill('1');
+  await page.getByRole('button', { name: 'Save Final Score', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Game Complete' })).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
   return failures;
 }
 
