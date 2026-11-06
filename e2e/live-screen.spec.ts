@@ -6,12 +6,18 @@ async function expectToastOverUndo(page: Page) {
   const toast = await page.getByRole('status').boundingBox();
   const undo = await page.getByRole('button', { name: /^Undo \(last Event\)/ }).boundingBox();
   if (!toast || !undo) throw new Error('the toast or the Undo button is not on screen');
-  for (const key of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(toast[key] - undo[key])).toBeLessThanOrEqual(1);
-  for (const button of await page.locator('.period-row button').all()) {
-    const box = await button.boundingBox();
-    if (!box) throw new Error('a Period row button is not on screen');
+  // the boxes go into each failure message, so a red run shows where each element sat
+  const periodRow = [];
+  for (const button of await page.locator('.period-row button').all()) periodRow.push(await button.boundingBox());
+  const slot = await page.locator('.undo-slot').boundingBox();
+  const diagnostics = JSON.stringify({ toast, undo, slot, periodRow, viewport: page.viewportSize() });
+  for (const key of ['x', 'y', 'width', 'height'] as const) {
+    expect(Math.abs(toast[key] - undo[key]), `toast and Undo differ in ${key}: ${diagnostics}`).toBeLessThanOrEqual(1);
+  }
+  for (const box of periodRow) {
+    if (!box) throw new Error(`a Period row button is not on screen: ${diagnostics}`);
     const overlaps = box.x < toast.x + toast.width && toast.x < box.x + box.width && box.y < toast.y + toast.height && toast.y < box.y + box.height;
-    expect(overlaps).toBe(false);
+    expect(overlaps, `the toast overlaps a Period row button: ${diagnostics}`).toBe(false);
   }
 }
 
