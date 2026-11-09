@@ -70,6 +70,14 @@ select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, cli
 select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type) values ('30000000-0000-0000-0000-000000000099', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a1', 1, now(), 1, 'steal')$$, 'duplicate seq in one Game');
 select pg_temp.expect_fail($$insert into events (id, owner_id, game_id, seq, client_ts, period, type, outcome) values ('30000000-0000-0000-0000-000000000099', '00000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-0000000000a2', 99, now(), 1, 'plate_appearance', 'single')$$, 'Plate Appearance without RBI');
 
+-- The Game on Quinn, inserted above without three_pointers, reads it on: every Game before the column had Three-Pointers (GLOSSARY: Three-Pointers).
+do $$
+begin
+  if (select three_pointers from games where id = '20000000-0000-0000-0000-0000000000f2') is not true then
+    raise exception 'a Game inserted without three_pointers should read true';
+  end if;
+end $$;
+
 -- Row-level security, signed in as B.
 set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);

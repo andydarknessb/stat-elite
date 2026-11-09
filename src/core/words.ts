@@ -1,4 +1,4 @@
-import type { AthleteFate, FeedGame, Line, Zone } from './appCore';
+import type { AthleteFate, FeedGame, Line, LiveGame, Zone } from './appCore';
 import type { Batting, StrikeKind, Undoable, UndoableType } from './eventLog';
 import type { BaseMove, Outcome, Pitch, TileEventType } from './store';
 
@@ -131,6 +131,15 @@ export const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 /** The totals a season or a Game shows, in words. */
 const lineText = (line: Line) =>
   `${line.points} PTS · FG ${line.fg.made}/${line.fg.attempted} · FT ${line.ft.made}/${line.ft.attempted} · ${line.rebounds} REB · ${line.assists} AST`;
+
+/** The live screen's tally: each kind of attempt made over attempted, then the Athlete's points, which count all of them. With Three-Pointers off there are no 3s to list. */
+export const shotTallyText = ({ shots, freeThrows, points, threePointers }: Pick<LiveGame, 'shots' | 'freeThrows' | 'points' | 'threePointers'>) =>
+  [
+    `2PT ${shots[2].made}/${shots[2].attempted}`,
+    ...(threePointers ? [`3PT ${shots[3].made}/${shots[3].attempted}`] : []),
+    `FT ${freeThrows.made}/${freeThrows.attempted}`,
+    `${points} ${points === 1 ? 'pt' : 'pts'}`,
+  ].join(' · ');
 
 /** A batting line in words: hits over At-Bats, and RBI. */
 const battingText = (batting: Batting) => `H/AB ${batting.hits}/${batting.atBats} · ${batting.rbi} RBI`;

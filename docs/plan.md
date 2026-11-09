@@ -19,7 +19,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Sign in | StatElite's name and one line on what it does, install prompt, email with a note on how it is used, then the emailed code. "Getting your Athletes…" with Retry until the first download finishes | — |
 | First run | After sign-in, when the Account has no Athletes: "Add Athlete" form (name, number, optional photo), with "Signed in as" and Sign out | — |
 | Home | Athlete photo, Start Game, Add past Game, season line, recent Games. A Phone opens on the Athlete with the newest Game that isn't removed, or the first Athlete added when none has one, and keeps that until someone switches. Tapping the photo switches Athlete when the account has more than one | MyKidDid dashboard |
-| Game setup | Sport, Opponent, date, period format, all prefilled from the last Game so starting is one tap | — |
+| Game setup | Sport, Opponent, date, period format and, for basketball, Three-pointers (on by default), all prefilled from the last Game so starting is one tap | — |
 | Live game, basketball | Shift timer and Sub In/Out toggle on top, Team–Opponent strip, half court for Shots, Free Throw row, 2-column stat tiles with live counts | Stattie (shift bar), Buckets (tiles, Free Throw row) |
 | Live game, softball/baseball | Team–Opponent strip, optional Pitch buttons, Outcome grid, RBI chips, diamond for the Athlete only | spec's Plate Appearance flow |
 | Games | Feed grouped Today / Yesterday / This Week; each row shows Opponent, Final Score, the Athlete's line, Plus/Minus on basketball rows, "—" on a Backlogged Game. Tapping a row opens its summary, where its Recorder can remove it (ADR 0008) | Stattie Activity |
@@ -32,7 +32,7 @@ Navigation: bottom tabs Home · Games · Insights. Settings sits behind the gear
 
 Interaction rules:
 
-- **Shot entry:** tap the spot, then MAKE or MISS (no default). A spot beyond the arc counts as a 3, with a toggle to correct it before MAKE/MISS. Free Throws use `MAKE | made/att | MISS` with no spot.
+- **Shot entry:** tap the spot, then MAKE or MISS (no default). A spot beyond the arc counts as a 3, with a toggle to correct it before MAKE/MISS. With Three-pointers off every Shot counts 2, the arc stays, and `Turn on 3PT` takes the toggle's place for the rest of the Game. Free Throws use `MAKE | Free Throws made/att | MISS` with no spot. The tally reads `2PT · 3PT · FT · pts`, and its points count all three.
 - **Basketball tiles:** OREB, DREB, AST, STL, BLK, TO, FOUL.
 - **Undo:** a 3-second toast ("Missed 3PT · Undo") plus a persistent "Undo (last Event)" button that keeps stepping back. Each Undo adds a Retraction. On Game Complete, until Done, Undo End Game retracts it and reopens the Game. Past Done, the only fix is Remove, then re-entering it as a Backlogged Game.
 - **Score strip:** the Recorder updates it from the scoreboard. The Athlete's own points add to it automatically. Sub In, Sub Out and End Game record a Score Snapshot, and End Game requires one in every sport. Scores are whole numbers from 0 to 999.
