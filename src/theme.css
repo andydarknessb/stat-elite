@@ -428,7 +428,8 @@ button:disabled {
   gap: 6px;
 }
 
-.shot-controls button[aria-pressed] {
+.shot-controls button[aria-pressed],
+.shot-controls .turn-on {
   grid-column: 1 / -1;
 }
 
@@ -439,12 +440,19 @@ button:disabled {
   font-weight: 600;
 }
 
+/* The count face keeps the tally on one line in the Standard controls' 198px column. */
 .shot-count {
   grid-column: 1 / -1;
   margin: 0;
   color: var(--muted);
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-size: 15px;
   text-align: center;
+}
+
+/* At 15px the longest tally would wrap there, and the Standard page would run past 844px. */
+.standard .shot-count {
+  font-size: 14px;
 }
 
 .free-throws {
@@ -471,9 +479,20 @@ button:disabled {
 }
 
 .free-throws .count {
+  display: block;
   min-width: 64px;
   font-size: 24px;
   font-weight: 600;
+  line-height: 1.1;
+}
+
+/* The row's name sits above its count in the same cell, so it adds no line to the live screen. */
+.free-throws small {
+  display: block;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.1;
 }
 
 .tiles {
@@ -609,6 +628,7 @@ button:disabled {
 
 .bleacher .court {
   height: 220px;
+  justify-self: center;
 }
 
 /* Bleacher: the court takes its own row and the Shot controls sit under it at full width, so MAKE and MISS are wider than at Standard (#247). */

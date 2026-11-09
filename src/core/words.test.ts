@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import type { AthleteFate } from './appCore';
 import type { Undoable } from './eventLog';
-import { clockOf, fateLine, gameDateText, initials, rateText, resultOf, undoLabel, zoneLabel } from './words';
+import { clockOf, fateLine, gameDateText, initials, rateText, resultOf, shotTallyText, undoLabel, zoneLabel } from './words';
 
 const GAME_DATE_ROWS = [
   ['2026-11-05', 'Thu, Nov 5'],
@@ -77,4 +77,21 @@ it.each([
   [{ name: 'Casey', fate: 'removed' }, 'Casey: removed from this phone.'],
 ] as [AthleteFate, string][])('fateLine(%j) reads as the Recorder confirms it', (athlete, text) => {
   expect(fateLine(athlete)).toBe(text);
+});
+
+// the live Game's tally inputs: 2s made of attempted, Free Throws made of attempted, and points; no 3s in any row
+const tally = (threePointers: boolean, twos: [number, number], freeThrows: [number, number], points: number) => ({
+  threePointers,
+  shots: { 2: { made: twos[0], attempted: twos[1] }, 3: { made: 0, attempted: 0 } },
+  freeThrows: { made: freeThrows[0], attempted: freeThrows[1] },
+  points,
+});
+
+it.each([
+  [tally(true, [0, 0], [0, 0], 0), '2PT 0/0 · 3PT 0/0 · FT 0/0 · 0 pts'],
+  [tally(true, [1, 2], [1, 1], 3), '2PT 1/2 · 3PT 0/0 · FT 1/1 · 3 pts'],
+  [tally(false, [1, 2], [1, 1], 3), '2PT 1/2 · FT 1/1 · 3 pts'],
+  [tally(true, [0, 0], [1, 1], 1), '2PT 0/0 · 3PT 0/0 · FT 1/1 · 1 pt'],
+])('shotTallyText(%j) is %s', (counts, text) => {
+  expect(shotTallyText(counts)).toBe(text);
 });

@@ -208,14 +208,14 @@ test('Shot: a refused MAKE keeps the spot armed, and a retry that lands records 
   await shotResult(page).getByRole('button', { name: 'MAKE' }).click();
 
   await expectNotSaved(page);
-  await expect(page.getByText('2PT 0/0 · 3PT 0/0 · 0 pts')).toBeVisible();
+  await expect(page.getByText('2PT 0/0 · 3PT 0/0 · FT 0/0 · 0 pts')).toBeVisible();
   await expect(shotResult(page).getByRole('button', { name: 'MAKE' })).toBeEnabled();
   await expect(page.getByRole('status')).toBeHidden();
 
   await restoreWrites(page);
   await shotResult(page).getByRole('button', { name: 'MAKE' }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.getByText('2PT 1/1 · 3PT 0/0 · 2 pts')).toBeVisible();
+  await expect(page.getByText('2PT 1/1 · 3PT 0/0 · FT 0/0 · 2 pts')).toBeVisible();
   expect(errors).toEqual([]);
 });
 

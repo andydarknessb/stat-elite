@@ -32,7 +32,7 @@ test('at Standard the basketball live screen fits a 390×844 phone with no verti
     await tile.click();
     await expect(tile).toHaveText(`${label} 1`);
   }
-  await expect(page.getByRole('group', { name: 'Free Throw' })).toHaveText(/MAKE\s*0\/0\s*MISS/);
+  await expect(page.getByRole('group', { name: 'Free Throw' })).toHaveText(/MAKE\s*Free Throws\s*0\/0\s*MISS/);
   await expect(page.getByRole('button', { name: 'End Game' })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -84,13 +84,13 @@ test('a Free Throw records MAKE or MISS with no spot, and the row reads made/att
   await expect(make).toHaveCSS('color', 'rgb(63, 185, 80)');
   await expect(miss).toHaveCSS('color', 'rgb(240, 96, 90)');
   await make.click();
-  await expect(row).toHaveText(/MAKE\s*1\/1\s*MISS/);
+  await expect(row).toHaveText(/MAKE\s*Free Throws\s*1\/1\s*MISS/);
   await miss.click();
-  await expect(row).toHaveText(/MAKE\s*1\/2\s*MISS/);
+  await expect(row).toHaveText(/MAKE\s*Free Throws\s*1\/2\s*MISS/);
   await expect(page.getByRole('button', { name: 'Undo (last Event): Free Throw missed' })).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole('group', { name: 'Free Throw' })).toHaveText(/MAKE\s*1\/2\s*MISS/);
+  await expect(page.getByRole('group', { name: 'Free Throw' })).toHaveText(/MAKE\s*Free Throws\s*1\/2\s*MISS/);
 });
 
 test('Button Size is chosen in Settings and survives a reload', async ({ page }) => {
