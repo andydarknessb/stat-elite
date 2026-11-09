@@ -114,7 +114,11 @@ _Avoid_: FG, attempt
 
 **Free Throw**:
 A one-point attempt from the line, recorded with a result and no Spot.
-_Avoid_: foul shot
+_Avoid_: foul shot, foul points
+
+**Three-Pointers**:
+Whether a basketball Game has Shots worth 3. On unless the Recorder turns them off in Game setup, and the Recorder can turn them on during the Game. With them off, every Shot is worth 2.
+_Avoid_: 3PT mode, threes
 
 **Shift**:
 One continuous stretch with the Athlete on the court, from Sub In to Sub Out.

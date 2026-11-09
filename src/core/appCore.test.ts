@@ -51,6 +51,7 @@ test('with no earlier Game, Game setup offers basketball in quarters against "Op
   expect(await core.gameSetup(athleteId)).toEqual({
     sport: 'basketball',
     basketballPeriods: 'quarters',
+    threePointers: true,
     opponentName: 'Opponent',
     gameDate: '2026-10-30',
   });
@@ -83,6 +84,7 @@ test("Game setup is prefilled from the Athlete's newest Game, not another Athlet
   expect(await core.gameSetup(casey)).toEqual({
     sport: 'basketball',
     basketballPeriods: 'halves',
+    threePointers: true,
     opponentName: 'Hawks',
     gameDate: '2026-10-30',
   });
@@ -94,6 +96,112 @@ test('Game setup keeps 8 Periods from the newest Game', async () => {
   await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'eighths' });
 
   expect(await core.gameSetup(athleteId)).toMatchObject({ sport: 'basketball', basketballPeriods: 'eighths' });
+});
+
+test('a basketball Game started with Three-Pointers off reads them off on the live Game, and one started without the option reads them on', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const off = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters', threePointers: false });
+  const on = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+
+  expect((await core.liveGame(off))?.threePointers).toBe(false);
+  expect((await core.liveGame(on))?.threePointers).toBe(true);
+});
+
+test("Game setup's Three-Pointers follow the Athlete's last recorded basketball Game: a softball or Backlogged Game after it leaves them off, and a later basketball Game started on turns them on", async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  expect((await t.core.gameSetup(athleteId)).threePointers).toBe(true);
+
+  await coreAt(t, '2026-10-28T18:00:00Z').startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters', threePointers: false });
+  expect((await t.core.gameSetup(athleteId)).threePointers).toBe(false);
+
+  await coreAt(t, '2026-10-29T18:00:00Z').startGame({ athleteId, opponentName: 'Rams', gameDate: '2026-10-29', sport: 'softball', periodFormat: 'innings' });
+  expect((await t.core.gameSetup(athleteId)).threePointers).toBe(false);
+
+  await coreAt(t, '2026-10-30T10:00:00Z').backlogGame(backlogEntry(athleteId));
+  expect((await t.core.gameSetup(athleteId)).threePointers).toBe(false);
+
+  await coreAt(t, '2026-10-30T11:00:00Z').startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  expect((await t.core.gameSetup(athleteId)).threePointers).toBe(true);
+});
+
+test('Game setup skips a removed basketball Game, so the Game before it sets Three-Pointers', async () => {
+  const t = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await t.core.addAthlete({ name: 'Casey' });
+  await signInWithCode(t.core, 'casey@example.com');
+  await coreAt(t, '2026-10-28T18:00:00Z').startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters', threePointers: false });
+  const removed = await coreAt(t, '2026-10-29T18:00:00Z').startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters' });
+  await t.core.endGame(removed, { teamScore: 0, opponentScore: 0 });
+  await t.core.removeGame(removed);
+
+  expect((await t.core.gameSetup(athleteId)).threePointers).toBe(false);
+});
+
+test('a softball Game started with Three-Pointers off stores no three_pointers field', async () => {
+  const { core, inspect } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'softball', periodFormat: 'innings', threePointers: false });
+
+  expect(await inspect.games.get(gameId)).not.toHaveProperty('three_pointers');
+});
+
+test('turnOnThreePointers switches Three-Pointers on for the rest of a Game started off, and a Shot already recorded keeps its value', async () => {
+  const { core, inspect, server, link } = setup();
+  await signInWithCode(core, 'casey@example.com');
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters', threePointers: false });
+  await core.recordShot(gameId, { x: 40.5, y: 30, value: 2, made: true });
+  await core.flush();
+
+  // with the link down the change stays queued, so its Outbox row shows
+  link.up = false;
+  await core.turnOnThreePointers(gameId);
+  expect(await inspect.outbox.toArray()).toEqual([expect.objectContaining({ table: 'games', id: gameId })]);
+
+  link.up = true;
+  await core.flush();
+  expect(server.rows.games.get(gameId)).toMatchObject({ three_pointers: true });
+  expect((await core.liveGame(gameId))?.threePointers).toBe(true);
+  expect((await core.liveGame(gameId))?.shots[2]).toEqual({ made: 1, attempted: 1 });
+  expect((await core.gameSetup(athleteId)).threePointers).toBe(true);
+});
+
+test('turnOnThreePointers is refused on a Game this Phone received, and writes nothing', async () => {
+  const { core, server } = setup();
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  await signInWithCode(core, 'casey@example.com');
+  const gameId = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters', threePointers: false });
+  await core.flush();
+
+  const second = phoneOn(server);
+  await signInWithCode(second.core, 'casey@example.com');
+  await second.core.refresh();
+  const before = await second.inspect.outbox.count();
+
+  await expect(second.core.turnOnThreePointers(gameId)).rejects.toThrow('This Game is recorded on another Phone');
+  expect(await second.inspect.outbox.count()).toBe(before);
+  expect((await second.core.liveGame(gameId))?.threePointers).toBe(false);
+});
+
+test('turnOnThreePointers is refused on an ended Game, a Backlogged Game or an unknown id, and writes no Outbox row', async () => {
+  const { core, inspect, link } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const ended = await core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'quarters', threePointers: false });
+  await core.endGame(ended, { teamScore: 0, opponentScore: 0 });
+  const backlogged = await core.backlogGame(backlogEntry(athleteId));
+  await core.flush();
+
+  // with the link down a refused command's row would stay in the Outbox, where the count shows it
+  link.up = false;
+  const refused = async (gameId: string, message: string) => {
+    const before = await inspect.outbox.count();
+    await expect(core.turnOnThreePointers(gameId)).rejects.toThrow(message);
+    expect(await inspect.outbox.count()).toBe(before);
+  };
+  await refused(ended, 'This Game has ended');
+  await refused(backlogged, 'Only a Game in progress can turn on Three-Pointers');
+  await refused('no-such-game', 'Only a Game in progress can turn on Three-Pointers');
 });
 
 test('a stat tile tap counts on the live Game', async () => {

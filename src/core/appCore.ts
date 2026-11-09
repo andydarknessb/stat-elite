@@ -34,6 +34,8 @@ export interface GameSetup {
   sport: GameFormat['sport'];
   /** Basketball's period format; softball and baseball are always innings. */
   basketballPeriods: 'halves' | 'quarters' | 'eighths';
+  /** Whether the Athlete's last recorded basketball Game had Three-Pointers on; on when there is none. */
+  threePointers: boolean;
   opponentName: string;
   gameDate: string;
 }
@@ -77,6 +79,8 @@ export const SIGN_OUT_REFUSED = 'Could not sign out. Wait for everything to sync
 export interface LiveGame extends Counts {
   id: string;
   sport: GameRow['sport'];
+  /** Off only for a Game whose Recorder turned Three-Pointers off in Game setup (GLOSSARY: Three-Pointers). */
+  threePointers: boolean;
   /** The name of the Game's Athlete as it reads now, or 'Athlete' if their record is missing: the Team's label (GLOSSARY: Team). */
   athleteName: string;
   /** The current Period's label in the Game's format (H1, Q3, OT1, Inn 4). */
@@ -251,7 +255,7 @@ const groupOf = (gameDate: string, today: string): FeedGame['group'] => {
 const pick = <T, K extends keyof T>(row: T, keys: K[]): Pick<T, K> => Object.fromEntries(keys.map((key) => [key, row[key]])) as Pick<T, K>;
 const athleteOf = (row: AthleteRow): AthleteRow => pick(row, ['id', 'owner_id', 'name', 'jersey_number', 'created_at', 'updated_at']);
 const gameOf = (row: GameRow): GameRow =>
-  pick(row, ['id', 'athlete_id', 'sport', 'period_format', 'opponent_name', 'game_date', 'created_at', 'updated_at', 'recorded_by', 'totals', 'removed']);
+  pick(row, ['id', 'athlete_id', 'sport', 'period_format', 'opponent_name', 'game_date', 'created_at', 'updated_at', 'recorded_by', 'totals', 'removed', 'three_pointers']);
 const eventOf = (row: EventRow): EventRow =>
   pick(row, [
     'id', 'game_id', 'seq', 'client_ts', 'period', 'type', 'retracts_id', 'court_x', 'court_y', 'shot_value', 'made', 'team_score', 'opponent_score', 'outcome', 'rbi', 'pitch', 'base', 'stolen',
@@ -604,6 +608,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       ...log.counts,
       id: game.id,
       sport: game.sport,
+      threePointers: game.three_pointers !== false,
       athleteName: (await store.athletes.get(game.athlete_id))?.name ?? 'Athlete',
       periodLabel: periodLabel(game.period_format, log.period),
       score: log.score,
@@ -645,12 +650,15 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     };
   };
 
-  /** Game setup's prefilled fields: the newest Game's sport, period format and Opponent, and today's date. */
+  /** Game setup's prefilled fields: the newest Game's sport, period format and Opponent, the last recorded basketball Game's Three-Pointers, and today's date. */
   const gameSetup = async (athleteId: string): Promise<GameSetup> => {
-    const last = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).filter((g) => !g.removed).at(-1);
+    const games = (await store.games.where('athlete_id').equals(athleteId).sortBy('created_at')).filter((g) => !g.removed);
+    const last = games.at(-1);
     return {
       sport: last?.sport ?? 'basketball',
       basketballPeriods: last?.sport === 'basketball' && last.period_format !== 'innings' ? last.period_format : 'quarters',
+      // a Backlogged Game has no live screen, so it never sets this
+      threePointers: games.filter((g) => g.sport === 'basketball' && !g.totals).at(-1)?.three_pointers !== false,
       opponentName: last?.opponent_name ?? 'Opponent',
       gameDate: localDate(clock()),
     };
@@ -688,7 +696,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       gameDate,
       sport,
       periodFormat,
-    }: { athleteId: string; opponentName: string; gameDate: string } & GameFormat): Promise<string> {
+      threePointers = true,
+    }: { athleteId: string; opponentName: string; gameDate: string; threePointers?: boolean } & GameFormat): Promise<string> {
       const opponent = opponentName.trim();
       if (!opponent || !/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) throw new Error('A Game needs an Opponent and a date');
       const id = crypto.randomUUID();
@@ -706,6 +715,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
           created_at: date.toISOString(),
           updated_at: date.toISOString(),
           recorded_by: recorder,
+          // stored only when off, so a Game with Three-Pointers on stays the same row every earlier Game is
+          ...(sport === 'basketball' && !threePointers && { three_pointers: false }),
         });
         await queue('games', id);
       });
@@ -805,6 +816,18 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** A Free Throw: its result, and no spot (GLOSSARY: Free Throw). */
     recordFreeThrow(gameId: string, made: boolean): Promise<EventRow> {
       return append(gameId, () => ({ type: 'free_throw', made }));
+    },
+
+    /** Turns Three-Pointers on for the rest of a Game that started with them off; Shots already recorded keep their value (GLOSSARY: Three-Pointers). */
+    async turnOnThreePointers(gameId: string): Promise<void> {
+      await write([store.events, store.settings], async () => {
+        const game = await store.games.get(gameId);
+        if (!game || game.totals) throw new Error('Only a Game in progress can turn on Three-Pointers');
+        if (await store.settings.get(RECEIVED + gameId)) throw new Error('This Game is recorded on another Phone');
+        if (fold(await gameEvents(gameId).toArray(), now()).ended) throw new Error('This Game has ended');
+        await store.games.update(gameId, { three_pointers: true, updated_at: now() });
+        await queue('games', gameId);
+      });
     },
 
     /** A Pitch: one ball, strike or foul in the Plate Appearance in progress; Pitches are optional (GLOSSARY: Pitch, Count). */

@@ -23,7 +23,7 @@ test('a Shot is saved only at MAKE or MISS, and a made Shot adds its points to t
   await result(page).getByRole('button', { name: 'MAKE' }).click();
   await expect(page.getByRole('button', { name: 'Undo (last Event): Made 2PT' })).toBeVisible();
   await expect(teamCount(page)).toHaveText('2');
-  await expect(page.getByText('2PT 1/1 · 3PT 0/0 · 2 pts')).toBeVisible();
+  await expect(page.getByText('2PT 1/1 · 3PT 0/0 · FT 0/0 · 2 pts')).toBeVisible();
 });
 
 test('a spot beyond the arc presets 3PT, and the Recorder can flip it before the result', async ({ page }) => {
@@ -64,7 +64,7 @@ test('the court takes keyboard focus, and the arrow keys place a Spot that MAKE 
   await expect(result(page).getByRole('button', { name: 'MAKE' })).toBeEnabled();
   await result(page).getByRole('button', { name: 'MAKE' }).click();
   await expect(page.getByRole('button', { name: 'Undo (last Event): Made 2PT' })).toBeVisible();
-  await expect(page.getByText('2PT 1/1 · 3PT 0/0 · 2 pts')).toBeVisible();
+  await expect(page.getByText('2PT 1/1 · 3PT 0/0 · FT 0/0 · 2 pts')).toBeVisible();
 });
 
 test('arrow keys move the Spot across the three-point line, and the preset flips as a tap does', async ({ page }) => {

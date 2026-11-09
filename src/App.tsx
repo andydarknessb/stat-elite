@@ -41,6 +41,7 @@ import {
   rateText,
   resultOf,
   shotLabel,
+  shotTallyText,
   signed,
   TILE_LABELS,
   undoLabel,
@@ -541,6 +542,7 @@ function GameSetupForm({ athleteId, onCancel }: { athleteId: string; onCancel: (
 function SetupFields({ athleteId, setup, onCancel }: { athleteId: string; setup: GameSetup; onCancel: () => void }) {
   const [sport, setSport] = useState(setup.sport);
   const [periods, setPeriods] = useState(setup.basketballPeriods);
+  const [threePointers, setThreePointers] = useState(setup.threePointers);
   const [opponent, setOpponent] = useState(setup.opponentName);
   const [gameDate, setGameDate] = useState(setup.gameDate);
   // a second tap before the Game shows on screen would start a second Game: run's block refuses it
@@ -551,7 +553,7 @@ function SetupFields({ athleteId, setup, onCancel }: { athleteId: string; setup:
     if (!valid) return;
     const format: GameFormat =
       sport === 'basketball' ? { sport, periodFormat: periods } : { sport, periodFormat: 'innings' };
-    run((core) => core.startGame({ athleteId, opponentName: opponent, gameDate, ...format }), { block: true });
+    run((core) => core.startGame({ athleteId, opponentName: opponent, gameDate, threePointers, ...format }), { block: true });
   };
   return (
     <main>
@@ -579,6 +581,15 @@ function SetupFields({ athleteId, setup, onCancel }: { athleteId: string; setup:
             </select>
           )}
         </label>
+        {sport === 'basketball' && (
+          <label>
+            Three-pointers
+            <select value={threePointers ? 'on' : 'off'} onChange={(e) => setThreePointers(e.target.value === 'on')}>
+              <option value="on">On</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        )}
         <label>
           Opponent
           <input value={opponent} onChange={(e) => setOpponent(e.target.value)} required autoComplete="off" />
@@ -1509,17 +1520,20 @@ const clampSpot = (n: number) => Math.min(100, Math.max(0, n));
 function ShotEntry({
   run,
   gameId,
-  shots,
-  points,
+  threePointers,
+  tally,
   onRecorded,
 }: {
   run: Run;
   gameId: string;
-  shots: LiveGame['shots'];
-  points: number;
+  threePointers: boolean;
+  tally: string;
   onRecorded: (label: string) => void;
 }) {
   const [pending, setPending] = useState<PendingShot>();
+  const court = useRef<SVGSVGElement>(null);
+  // with Three-Pointers off every Shot is a 2; the preset stays underneath, so turning them on gives a Spot already tapped its value
+  const value = pending && (threePointers ? pending.value : 2);
   // the court is drawn in feet, so a spot is read off the box as 0–100 on each axis
   const place = (e: MouseEvent<SVGSVGElement>) => {
     const box = e.currentTarget.getBoundingClientRect();
@@ -1538,25 +1552,33 @@ function ShotEntry({
     setPending({ x, y, value: arcPreset(x, y) });
   };
   // the court's name says the Zone its Shot would count in, from the Spot and its current value (#248)
-  const name = pending ? `Half court, ${zoneLabel(zoneOf(pending.x, pending.y, pending.value))}, ${pending.value}PT` : 'Half court';
+  const name = pending && value ? `Half court, ${zoneLabel(zoneOf(pending.x, pending.y, value))}, ${value}PT` : 'Half court';
   // the arc presets the value; the Recorder can flip it until the result tap
   const flip = () => {
     if (pending) setPending({ ...pending, value: pending.value === 2 ? 3 : 2 });
   };
   // the spot clears at the tap and comes back if the store refuses the Shot, so a retry records the same spot
   const record = (made: boolean) => {
-    if (!pending) return;
+    if (!pending || !value) return;
     const spot = pending;
     setPending(undefined);
-    run((core) => core.recordShot(gameId, { x: spot.x, y: spot.y, value: spot.value, made }), {
-      onDone: () => onRecorded(shotLabel(spot.value, made)),
+    run((core) => core.recordShot(gameId, { x: spot.x, y: spot.y, value, made }), {
+      onDone: () => onRecorded(shotLabel(value, made)),
       onRefused: () => setPending((current) => current ?? spot),
     });
   };
+  // the 3PT button that replaces this one is disabled until a Spot is picked, so the court takes a keyboard Recorder's focus (#248)
+  const turnOn = () =>
+    run((core) => core.turnOnThreePointers(gameId), {
+      onDone: () => {
+        if (!pending) court.current?.focus();
+      },
+    });
   return (
     <div className="shot-entry">
       <svg
         className="court"
+        ref={court}
         viewBox={`0 0 ${widthFt} ${lengthFt}`}
         style={{ aspectRatio: `${widthFt} / ${lengthFt}` }}
         role="img"
@@ -1571,18 +1593,22 @@ function ShotEntry({
         {pending && <circle className="spot" cx={toFt(pending.x, widthFt)} cy={toFt(pending.y, lengthFt)} r="1.5" />}
       </svg>
       <div className="shot-controls" role="group" aria-label="Shot result">
-        <button aria-pressed={pending?.value === 3} disabled={!pending} onClick={flip}>
-          3PT
-        </button>
+        {threePointers ? (
+          <button aria-pressed={value === 3} disabled={!pending} onClick={flip}>
+            3PT
+          </button>
+        ) : (
+          <button className="turn-on" onClick={turnOn}>
+            Turn on 3PT
+          </button>
+        )}
         <button className="make" disabled={!pending} onClick={() => record(true)}>
           MAKE
         </button>
         <button className="miss" disabled={!pending} onClick={() => record(false)}>
           MISS
         </button>
-        <p className="shot-count">
-          2PT {shots[2].made}/{shots[2].attempted} · 3PT {shots[3].made}/{shots[3].attempted} · {points} pts
-        </p>
+        <p className="shot-count">{tally}</p>
       </div>
     </div>
   );
@@ -1757,13 +1783,16 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   const closed = game.onCourt ? game.shifts.slice(0, -1) : game.shifts;
   const shots = (
     <>
-      <ShotEntry run={run} gameId={gameId} shots={game.shots} points={game.points} onRecorded={(label) => setToast({ label })} />
+      <ShotEntry run={run} gameId={gameId} threePointers={game.threePointers} tally={shotTallyText(game)} onRecorded={(label) => setToast({ label })} />
       <div className="free-throws" role="group" aria-label="Free Throw">
         <button className="make" onClick={() => void tapFreeThrow(true)}>
           MAKE
         </button>
-        <span className="count">
-          {game.freeThrows.made}/{game.freeThrows.attempted}
+        <span className="ft-count">
+          <small>Free Throws</small>
+          <span className="count">
+            {game.freeThrows.made}/{game.freeThrows.attempted}
+          </span>
         </span>
         <button className="miss" onClick={() => void tapFreeThrow(false)}>
           MISS

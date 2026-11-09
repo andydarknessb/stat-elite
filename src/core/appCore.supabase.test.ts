@@ -171,6 +171,22 @@ test('a second Phone on the Account does not open on a Game another Phone starte
   expect({ events: await second.inspect.events.count(), outbox: await second.inspect.outbox.count() }).toEqual(before);
 });
 
+test('a Game started with Three-Pointers off uploads through the real schema, and a second Phone on the Account reads them off at its download', async () => {
+  const db = await schemaDatabase();
+  const first = phone(db);
+  const second = phone(db);
+
+  await signIn(first.core, 'casey@example.com');
+  const athleteId = await first.core.addAthlete({ name: 'Casey' });
+  await first.core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-30', sport: 'basketball', periodFormat: 'quarters', threePointers: false });
+  await settled(first);
+
+  await signIn(second.core, 'casey@example.com');
+  await second.core.refresh();
+  await settled(second);
+  expect((await second.core.gameSetup(athleteId)).threePointers).toBe(false);
+});
+
 test('the Recording Phone ends a Game and uploads it: a second Phone on the Account lists it as finished after refresh', async () => {
   const db = await schemaDatabase();
   const first = phone(db);

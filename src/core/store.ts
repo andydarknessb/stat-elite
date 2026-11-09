@@ -50,6 +50,8 @@ export interface GameRow {
   totals?: GameTotals | null;
   /** Set when the Recorder removes a finished Game: every phone hides it, and its row stays (ADR 0006, ADR 0008). */
   removed?: boolean;
+  /** False when the Game has Three-Pointers off; a Game without it has them on (GLOSSARY: Three-Pointers). */
+  three_pointers?: boolean;
 }
 
 export const TILE_EVENT_TYPES = ['reb_off', 'reb_def', 'assist', 'steal', 'block', 'turnover', 'foul'] as const;
