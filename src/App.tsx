@@ -102,6 +102,7 @@ function Screens() {
   return (
     <>
       <RemovedAthletes />
+      <GoneMembers />
       <NotSynced />
       {!home.athlete ? (
         <FirstRun />
@@ -314,6 +315,26 @@ function RemovedAthletes() {
         <section key={id}>
           <p role="alert">You&apos;re no longer a Member of {name}. Anything not synced is gone.</p>
           <button className="primary" onClick={() => run((core) => core.clearRemovedAthlete(id))}>
+            OK
+          </button>
+        </section>
+      ))}
+      {alert && <p role="alert">{alert}</p>}
+    </>
+  );
+}
+
+/** A line per Member an Owner's phone saw leave an Athlete, until its OK clears it: beside RemovedAthletes at the root (ADR 0004). */
+function GoneMembers() {
+  const gone = useLive((live) => live.goneMembers(), []);
+  const { run, alert } = useCommand();
+  if (!gone?.length) return null;
+  return (
+    <>
+      {gone.map(({ athleteId, memberId, label, athleteName }) => (
+        <section key={`${athleteId} ${memberId}`}>
+          <p role="alert">{`${label} is no longer a Member of ${athleteName}.`}</p>
+          <button className="primary" onClick={() => run((core) => core.clearGoneMember(athleteId, memberId))}>
             OK
           </button>
         </section>
