@@ -26,7 +26,7 @@ Revises `statelite_engineering_specification.md` after the 2026-10-30 design rev
 | Game Complete | Share card and ready-to-paste text. Undo End Game reopens the Game until Done | MyKidDid |
 | Add past Game | Sport, Opponent, date, Final Score and Totals. Save opens the Backlogged Game's summary, where its Recorder can edit or remove it (ADR 0005, ADR 0006) | — |
 | Insights | Practice Focus cards; layout designed at the start of M4 alongside the rules | — |
-| Athlete sharing | Invite co-parent (link through the share sheet, labelled with the Athlete's name), Members list, Remove Member (Owner only), Leave (Members). Remove and Leave ask first, and a removed Member's phone says so once. The invitee sees the Athlete's name once joined; an old link says it has been used, and a connection failure offers Retry. Members also edit the Athlete's name and number, from Home's Edit | — |
+| Athlete sharing | Invite co-parent (link through the share sheet, labelled with the Athlete's name), Members list, Remove Member (Owner only), Leave (Members). Remove and Leave ask first, a removed Member's phone says so once, and an Owner's phone is told once when a Member is gone. The invitee sees the Athlete's name once joined; an old link says it has been used, and a connection failure offers Retry. Members also edit the Athlete's name and number, from Home's Edit | — |
 
 Navigation: bottom tabs Home · Games · Insights. Settings sits behind the gear on Home.
 

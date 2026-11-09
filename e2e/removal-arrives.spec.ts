@@ -175,3 +175,67 @@ test('an Athlete removed while the phone was away drops at a reconnect, its line
   await expect(page.getByLabel('Athlete name')).toBeVisible();
   await expect(page.getByText(line)).toHaveCount(0);
 });
+
+/** The rows of one of the phone's IndexedDB stores, read as the seed above reads its own. */
+const readStore = (page: Page, name: string) =>
+  page.evaluate(
+    (name) =>
+      new Promise<Record<string, string>[]>((resolve, reject) => {
+        const request = indexedDB.open('stat-elite');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const all = db.transaction(name).objectStore(name).getAll();
+          all.onsuccess = () => {
+            db.close();
+            resolve(all.result);
+          };
+          all.onerror = () => reject(all.error);
+        };
+      }),
+    name,
+  );
+
+/** Writes one row into one of the phone's IndexedDB stores, as the seed above does. */
+const writeRow = (page: Page, name: string, row: Record<string, string>) =>
+  page.evaluate(
+    ({ name, row }) =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('stat-elite');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction(name, 'readwrite');
+          tx.objectStore(name).put(row);
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+    { name, row },
+  );
+
+test("an Owner's phone is told once when a Member is gone, and OK clears the line", async ({ page, context }) => {
+  const line = 'Sam is no longer a Member of Casey.';
+  await addFirstAthlete(page);
+  // the service worker precaches the app shell while it installs; the offline switch below must not cut that short
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  const casey = (await readStore(page, 'athletes')).find((row) => row.name === 'Casey')!.id;
+
+  // the reconnect's download compares the Members of Casey, an Athlete this phone owns, with the list it keeps
+  await context.setOffline(true);
+  await context.setOffline(false);
+  await expect.poll(async () => (await readStore(page, 'settings')).some((row) => row.key === `members:${casey}`)).toBe(true);
+
+  // a Member the phone kept and the server no longer sends, as a Leave or an Owner's other phone's Remove leaves it
+  await writeRow(page, 'settings', { key: `members:${casey}`, value: JSON.stringify([{ id: 'gone-member', label: 'Sam' }]) });
+  await context.setOffline(true);
+  await context.setOffline(false);
+  await expect(page.getByText(line)).toBeVisible();
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page.getByText(line)).toHaveCount(0);
+});
