@@ -1702,6 +1702,22 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   useLayoutEffect(() => {
     if (ending) bringFormIntoView();
   }, [ending]);
+  // the dock's height, plus the gap above it, is the scroll padding: a control reached by keyboard scrolls clear of the dock, not under it
+  const dock = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = dock.current;
+    if (!el) return;
+    const fit = () => {
+      document.documentElement.style.scrollPaddingBottom = `${el.offsetHeight + 8}px`;
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    fit();
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.scrollPaddingBottom = '';
+    };
+  }, []);
   // the Outcome picked on softball or baseball, waiting for its RBI chip
   const [pending, setPending] = useState<Outcome>();
   // the Stole option: on while the next base move is a steal
@@ -1946,56 +1962,59 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
           {otherStats}
         </>
       )}
-      <div className="undo-slot">
-        <button className="undo" disabled={!game.undoable} onClick={undo}>
-          {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
-        </button>
-        {/* the toast covers the Undo button it names; its status region is mounted from the start, so each new text is announced (#246) */}
-        <div className="toast" role="status">
-          {toast && (
-            <>
-              <span>
-                <span aria-hidden="true">✓</span> {toast.label}
-              </span>
-              <button onClick={undo}>Undo</button>
-            </>
-          )}
+      {/* one dock at the bottom: Undo, the Period row and the End Game form, which stay on screen while the stat tiles scroll under them */}
+      <div className="dock" ref={dock}>
+        <div className="undo-slot">
+          <button className="undo" disabled={!game.undoable} onClick={undo}>
+            {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
+          </button>
+          {/* the toast covers the Undo button it names; its status region is mounted from the start, so each new text is announced (#246) */}
+          <div className="toast" role="status">
+            {toast && (
+              <>
+                <span>
+                  <span aria-hidden="true">✓</span> {toast.label}
+                </span>
+                <button onClick={undo}>Undo</button>
+              </>
+            )}
+          </div>
         </div>
+        {/* the Period sits on the End Game row, so the live screen keeps its height at every Button Size */}
+        <div className="period-row">
+          <span className="period">{game.periodLabel}</span>
+          <button onClick={nextPeriod}>Next period</button>
+          {/* a second tap while the form is open only brings it back into view */}
+          <button className={ending ? 'primary' : undefined} aria-expanded={ending} onClick={() => (ending ? bringFormIntoView() : setEnding(true))}>
+            End Game
+          </button>
+          <button
+            aria-label="Field mode"
+            aria-pressed={field}
+            className={field ? 'primary sun' : 'sun'}
+            onClick={() => run((core) => core.setFieldMode(!field))}
+          >
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+            </svg>
+          </button>
+        </div>
+        {ending && (
+          <EndGameForm
+            formRef={endForm}
+            run={run}
+            gameId={gameId}
+            athleteName={game.athleteName}
+            score={game.score}
+            onCancel={() => setEnding(false)}
+            onEnded={() => {
+              setEnding(false);
+              onEnded(gameId);
+            }}
+          />
+        )}
       </div>
-      {/* the Period sits on the End Game row, so the live screen keeps its height at every Button Size */}
-      <div className="period-row">
-        <span className="period">{game.periodLabel}</span>
-        <button onClick={nextPeriod}>Next period</button>
-        {/* a second tap while the form is open only brings it back into view */}
-        <button className={ending ? 'primary' : undefined} aria-expanded={ending} onClick={() => (ending ? bringFormIntoView() : setEnding(true))}>
-          End Game
-        </button>
-        <button
-          aria-label="Field mode"
-          aria-pressed={field}
-          className={field ? 'primary sun' : 'sun'}
-          onClick={() => run((core) => core.setFieldMode(!field))}
-        >
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-          </svg>
-        </button>
-      </div>
-      {ending && (
-        <EndGameForm
-          formRef={endForm}
-          run={run}
-          gameId={gameId}
-          athleteName={game.athleteName}
-          score={game.score}
-          onCancel={() => setEnding(false)}
-          onEnded={() => {
-            setEnding(false);
-            onEnded(gameId);
-          }}
-        />
-      )}
     </main>
   );
 }
