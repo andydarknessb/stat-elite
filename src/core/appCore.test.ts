@@ -2011,6 +2011,60 @@ test("a removed Member's phone drops the Athlete, its Games and Events at its ne
   expect(server.rows.events.get(steal.id)).toBeDefined();
 });
 
+test('an Owner is told once when a Member leaves, and OK clears the line for good', async () => {
+  const { core, athleteId, memberId, member } = await sharedWithAMember();
+  await core.refresh();
+  const [{ label }] = await core.members(athleteId);
+
+  await member.core.leave(athleteId);
+  await core.refresh();
+
+  expect(await core.goneMembers()).toEqual([{ athleteId, memberId, label, athleteName: 'Casey' }]);
+  await core.clearGoneMember(athleteId, memberId);
+  expect(await core.goneMembers()).toEqual([]);
+  await core.refresh();
+  expect(await core.goneMembers()).toEqual([]);
+});
+
+test("the Owner's own Remove of a Member adds no line", async () => {
+  const { core, athleteId, memberId } = await sharedWithAMember();
+  await core.refresh();
+
+  await core.removeMember(athleteId, memberId);
+  await core.refresh();
+
+  expect(await core.goneMembers()).toEqual([]);
+});
+
+test('a Session that ends during the Members read adds no line, and signing in again adds none', async () => {
+  const { core, server } = await sharedWithAMember();
+  await core.refresh();
+  vi.spyOn(server, 'members').mockImplementationOnce(async () => {
+    await server.signOut();
+    return [];
+  });
+
+  await core.refresh();
+  expect(await core.goneMembers()).toEqual([]);
+
+  await signInWithCode(core, 'casey@example.com');
+  await core.refresh();
+  expect(await core.goneMembers()).toEqual([]);
+});
+
+test('a Members read that fails adds no line and does not stop the download', async () => {
+  const { core, server, athleteId, member } = await sharedWithAMember();
+  await core.refresh();
+  const gameId = await member.core.startGame({ athleteId, ...GAME_SETUP, sport: 'basketball', periodFormat: 'halves' });
+  await member.core.flush();
+  vi.spyOn(server, 'members').mockRejectedValueOnce(new Error('offline'));
+
+  await core.refresh();
+
+  expect(await core.liveGame(gameId)).toBeDefined();
+  expect(await core.goneMembers()).toEqual([]);
+});
+
 test('a Member who leaves drops the Athlete from its phone at once, and its Games stay with the Athlete', async () => {
   const { core, server, athleteId, member, memberId, memberGame, steal } = await sharedWithAMember();
 
@@ -4273,6 +4327,18 @@ const LIVE_READ_MODELS: Record<keyof LiveReads, () => Promise<void>> = {
       async () => {
         await core.removeMember(athleteId, memberId);
         await member.core.refresh();
+      },
+      (lines) => lines.length === 1,
+    );
+  },
+  goneMembers: async () => {
+    const { core, athleteId, member } = await sharedWithAMember();
+    await core.refresh();
+    await followsWrite(
+      () => core.goneMembers(),
+      async () => {
+        await member.core.leave(athleteId);
+        await core.refresh();
       },
       (lines) => lines.length === 1,
     );

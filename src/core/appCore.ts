@@ -71,6 +71,12 @@ const SHARED = 'shared:';
 const RECEIVED = 'received:';
 /** Settings key prefix, one per Athlete the Owner removed this account from, valued with its name: the line the phone shows until its OK (ADR 0004). */
 const REMOVED = 'removed:';
+/** Settings key prefix, one per Athlete this Owner's phone holds the Members of, valued with their ids and labels as the phone last saw them (ADR 0004). */
+const MEMBERS = 'members:';
+/** Settings key prefix, one per Member this Owner's phone saw leave an Athlete: the line it shows until its OK (ADR 0004). */
+const GONE = 'gone:';
+type KeptMember = { id: string; label: string };
+const goneKey = (athleteId: string, memberId: string) => `${GONE}${athleteId} ${memberId}`;
 /** Settings key: the seq of the row the server last refused. Home's Refused Row notice reads it while that row still waits (#208, #237). */
 const REFUSED_ROW = 'refusedRow';
 const NOT_SYNCED = 'Not everything on this Athlete has synced yet';
@@ -273,6 +279,9 @@ const labelled = (member: MemberRow): Member => ({
   ...member,
   label: member.email ?? `Joined ${new Date(member.joined_at).toLocaleDateString()}`,
 });
+
+/** A Member an Owner's phone saw leave one of its Athletes, named for the line that says so (ADR 0004). */
+export type GoneMember = { athleteId: string; memberId: string; label: string; athleteName: string };
 
 /** What deleting the account does to one Athlete the phone holds (ADR 0004): it passes to its first Member, is deleted with its Games, or this account leaves it. A Phone whose Session the server ended only clears itself: 'removed'. */
 export type AthleteFate =
@@ -477,6 +486,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     if (opening) await store.settings.put({ key: SELECTED_ATHLETE, value: opening });
   };
 
+  // an Owner's phone keeps each Athlete's Members as it last saw them: a kept one this read lacks is gone, and its line waits for OK (ADR 0004)
+  const keepMembers = async (athlete: AthleteRow, members: MemberRow[]) => {
+    const kept = (await store.settings.get(MEMBERS + athlete.id))?.value;
+    for (const { id, label } of kept ? (JSON.parse(kept) as KeptMember[]) : []) {
+      if (members.some((m) => m.member_id === id)) continue;
+      const value = { athleteId: athlete.id, memberId: id, label, athleteName: athlete.name };
+      await store.settings.put({ key: goneKey(athlete.id, id), value: JSON.stringify(value) });
+    }
+    await store.settings.put({ key: MEMBERS + athlete.id, value: JSON.stringify(members.map((m) => ({ id: m.member_id, label: labelled(m).label }))) });
+  };
+
   // Brings the account's rows down: Athletes and Games the phone lacks or holds an older edit of, Events it lacks.
   // Fetched before the transaction, since Dexie cannot span the network. Nothing here is queued for upload.
   // `leaving` is the Athlete a Member's own Leave drops: its drop records no removal.
@@ -488,6 +508,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       server.download('games'),
       server.download('events'),
     ]);
+    // the Members of each Athlete this account owns, read before the session check below: a Session that ends during a read reads as none, and the check drops it
+    const owned = before === undefined ? [] : athletes.filter((a) => a.owner_id === before);
+    const memberReads = await Promise.all(
+      owned.map(async (athlete) => ({
+        athlete,
+        members: await server.members(athlete.id).catch((error: unknown) => {
+          console.error(error);
+          return undefined;
+        }),
+      })),
+    );
     // Athletes are dropped or marked only for an account signed in both before and after the downloads: a signed-out or lapsed session drops none
     const me = before !== undefined && before === (await server.session()) ? before : undefined;
     await store.transaction('rw', phoneRows, async () => {
@@ -511,6 +542,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       await store.settings.bulkDelete(athletes.map((a) => REMOVED + a.id));
       if (me !== undefined) {
         await store.settings.bulkPut(athletes.filter((a) => a.owner_id !== me).map((a) => ({ key: SHARED + a.id, value: me })));
+        for (const { athlete, members } of memberReads) if (members) await keepMembers(athlete, members);
       }
       const athleteRows = athletes.map(athleteOf);
       const athleteHeld = await store.athletes.bulkGet(athleteRows.map((r) => r.id));
@@ -1066,8 +1098,14 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     },
 
     /** The Owner removes a Member; the Member's phone drops the Athlete at its next download (ADR 0004). */
-    removeMember(athleteId: string, memberId: string): Promise<void> {
-      return server.removeMember(athleteId, memberId);
+    async removeMember(athleteId: string, memberId: string): Promise<void> {
+      await server.removeMember(athleteId, memberId);
+      // a Member the Owner removes is no Member gone: the kept list drops it, so the next download adds no line
+      const kept = (await store.settings.get(MEMBERS + athleteId))?.value;
+      if (kept) {
+        const rest = (JSON.parse(kept) as KeptMember[]).filter((m) => m.id !== memberId);
+        await store.settings.put({ key: MEMBERS + athleteId, value: JSON.stringify(rest) });
+      }
     },
 
     /** A Member leaves an Athlete: the Athlete drops from this phone now, and the Games it recorded stay with the Athlete (ADR 0004). */
@@ -1107,6 +1145,17 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     /** The OK on a removal line: it stays cleared, reload included. */
     async clearRemovedAthlete(athleteId: string): Promise<void> {
       await store.settings.delete(REMOVED + athleteId);
+    },
+
+    /** The Members an Owner's phone saw leave its Athletes, named, until each one's OK clears it (ADR 0004). Live. */
+    async goneMembers(): Promise<GoneMember[]> {
+      const lines = await store.settings.where('key').startsWith(GONE).toArray();
+      return lines.map(({ value }) => JSON.parse(value) as GoneMember);
+    },
+
+    /** The OK on a gone Member's line: it stays cleared, reload included. */
+    async clearGoneMember(athleteId: string, memberId: string): Promise<void> {
+      await store.settings.delete(goneKey(athleteId, memberId));
     },
 
     /** The photos this phone holds, which Sign out clears. Read here, so the Sign out screen needs no connection. */
