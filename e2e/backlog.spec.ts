@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { gameDateText } from '../src/core/words';
 import { addFirstAthlete, startGame } from './recorder';
 
@@ -156,4 +156,33 @@ test('a Backlogged Game removed from its summary after confirming lands on Home,
 
   await page.getByRole('button', { name: 'Games', exact: true }).click();
   await expect(page.getByRole('button', { name: /Lions/ })).toHaveCount(0);
+});
+
+test('Add past Game splits its fields under Final Score and Totals, names what a save needs, and saves on the four required fields', async ({ page }) => {
+  const played = localDate(-10);
+  await addFirstAthlete(page);
+  await page.getByRole('button', { name: 'Add past Game' }).click();
+  const finalScore = page.getByRole('heading', { name: 'Final Score', exact: true });
+  const totals = page.getByRole('heading', { name: 'Totals', exact: true });
+  const top = async (locator: Locator) => (await locator.boundingBox())!.y;
+  await expect(finalScore).toBeVisible();
+  await expect(totals).toBeVisible();
+  expect(await top(finalScore)).toBeLessThan(await top(page.getByLabel('Casey score')));
+  expect(await top(page.getByLabel('Opponent score'))).toBeLessThan(await top(totals));
+  expect(await top(totals)).toBeLessThan(await top(page.getByLabel('2PT made')));
+  await expect(page.getByText('Optional. A blank count is 0.')).toBeVisible();
+
+  // while a required field is empty the quiet line shows, and it is not an alert
+  const needed = page.getByText('Opponent, Date and both scores are needed to save.');
+  await expect(needed).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.getByLabel('Opponent', { exact: true }).fill('Lions');
+  await page.getByLabel('Date', { exact: true }).fill(played);
+  await page.getByLabel('Casey score').fill('40');
+  await page.getByLabel('Opponent score').fill('32');
+  await expect(needed).toHaveCount(0);
+
+  // the four required fields alone save, and the Summary opens
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Casey 40 – Opponent 32')).toBeVisible();
 });
