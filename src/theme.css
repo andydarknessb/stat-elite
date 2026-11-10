@@ -92,8 +92,10 @@ button {
 }
 
 /* WebKit's default button padding is taller than Chromium's and pushed the Standard live screen 3px past 390×844 (#218). */
+/* touch-action keeps rapid taps from zooming the page, on every button and the court (#279). */
 button {
   padding: 1px 6px;
+  touch-action: manipulation;
 }
 
 /* Inputs and selects are 52px tall on the surface, with the stronger edge. */
@@ -179,6 +181,34 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--surface);
+}
+
+/* First run's signed-in line and Sign out keep the install card's 16px side margins (#279). */
+.signed-in {
+  display: grid;
+  gap: 12px;
+  margin: 0 16px;
+}
+
+/* The photo field's file button takes the app's surface-2 look, and the field centres it vertically in its 52px height (#279). */
+input[type='file'] {
+  display: flex;
+  align-items: center;
+}
+
+input[type='file']::file-selector-button {
+  margin-right: 12px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+
+/* A note or a hint on a form: muted text, never an alert (#279). */
+.quiet {
+  color: var(--muted);
 }
 
 /* The Undo button's slot: the toast covers that button, so the two share one box. */
@@ -436,6 +466,7 @@ button:disabled {
 .court {
   height: 128px;
   color: var(--muted);
+  touch-action: manipulation;
 }
 
 .court * {
