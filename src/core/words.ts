@@ -132,6 +132,9 @@ export const gameDateText = (stored: string, today: Date) => {
 /** A count with its sign, as Plus/Minus reads: +3, 0, -2. */
 export const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
+/** The sync badge: "All synced" at zero, else the rows that still wait only on this phone (plan: Outbox). */
+export const syncText = (notSynced: number) => (notSynced === 0 ? 'All synced' : `${notSynced} not synced · saved on this phone`);
+
 /** The totals a season or a Game shows, in words. */
 const lineText = (line: Line) =>
   `${line.points} PTS · FG ${line.fg.made}/${line.fg.attempted} · FT ${line.ft.made}/${line.ft.attempted} · ${line.rebounds} REB · ${line.assists} AST`;

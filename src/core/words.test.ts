@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import type { AthleteFate } from './appCore';
 import type { Undoable } from './eventLog';
-import { clockOf, fateLine, gameDateText, initials, periodStartLabel, rateText, resultOf, shotTallyText, undoLabel, zoneLabel } from './words';
+import { clockOf, fateLine, gameDateText, initials, periodStartLabel, rateText, resultOf, shotTallyText, syncText, undoLabel, zoneLabel } from './words';
 
 const GAME_DATE_ROWS = [
   ['2026-11-05', 'Thu, Nov 5'],
@@ -31,6 +31,14 @@ it.each([
   ['three-right', 'Three-point right'],
 ] as const)('zoneLabel(%s) is %s', (zone, label) => {
   expect(zoneLabel(zone)).toBe(label);
+});
+
+it.each([
+  [0, 'All synced'],
+  [1, '1 not synced · saved on this phone'],
+  [12, '12 not synced · saved on this phone'],
+])('syncText(%i rows waiting) is %s', (rows, text) => {
+  expect(syncText(rows)).toBe(text);
 });
 
 it.each([
