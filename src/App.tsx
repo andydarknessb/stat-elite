@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   BUTTON_SIZES,
-  HALF_COURT,
   arcPreset,
   movesFrom,
   zoneOf,
@@ -23,6 +22,7 @@ import {
   type Season,
   type TileEventType,
 } from './core/appCore';
+import { HALF_COURT, THREE_POINT_LINE } from './core/court';
 import { backlogProblem, countFields, notWhole, textOf, totalsOf, type CountField } from './core/totals';
 import { shrinkPhoto } from './photo';
 import {
@@ -1553,9 +1553,26 @@ function GameComplete({ gameId, onDone }: { gameId: string; onDone: () => void }
 }
 
 const toFt = (spot: number, feet: number) => (spot / 100) * feet;
-const { widthFt, lengthFt, basketFt, arcFt, cornerFt, cornerEndFt } = HALF_COURT;
-// the three-point line: the corner lines from the baseline, then the arc between them
-const THREE_POINT_LINE = `M ${cornerFt} 0 V ${cornerEndFt} A ${arcFt} ${arcFt} 0 0 0 ${widthFt - cornerFt} ${cornerEndFt} V 0`;
+const { widthFt, lengthFt, basketFt } = HALF_COURT;
+
+/** The half court drawn to scale: its lines, then the Spots a caller marks on it. Shot entry and the Summary both draw it (#276). */
+function HalfCourt({ label, children, ...props }: ComponentProps<'svg'> & { label: string }) {
+  return (
+    <svg
+      className="court"
+      viewBox={`0 0 ${widthFt} ${lengthFt}`}
+      style={{ aspectRatio: `${widthFt} / ${lengthFt}` }}
+      role="img"
+      aria-label={label}
+      {...props}
+    >
+      <rect x="0" y="0" width={widthFt} height={lengthFt} />
+      <path d={THREE_POINT_LINE} />
+      <circle cx={widthFt / 2} cy={basketFt} r="0.75" />
+      {children}
+    </svg>
+  );
+}
 
 /** A tap on the half court, and the value the arc presets it to, until MAKE or MISS records it. */
 type PendingShot = { x: number; y: number; value: 2 | 3 };
@@ -1625,22 +1642,9 @@ function ShotEntry({
     });
   return (
     <div className="shot-entry">
-      <svg
-        className="court"
-        ref={court}
-        viewBox={`0 0 ${widthFt} ${lengthFt}`}
-        style={{ aspectRatio: `${widthFt} / ${lengthFt}` }}
-        role="img"
-        aria-label={name}
-        tabIndex={0}
-        onClick={place}
-        onKeyDown={nudge}
-      >
-        <rect x="0" y="0" width={widthFt} height={lengthFt} />
-        <path d={THREE_POINT_LINE} />
-        <circle cx={widthFt / 2} cy={basketFt} r="0.75" />
+      <HalfCourt ref={court} label={name} tabIndex={0} onClick={place} onKeyDown={nudge}>
         {pending && <circle className="spot" cx={toFt(pending.x, widthFt)} cy={toFt(pending.y, lengthFt)} r="1.5" />}
-      </svg>
+      </HalfCourt>
       <div className="shot-controls" role="group" aria-label="Shot result">
         {threePointers ? (
           <button aria-pressed={value === 3} disabled={!pending} onClick={flip}>

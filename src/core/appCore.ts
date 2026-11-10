@@ -19,6 +19,7 @@ import {
 import { RowRefused, type MemberRow, type Server, type SyncedTable, type UploadRow } from './server';
 import { createPhoneAccount } from './phoneAccount';
 import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type Shift, type Undoable } from './eventLog';
+import { HALF_COURT } from './court';
 import { backlogProblem, eventsFromTotals, NO_FIELDS } from './totals';
 import { gameLineText, signed } from './words';
 
@@ -163,14 +164,7 @@ const SPORT_TAG: Record<GameRow['sport'], string> = { basketball: '#basketball',
 export const SCORE_MAX = 999;
 const isScore = (n: number) => Number.isInteger(n) && n >= 0 && n <= SCORE_MAX;
 
-// The half court in feet, on the NFHS (US high-school and youth) line: x across the 50 ft width, y from the baseline (the basket end) down the 42 ft to the half-court line.
-const widthFt = 50;
-const basketFt = 5.25;
-const arcFt = 19.75;
-const cornerFt = 5.25;
-// the corner line runs from the baseline to where it meets the arc
-const cornerEndFt = basketFt + Math.sqrt(arcFt ** 2 - (widthFt / 2 - cornerFt) ** 2);
-export const HALF_COURT = { widthFt, lengthFt: 42, basketFt, arcFt, cornerFt, cornerEndFt };
+const { widthFt, basketFt, arcFt, cornerFt, cornerEndFt } = HALF_COURT;
 // a spot's distance in feet from the basket: the measure arcPreset and the Zones share
 const basketDistanceFt = (x: number, y: number) => Math.hypot((x / 100) * widthFt - widthFt / 2, (y / 100) * HALF_COURT.lengthFt - basketFt);
 
