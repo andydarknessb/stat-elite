@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { addFirstAthlete, endGame, startGame } from './recorder';
 
 // The toast is the Undo button's box, so no Period row button sits under it (#246)
@@ -252,4 +252,94 @@ test.describe('on a touchscreen', () => {
     await page.waitForTimeout(1000);
     await expect(page.getByRole('region', { name: 'Game Complete' })).toHaveCount(0);
   });
+});
+
+// The dock: Undo, the toast, the Period row and the End Game form stay on screen at every phone height and Button Size (#272)
+type Box = { x: number; y: number; width: number; height: number };
+
+function overlaps(a: Box, b: Box) {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+// the dock's Undo button and Period row buttons: a control the page scrolls to must sit clear of every one of them
+async function expectClearOfDock(page: Page, control: Locator) {
+  const box = await control.boundingBox();
+  if (!box) throw new Error('the control is not on screen');
+  const dock = [await page.getByRole('button', { name: /^Undo \(last Event\)/ }).boundingBox()];
+  for (const button of await page.locator('.period-row button').all()) dock.push(await button.boundingBox());
+  for (const other of dock) {
+    if (!other) throw new Error('a dock control is not on screen');
+    expect(overlaps(box, other), `the control overlaps a dock control: ${JSON.stringify({ box, other, viewport: page.viewportSize() })}`).toBe(false);
+  }
+}
+
+const phones = [
+  { width: 393, height: 759 },
+  { width: 390, height: 664 },
+  { width: 375, height: 667 },
+];
+const buttonSizes = ['Compact', 'Standard', 'Bleacher'] as const;
+
+for (const viewport of phones) {
+  for (const buttonSize of buttonSizes) {
+    test(`at ${buttonSize} on a ${viewport.width}×${viewport.height} phone, Undo and End Game are on screen, and a tap's toast sits over Undo`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await addFirstAthlete(page);
+      await startGame(page, buttonSize === 'Standard' ? {} : { buttonSize });
+      await expect(page.getByRole('button', { name: /^Undo \(last Event\)/ })).toBeInViewport();
+      await expect(page.getByRole('button', { name: 'End Game' })).toBeInViewport();
+
+      await page.getByRole('button', { name: /^STL/ }).click();
+      await expect(page.getByRole('status')).toBeInViewport();
+      await expectToastOverUndo(page);
+    });
+  }
+}
+
+test('at Standard on a 375×667 phone, scrolled to the end, FOUL is fully on screen and clear of the dock', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+
+  const foul = page.getByRole('button', { name: /^FOUL \d+$/ });
+  await expect(foul).toBeInViewport({ ratio: 1 });
+  await expectClearOfDock(page, foul);
+});
+
+test('at Standard on a 375×667 phone, focusing FOUL from the top scrolls it clear of the dock', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  const foul = page.getByRole('button', { name: /^FOUL \d+$/ });
+  await foul.focus();
+  await expectClearOfDock(page, foul);
+});
+
+test('on softball at 375×667 with an Outcome armed, Undo and End Game are on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'RBI' })).toBeVisible();
+
+  await expect(page.getByRole('button', { name: /^Undo \(last Event\)/ })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'End Game' })).toBeInViewport();
+});
+
+test('at Bleacher on a 393×759 phone, Undo and End Game are on screen on both the Shots and Other stats pages', async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 759 });
+  await addFirstAthlete(page);
+  await startGame(page, { buttonSize: 'Bleacher' });
+  const undo = page.getByRole('button', { name: /^Undo \(last Event\)/ });
+  const endButton = page.getByRole('button', { name: 'End Game' });
+  await expect(undo).toBeInViewport();
+  await expect(endButton).toBeInViewport();
+
+  await page.getByRole('button', { name: 'Other stats', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Other stats' })).toBeInViewport();
+  await expect(undo).toBeInViewport();
+  await expect(endButton).toBeInViewport();
 });

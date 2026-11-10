@@ -43,7 +43,9 @@ body {
   font: 17px/1.4 Barlow, system-ui, -apple-system, sans-serif;
 }
 
-body:has(.tabs) {
+/* The tab bar and the live dock pay the bottom safe area themselves. */
+body:has(.tabs),
+body:has(.dock) {
   padding-bottom: 0;
 }
 
@@ -297,9 +299,33 @@ button:disabled {
   white-space: nowrap;
 }
 
-/* The basketball live screen, top to bottom: Shift bar, score strip, half court, Free Throw row, stat tiles, then Undo and End Game. */
+/* The basketball live screen, top to bottom: Shift bar, score strip, half court, Free Throw row, stat tiles, then the dock. A flex column, not a grid: a sticky grid item cannot leave its row. */
 .live {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  padding-bottom: 0;
+}
+
+/* Undo, the toast, the Period row and the End Game form stay at the bottom while the stat tiles scroll under them. Opaque and full width; it pays the home indicator itself. */
+.dock {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+  background: var(--bg);
+}
+
+/* A control on the live screen scrolls clear of the dock: its scroll margin is the dock's height plus the gap above it (App.tsx sets --dock-clear). */
+.live button {
+  scroll-margin-bottom: var(--dock-clear, 0px);
+}
+
+/* The dock's own controls are pinned, so they need no margin. */
+.dock button {
+  scroll-margin-bottom: 0;
 }
 
 /* The Shift bar: the Sub In/Out toggle, then the running Shift timer over the Game's Playing Share. It is one button tall, so the live screen still fits a 390×844 phone. */
