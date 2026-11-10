@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { addFirstAthlete, endGame, endGameForShareCard, startGame, type Photo } from './recorder';
+import { addFirstAthlete, endGame, endGameForShareCard, startGame, tapCourt, type Photo } from './recorder';
 
 // A 1x1 PNG, enough for the photo to render (as athletes.spec.ts uses it).
 const PHOTO = {
@@ -59,13 +59,26 @@ async function tapShareCard(page: Page) {
     const ctx = canvas.getContext('2d')!;
     ctx.drawImage(bitmap, 0, 0);
     const pixel = (x: number, y: number) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3));
-    // rows 940 to 1030, where the Final Score is drawn
-    const band = ctx.getImageData(0, 940, bitmap.width, 91).data;
-    // the Final Score's gold, #f5b841, each channel within 8
-    let gold = 0;
-    for (let i = 0; i < band.length; i += 4) {
-      if (Math.abs(band[i] - 0xf5) <= 8 && Math.abs(band[i + 1] - 0xb8) <= 8 && Math.abs(band[i + 2] - 0x41) <= 8) gold++;
-    }
+    // the colours the card draws: the make green, the miss red, the Final Score's gold and the background
+    const MAKE = [0x3f, 0xb9, 0x50];
+    const MISS = [0xf0, 0x60, 0x5a];
+    const GOLD = [0xf5, 0xb8, 0x41];
+    const BACKGROUND = [0x0b, 0x10, 0x20];
+    const rows = (from: number, to: number) => ctx.getImageData(0, from, bitmap.width, to - from).data;
+    // pixels in rows [from, to) with each channel within 8 of the colour
+    const near = (from: number, to: number, colour: number[]) => {
+      const data = rows(from, to);
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) if (colour.every((c, j) => Math.abs(data[i + j] - c) <= 8)) count++;
+      return count;
+    };
+    // pixels in rows [from, to) that differ from the background by more than 4 on some channel
+    const ink = (from: number, to: number) => {
+      const data = rows(from, to);
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) if (BACKGROUND.some((c, j) => Math.abs(data[i + j] - c) > 4)) count++;
+      return count;
+    };
     return {
       type: file.type,
       width: bitmap.width,
@@ -73,7 +86,15 @@ async function tapShareCard(page: Page) {
       corner: pixel(0, 0),
       center: pixel(600, 200),
       left: pixel(180, 200),
-      goldInScoreRows: gold,
+      // rows 940 to 1030, where the Final Score is drawn
+      goldInScoreRows: near(940, 1031, GOLD),
+      // the top 660 rows, the half court's dots and any gold
+      make: near(0, 660, MAKE),
+      miss: near(0, 660, MISS),
+      goldTop: near(0, 660, GOLD),
+      // rows 150 to 510 hold the jersey number; rows 1080 to 1128 hold the line
+      inkJersey: ink(150, 511),
+      inkLine: ink(1080, 1129),
     };
   });
 }
@@ -221,6 +242,77 @@ test('the card with no photo draws the background and the Final Score', async ({
   // the corner is the background; within 4 a channel tells #0b1020 from the old #0f1216
   expect(near(card.corner, [0x0b, 0x10, 0x20], 4)).toBe(true);
   expect(card.goldInScoreRows).toBeGreaterThan(1000);
+});
+
+// a basketball Game with a made 2 at the basket and a missed 2, ended to Game Complete; the photo, if any, is given
+async function endWithShots(page: Page, photo?: Photo) {
+  await addFirstAthlete(page, { photo });
+  await startGame(page);
+  await page.getByRole('button', { name: 'Sub In' }).click();
+  await tapCourt(page, 50, 11);
+  await page.getByRole('group', { name: 'Shot result' }).getByRole('button', { name: 'MAKE', exact: true }).click();
+  await tapCourt(page, 30, 40);
+  await page.getByRole('group', { name: 'Shot result' }).getByRole('button', { name: 'MISS', exact: true }).click();
+  await page.getByRole('button', { name: 'Sub Out' }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+}
+
+test('with no photo, Shots draw a green and a red dot on the half court in the top half, and no gold there', async ({ page }) => {
+  await keepSharedFiles(page);
+  await endWithShots(page);
+  const card = await tapShareCard(page);
+  expect(card.make).toBeGreaterThan(0);
+  expect(card.miss).toBeGreaterThan(0);
+  expect(card.goldTop).toBe(0);
+});
+
+test('a photo the browser cannot decode draws the same green and red dots', async ({ page }) => {
+  await keepSharedFiles(page);
+  await endWithShots(page, BAD_PHOTO);
+  const card = await tapShareCard(page);
+  expect(card.make).toBeGreaterThan(0);
+  expect(card.miss).toBeGreaterThan(0);
+});
+
+test('with no photo and no Shots, the jersey number draws large in the top half, and no gold there', async ({ page }) => {
+  await keepSharedFiles(page);
+  await addFirstAthlete(page, { name: 'Casey', number: '23' });
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+  const card = await tapShareCard(page);
+  expect(card.inkJersey).toBeGreaterThan(0);
+  expect(card.goldTop).toBe(0);
+});
+
+test('a softball Game with no photo draws its jersey number in the top half too', async ({ page }) => {
+  await keepSharedFiles(page);
+  await addFirstAthlete(page, { name: 'Casey', number: '23' });
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+  const card = await tapShareCard(page);
+  expect(card.inkJersey).toBeGreaterThan(0);
+  expect(card.goldTop).toBe(0);
+});
+
+test('a Game with no Events leaves the line off, so rows 1080 to 1128 are background', async ({ page }) => {
+  await keepSharedFiles(page);
+  await endGameForShareCard(page);
+  const card = await tapShareCard(page);
+  expect(card.inkLine).toBe(0);
+});
+
+test('a missed Free Throw keeps the line, so rows 1080 to 1128 have ink', async ({ page }) => {
+  await keepSharedFiles(page);
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('group', { name: 'Free Throw' }).getByRole('button', { name: 'MISS', exact: true }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+  const card = await tapShareCard(page);
+  expect(card.inkLine).toBeGreaterThan(0);
 });
 
 test.describe('with the Barlow Condensed files blocked', () => {
