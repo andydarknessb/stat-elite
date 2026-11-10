@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { endGameForShareCard, type Photo } from './recorder';
+import { addFirstAthlete, endGame, endGameForShareCard, startGame, type Photo } from './recorder';
 
 // A 1x1 PNG, enough for the photo to render (as athletes.spec.ts uses it).
 const PHOTO = {
@@ -85,6 +85,63 @@ test('Share card hands the Recorder a 1200×1200 image through the share sheet',
   expect(card).toMatchObject({ type: 'image/png', width: 1200, height: 1200 });
 });
 
+// Casey's basketball Game against Lady Hawks, ended at 42–37 on Game Complete, where the card is drawn
+async function endLadyHawksGame(page: Page) {
+  await addFirstAthlete(page, { name: 'Casey' });
+  await startGame(page, { opponent: 'Lady Hawks' });
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page, { teamLabel: 'Casey', teamScore: '42', opponentScore: '37' });
+}
+
+test('the drawn card shows as a 240px preview between the result card and Share card', async ({ page }) => {
+  await endLadyHawksGame(page);
+
+  const preview = page.getByRole('img', { name: 'Share card: Casey vs Lady Hawks, 42–37' });
+  await expect(preview).toBeVisible();
+  await expect.poll(() => preview.evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight])).toEqual([1200, 1200]);
+  const box = (await preview.boundingBox())!;
+  const result = (await page.getByRole('region', { name: 'Game Complete' }).boundingBox())!;
+  const share = (await page.getByRole('button', { name: 'Share card' }).boundingBox())!;
+  expect(Math.abs(box.width - 240)).toBeLessThanOrEqual(1);
+  expect(Math.abs(box.height - 240)).toBeLessThanOrEqual(1);
+  expect(box.y).toBeGreaterThanOrEqual(result.y + result.height);
+  expect(box.y + box.height).toBeLessThanOrEqual(share.y);
+  expect(Math.abs(box.x + box.width / 2 - 195)).toBeLessThanOrEqual(1);
+});
+
+test('the preview holds its space while the card draws, so Share card does not move', async ({ page }) => {
+  // the card's Worker answers only when the test releases it, with the 1x1 PNG
+  await page.addInitScript((png: string) => {
+    const replies: Array<() => void> = [];
+    (window as Window & { releaseCard?: () => void }).releaseCard = () => replies.splice(0).forEach((reply) => reply());
+    window.Worker = class {
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: ((event: { message: string }) => void) | null = null;
+      postMessage() {
+        const bytes = Uint8Array.from(atob(png), (char) => char.charCodeAt(0));
+        replies.push(() => this.onmessage?.({ data: { png: new Blob([bytes], { type: 'image/png' }) } }));
+      }
+      terminate() {}
+    } as unknown as typeof Worker;
+  }, PHOTO.buffer.toString('base64'));
+  await endLadyHawksGame(page);
+
+  const share = page.getByRole('button', { name: 'Share card' });
+  await expect(share).toBeDisabled();
+  const before = (await share.boundingBox())!.y;
+  await page.evaluate(() => (window as Window & { releaseCard?: () => void }).releaseCard?.());
+  await expect(page.getByRole('img', { name: 'Share card: Casey vs Lady Hawks, 42–37' })).toBeVisible();
+  await expect(share).toBeEnabled();
+  const after = (await share.boundingBox())!.y;
+  expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
+});
+
+test('after a basketball win, Game Complete does not scroll vertically at 390×844', async ({ page }) => {
+  await endLadyHawksGame(page);
+  await expect(page.getByRole('img', { name: 'Share card: Casey vs Lady Hawks, 42–37' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(844);
+});
+
 test('a photo the browser cannot decode still shares a 1200×1200 card', async ({ page }) => {
   await keepSharedFiles(page);
   await endGameForShareCard(page, BAD_PHOTO);
@@ -106,6 +163,7 @@ test('a card the worker cannot draw says so, and Share card stays disabled', asy
   });
   await endGameForShareCard(page);
   await expect(page.getByText('Share card could not be drawn')).toBeVisible();
+  await expect(page.getByRole('img', { name: /^Share card:/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Share card' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Copy text' })).toBeEnabled();
 });

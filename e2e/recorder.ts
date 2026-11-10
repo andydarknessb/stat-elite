@@ -27,6 +27,8 @@ export async function addFirstAthlete(page: Page, athlete: Athlete = {}) {
 type StartOptions = {
   sport?: 'basketball' | 'softball' | 'baseball';
   periodFormat?: 'Quarters' | 'Halves' | '8 Periods';
+  /** The Opponent's name in Game setup; left as prefilled when not given. */
+  opponent?: string;
   /** Three-pointers in Game setup; left as prefilled when not given. */
   threePointers?: 'On' | 'Off';
   /** The Button Size, set in Settings before the Game starts. */
@@ -34,7 +36,7 @@ type StartOptions = {
 };
 
 /** Starts a Game from Home, basketball unless a sport is given, and waits for its live screen. */
-export async function startGame(page: Page, { sport = 'basketball', periodFormat, threePointers, buttonSize }: StartOptions = {}) {
+export async function startGame(page: Page, { sport = 'basketball', periodFormat, opponent, threePointers, buttonSize }: StartOptions = {}) {
   if (buttonSize) {
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.getByRole('group', { name: 'Button Size' }).getByRole('button', { name: buttonSize, exact: true }).click();
@@ -44,6 +46,7 @@ export async function startGame(page: Page, { sport = 'basketball', periodFormat
   // always set: the setup form keeps the last sport, so a basketball Game after a softball one would start as softball
   await page.getByLabel('Sport').selectOption(sport);
   if (periodFormat) await page.getByLabel('Period format').selectOption(periodFormat);
+  if (opponent) await page.getByLabel('Opponent', { exact: true }).fill(opponent);
   if (threePointers) await page.getByLabel('Three-pointers').selectOption(threePointers);
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   if (sport === 'basketball') await expect(page.getByRole('button', { name: /^STL/ })).toBeVisible();

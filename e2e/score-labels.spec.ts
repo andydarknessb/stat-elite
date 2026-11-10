@@ -93,12 +93,50 @@ test('"Casey Smith" fits whole beside a 9–7 score on Game Complete and the sum
   await expectWhole(page.locator('.result-head').getByText('Casey Smith', { exact: true }));
 });
 
+test('Game Complete names the Opponent in its score line', async ({ page }) => {
+  await addFirstAthlete(page, { name: 'Casey' });
+  await startGame(page, { opponent: 'Lady Hawks' });
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page, { teamLabel: 'Casey', teamScore: '42', opponentScore: '37' });
+
+  await expect(page.getByRole('region', { name: 'Game Complete' }).getByText('Casey 42 – Lady Hawks 37', { exact: true })).toBeVisible();
+});
+
+test('the trophy and the gold letter mark a win; a loss or a tie has neither', async ({ page }) => {
+  const GOLD = 'rgb(245, 184, 65)';
+  await addFirstAthlete(page, { name: 'Casey' });
+  for (const [team, opponent, won] of [
+    ['42', '37', true],
+    ['37', '42', false],
+    ['40', '40', false],
+  ] as const) {
+    await startGame(page);
+    await page.getByRole('button', { name: 'End Game' }).click();
+    await endGame(page, { teamLabel: 'Casey', teamScore: team, opponentScore: opponent });
+    const complete = page.getByRole('region', { name: 'Game Complete' });
+    const color = await complete.locator('.badge').evaluate((element) => getComputedStyle(element).color);
+    if (won) {
+      await expect(complete.locator('.trophy')).toBeVisible();
+      await expect(complete.locator('.trophy')).toHaveCSS('color', GOLD);
+      expect(color).toBe(GOLD);
+    } else {
+      await expect(complete.locator('.trophy')).toHaveCount(0);
+    }
+    await page.getByRole('button', { name: 'Done' }).click();
+    if (!won) {
+      // the result row's letter is the plain badge, so Game Complete's letter has the same color
+      await expect(page.locator('.result-row', { hasText: `${team}–${opponent}` }).locator('.badge')).toHaveCSS('color', color);
+    }
+  }
+});
+
 test.describe('a 40-character name', () => {
   const NAME = 'Mohammed Wadsworth-Montgomery Bloomquist';
+  const OPPONENT = 'Wadsworth-Montgomery Hawkeyes Bloomquist';
 
   /** The name is cut with "…" on one line, and the page does not scroll sideways. */
-  async function expectNameCut(page: Page, scope: Locator) {
-    const name = await scope.getByText(NAME, { exact: true }).evaluate((element) => {
+  async function expectNameCut(page: Page, scope: Locator, name = NAME) {
+    const cut = await scope.getByText(name, { exact: true }).evaluate((element) => {
       const style = getComputedStyle(element);
       return {
         textOverflow: style.textOverflow,
@@ -108,9 +146,9 @@ test.describe('a 40-character name', () => {
         clientWidth: element.clientWidth,
       };
     });
-    expect(name.textOverflow).toBe('ellipsis');
-    expect(name.height).toBeLessThan(name.lineHeight * 1.5);
-    expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+    expect(cut.textOverflow).toBe('ellipsis');
+    expect(cut.height).toBeLessThan(cut.lineHeight * 1.5);
+    expect(cut.scrollWidth).toBeGreaterThan(cut.clientWidth);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   }
 
@@ -144,7 +182,10 @@ test.describe('a 40-character name', () => {
     await expect(page.getByRole('heading', { name: 'Final' })).toBeVisible();
     const complete = page.getByRole('region', { name: 'Game Complete' });
     await expectNameCut(page, complete);
-    await expectFullyVisible(complete.getByText('9 – Opponent 7', { exact: true }));
+    const scores = complete.locator('.score-text');
+    await expect(scores).toHaveText(['9 –', '7']);
+    await expectFullyVisible(scores.nth(0));
+    await expectFullyVisible(scores.nth(1));
 
     // Game summary
     await openSummary(page);
@@ -159,5 +200,20 @@ test.describe('a 40-character name', () => {
     const score = page.locator('label', { hasText: `${NAME} score` });
     await expectNameCut(page, score);
     await expectFullyVisible(score.getByText('score', { exact: true }));
+  });
+
+  test('an Opponent of 40 characters is cut too, and both scores stay whole', async ({ page }) => {
+    await addFirstAthlete(page, { name: NAME });
+    await startGame(page, { opponent: OPPONENT });
+    await page.getByRole('button', { name: 'End Game' }).click();
+    await endGame(page, { teamLabel: NAME, teamScore: '42', opponentScore: '37' });
+
+    const complete = page.getByRole('region', { name: 'Game Complete' });
+    await expectNameCut(page, complete);
+    await expectNameCut(page, complete, OPPONENT);
+    const scores = complete.locator('.score-text');
+    await expect(scores).toHaveText(['42 –', '37']);
+    await expectFullyVisible(scores.nth(0));
+    await expectFullyVisible(scores.nth(1));
   });
 });
