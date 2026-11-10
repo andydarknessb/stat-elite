@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import type { AthleteFate } from './appCore';
 import type { Undoable } from './eventLog';
-import { clockOf, fateLine, gameDateText, initials, rateText, resultOf, shotTallyText, undoLabel, zoneLabel } from './words';
+import { clockOf, fateLine, gameDateText, initials, periodStartLabel, rateText, resultOf, shotTallyText, undoLabel, zoneLabel } from './words';
 
 const GAME_DATE_ROWS = [
   ['2026-11-05', 'Thu, Nov 5'],
@@ -66,7 +66,16 @@ it.each([
   [undoable({ type: 'plate_appearance', outcome: 'strikeout', strikeout: 'swinging' }), 'Strikeout swinging'],
   [undoable({ type: 'baserunning', base: 'second', stolen: true }), '2nd (Stole)'],
 ])('undoLabel(%j) is %s', (event, text) => {
-  expect(undoLabel(event)).toBe(text);
+  expect(undoLabel(event, 'basketball')).toBe(text);
+});
+
+it.each([
+  ['basketball', 'Next period'],
+  ['softball', 'Next inning'],
+  ['baseball', 'Next inning'],
+] as const)('the Period-start label on %s is %s, on the Period button, its toast and Undo', (sport, label) => {
+  expect(periodStartLabel(sport)).toBe(label);
+  expect(undoLabel(undoable({ type: 'period_start' }), sport)).toBe(label);
 });
 
 it.each([

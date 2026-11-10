@@ -38,6 +38,7 @@ import {
   OUTCOME_LABELS,
   outcomeLabel,
   PITCH_LABELS,
+  periodStartLabel,
   rateText,
   resultOf,
   shotLabel,
@@ -1807,7 +1808,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   const nextPeriod = () => {
     run((core) => core.nextPeriod(gameId), {
       onDone: () => {
-        setToast({ label: EVENT_LABELS.period_start });
+        setToast({ label: periodStartLabel(game.sport) });
         setPending(undefined);
       },
     });
@@ -1847,20 +1848,22 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   // softball and baseball: one tap on an Outcome, then its RBI chip records the Plate Appearance
   const plateAppearance = (
     <section className="plate-appearance" aria-label="Plate Appearance">
-      {/* optional: the count shows only once a Pitch is logged in this Plate Appearance */}
+      {/* optional: the Count shows in the Pitch label's row once a Pitch is logged, so it adds no line */}
       <div className="pitches" role="group" aria-label="Pitch">
+        <div className="group-head">
+          <span className="group-label">Pitch (optional)</span>
+          {game.count && <span className="pitch-count">Count {game.count.balls}-{game.count.strikes}</span>}
+        </div>
         {PITCHES.map((pitch) => (
           <button key={pitch} onClick={() => void tapPitch(pitch)}>
             {PITCH_LABELS[pitch]}
           </button>
         ))}
       </div>
-      {game.count && (
-        <p className="pitch-count">
-          Count {game.count.balls}-{game.count.strikes}
-        </p>
-      )}
       <div className="outcomes" role="group" aria-label="Outcome">
+        <div className="group-head">
+          <span className="group-label">Outcome</span>
+        </div>
         {OUTCOMES.map((outcome) => (
           <button
             key={outcome}
@@ -1874,12 +1877,15 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       </div>
       {pending && (
         <div className="rbi" role="group" aria-label="RBI">
+          <div className="group-head">
+            <span className="group-label">RBI?</span>
+            <button onClick={() => setPending(undefined)}>Cancel</button>
+          </div>
           {[0, 1, 2, 3, 4].map((rbi) => (
             <button key={rbi} onClick={() => void pick(rbi)}>
               {rbi} RBI
             </button>
           ))}
-          <button onClick={() => setPending(undefined)}>Cancel</button>
         </div>
       )}
       {game.onBase && (
@@ -1895,7 +1901,8 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
           ))}
         </div>
       )}
-      <dl className="batting">
+      {/* softball: the batting line leaves the screen while the RBI or Base group is up; it stays in the page (#273) */}
+      <dl className="batting" hidden={Boolean(pending || game.onBase)}>
         {[
           ['AVG', rateText(game.batting.avg)],
           ['OBP', rateText(game.batting.obp)],
@@ -1964,7 +1971,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       <div className="dock" ref={dock}>
         <div className="undo-slot">
           <button className="undo" disabled={!game.undoable} onClick={undo}>
-            {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
+            {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable, game.sport)}` : 'Undo (last Event)'}
           </button>
           {/* the toast covers the Undo button it names; its status region is mounted from the start, so each new text is announced (#246) */}
           <div className="toast" role="status">
@@ -1981,7 +1988,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
         {/* the Period sits on the End Game row, so the live screen keeps its height at every Button Size */}
         <div className="period-row">
           <span className="period">{game.periodLabel}</span>
-          <button onClick={nextPeriod}>Next period</button>
+          <button onClick={nextPeriod}>{periodStartLabel(game.sport)}</button>
           {/* a second tap while the form is open only brings it back into view */}
           <button className={ending ? 'primary' : undefined} aria-expanded={ending} onClick={() => (ending ? bringFormIntoView() : setEnding(true))}>
             End Game

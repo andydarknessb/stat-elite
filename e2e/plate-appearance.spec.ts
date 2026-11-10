@@ -4,7 +4,7 @@ import { addFirstAthlete, startGame } from './recorder';
 // the batting line is three stat cards, AVG, OBP and SLG: each holds its stat as a term, its value under it (#249)
 const battingCard = (page: Page, stat: 'AVG' | 'OBP' | 'SLG') => page.locator('.batting-card', { has: page.locator('dt', { hasText: stat }) });
 
-test('an Outcome, then its RBI chip, records a Plate Appearance; Undo takes it back; Next period moves to the next inning', async ({ page }) => {
+test('an Outcome, then its RBI chip, records a Plate Appearance; Undo takes it back; Next inning moves to the next inning', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page, { sport: 'softball' });
   await expect(page.getByText('Inn 1', { exact: true })).toBeVisible();
@@ -23,7 +23,7 @@ test('an Outcome, then its RBI chip, records a Plate Appearance; Undo takes it b
   await page.getByRole('button', { name: 'Undo (last Event): 2B' }).click();
   await expect(battingCard(page, 'AVG')).toContainText('—');
 
-  await page.getByRole('button', { name: 'Next period' }).click();
+  await page.getByRole('button', { name: 'Next inning' }).click();
   await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
 });
 
@@ -117,28 +117,28 @@ test('on Compact the 2B button is 44px tall', async ({ page }) => {
   expect(box?.height).toBe(44);
 });
 
-test('Next period disarms an Outcome: its RBI chips go down, and the next inning opens', async ({ page }) => {
+test('Next inning disarms an Outcome: its RBI chips go down, and the next inning opens', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await expect(page.getByRole('group', { name: 'RBI' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Next period' }).click();
+  await page.getByRole('button', { name: 'Next inning' }).click();
   await expect(page.getByRole('group', { name: 'RBI' })).toHaveCount(0);
   await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
 });
 
-test('Next period takes the Athlete off base: the Base group goes, and Undo brings it back', async ({ page }) => {
+test('Next inning takes the Athlete off base: the Base group goes, and Undo brings it back', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '1B', exact: true }).click();
   await page.getByRole('button', { name: '0 RBI', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Base', exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Next period' }).click();
+  await page.getByRole('button', { name: 'Next inning' }).click();
   await expect(page.getByRole('group', { name: 'Base', exact: true })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Undo (last Event): Next period' }).click();
+  await page.getByRole('button', { name: 'Undo (last Event): Next inning' }).click();
   await expect(page.getByRole('group', { name: 'Base', exact: true })).toBeVisible();
 });
 

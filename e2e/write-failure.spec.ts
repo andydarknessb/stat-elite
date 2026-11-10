@@ -324,14 +324,14 @@ test('Sub In: a refused sub shows no toast and no pulse, and a retry that lands 
   expect(errors).toEqual([]);
 });
 
-test('Next period: a refused period keeps the Outcome armed and the inning, and a retry that lands moves on', async ({ page }) => {
+test('Next inning: a refused period keeps the Outcome armed and the inning, and a retry that lands moves on', async ({ page }) => {
   const errors = collectPageErrors(page);
   await addFirstAthlete(page);
   await startGame(page, { sport: 'softball' });
   await page.getByRole('button', { name: '2B', exact: true }).click();
   await failWrites(page);
 
-  await page.getByRole('button', { name: 'Next period' }).click();
+  await page.getByRole('button', { name: 'Next inning' }).click();
 
   await expectNotSaved(page);
   await expect(page.getByText('Inn 1', { exact: true })).toBeVisible();
@@ -339,7 +339,7 @@ test('Next period: a refused period keeps the Outcome armed and the inning, and 
   await expect(page.getByRole('status')).toBeHidden();
 
   await restoreWrites(page);
-  await page.getByRole('button', { name: 'Next period' }).click();
+  await page.getByRole('button', { name: 'Next inning' }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByText('Inn 2', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '2 RBI' })).toHaveCount(0);
