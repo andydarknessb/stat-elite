@@ -1848,20 +1848,22 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   // softball and baseball: one tap on an Outcome, then its RBI chip records the Plate Appearance
   const plateAppearance = (
     <section className="plate-appearance" aria-label="Plate Appearance">
-      {/* optional: the count shows only once a Pitch is logged in this Plate Appearance */}
+      {/* optional: the Count shows in the Pitch label's row once a Pitch is logged, so it adds no line */}
       <div className="pitches" role="group" aria-label="Pitch">
+        <div className="group-head">
+          <span className="group-label">Pitch (optional)</span>
+          {game.count && <span className="pitch-count">Count {game.count.balls}-{game.count.strikes}</span>}
+        </div>
         {PITCHES.map((pitch) => (
           <button key={pitch} onClick={() => void tapPitch(pitch)}>
             {PITCH_LABELS[pitch]}
           </button>
         ))}
       </div>
-      {game.count && (
-        <p className="pitch-count">
-          Count {game.count.balls}-{game.count.strikes}
-        </p>
-      )}
       <div className="outcomes" role="group" aria-label="Outcome">
+        <div className="group-head">
+          <span className="group-label">Outcome</span>
+        </div>
         {OUTCOMES.map((outcome) => (
           <button
             key={outcome}
@@ -1875,12 +1877,15 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       </div>
       {pending && (
         <div className="rbi" role="group" aria-label="RBI">
+          <div className="group-head">
+            <span className="group-label">RBI?</span>
+            <button onClick={() => setPending(undefined)}>Cancel</button>
+          </div>
           {[0, 1, 2, 3, 4].map((rbi) => (
             <button key={rbi} onClick={() => void pick(rbi)}>
               {rbi} RBI
             </button>
           ))}
-          <button onClick={() => setPending(undefined)}>Cancel</button>
         </div>
       )}
       {game.onBase && (

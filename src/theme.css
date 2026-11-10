@@ -540,7 +540,28 @@ button:disabled {
   box-sizing: border-box;
 }
 
-/* softball and baseball: the Pitch row and Outcome grid, the count, the RBI chips under them, and the batting line */
+/* softball and baseball: the Plate Appearance groups sit 16px apart, and each group's label heads its row above its buttons */
+.plate-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 24px, so a Pitch Count in the row beside its label moves nothing below it */
+.group-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+}
+
+.group-label {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.2;
+}
+
 .pitches,
 .outcomes {
   display: grid;
@@ -560,11 +581,13 @@ button:disabled {
 .pitch-count {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  line-height: 1.2;
 }
 
+/* the RBI chips: five equal columns on one row, under the RBI? header */
 .rbi {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -573,6 +596,14 @@ button:disabled {
 .plate-appearance .outcomes button,
 .plate-appearance .rbi button {
   font-weight: 600;
+  min-height: 56px;
+}
+
+/* Compact keeps its 44px tiles under the Standard rule above (Bleacher's 64px is further down) */
+.compact .plate-appearance .pitches button,
+.compact .plate-appearance .outcomes button,
+.compact .plate-appearance .rbi button {
+  min-height: 44px;
 }
 
 /* the Base group is one card: the Diamond, Stole and the base moves */
