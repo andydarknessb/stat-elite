@@ -1702,20 +1702,20 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   useLayoutEffect(() => {
     if (ending) bringFormIntoView();
   }, [ending]);
-  // the dock's height, plus the gap above it, is the scroll padding: a control reached by keyboard scrolls clear of the dock, not under it
+  // the dock's height, plus the gap above it, is what a control scrolls clear of: each control's scroll margin reads it (theme.css)
   const dock = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = dock.current;
     if (!el) return;
     const fit = () => {
-      document.documentElement.style.scrollPaddingBottom = `${el.offsetHeight + 8}px`;
+      document.documentElement.style.setProperty('--dock-clear', `${el.offsetHeight + 8}px`);
     };
     const observer = new ResizeObserver(fit);
     observer.observe(el);
     fit();
     return () => {
       observer.disconnect();
-      document.documentElement.style.scrollPaddingBottom = '';
+      document.documentElement.style.removeProperty('--dock-clear');
     };
   }, []);
   // the Outcome picked on softball or baseball, waiting for its RBI chip

@@ -318,6 +318,16 @@ button:disabled {
   background: var(--bg);
 }
 
+/* A control on the live screen scrolls clear of the dock: its scroll margin is the dock's height plus the gap above it (App.tsx sets --dock-clear). */
+.live button {
+  scroll-margin-bottom: var(--dock-clear, 0px);
+}
+
+/* The dock's own controls are pinned, so they need no margin. */
+.dock button {
+  scroll-margin-bottom: 0;
+}
+
 /* The Shift bar: the Sub In/Out toggle, then the running Shift timer over the Game's Playing Share. It is one button tall, so the live screen still fits a 390×844 phone. */
 .shift {
   display: grid;
