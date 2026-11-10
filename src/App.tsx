@@ -1933,11 +1933,11 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
                 aria-controls={shiftsOpen ? 'shift-list' : undefined}
                 onClick={() => setShiftsOpen(!shiftsOpen)}
               >
-                <span className="timer">{current ? `On court ${clockOf(current.ms)} · ${signed(current.plusMinus)}` : 'On bench'}</span>
+                <span className="timer">{current ? `On court ${clockOf(current.ms)} · Shift ${signed(current.plusMinus)}` : 'On bench'}</span>
                 <span>
                   {shiftsOpen
                     ? 'Shifts'
-                    : `${Math.round(game.playingShare * 100)}% · ${game.shifts.length} ${game.shifts.length === 1 ? 'Shift' : 'Shifts'} · Plus/Minus ${signed(game.plusMinus)}`}
+                    : `Playing Share ${Math.round(game.playingShare * 100)}% · ${game.shifts.length} ${game.shifts.length === 1 ? 'Shift' : 'Shifts'} · Plus/Minus ${signed(game.plusMinus)}`}
                 </span>
               </button>
               {shiftsOpen && (
