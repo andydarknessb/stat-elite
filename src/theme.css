@@ -628,7 +628,7 @@ button:disabled {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 12px;
+  padding: 8px;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--surface);
