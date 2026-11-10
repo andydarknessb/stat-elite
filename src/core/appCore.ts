@@ -18,7 +18,8 @@ import {
 } from './store';
 import { RowRefused, type MemberRow, type Server, type SyncedTable, type UploadRow } from './server';
 import { createPhoneAccount } from './phoneAccount';
-import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type Shift, type Undoable } from './eventLog';
+import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type ShotSpot, type Shift, type Undoable } from './eventLog';
+import { HALF_COURT } from './court';
 import { backlogProblem, eventsFromTotals, NO_FIELDS } from './totals';
 import { gameLineText, signed } from './words';
 
@@ -113,6 +114,8 @@ export interface LiveGame extends Counts {
   batting: Batting;
   /** Total Shift time over the Game's elapsed time, from its start to now or the End Game; clamped to 0–1 if the clock steps back. */
   playingShare: number;
+  /** Each Shot's Spot and result, not retracted (the Summary's dots). */
+  spots: ShotSpot[];
 }
 
 /** The Athlete's stats summed over Games: points, shooting, rebounds, assists and Plus/Minus (GLOSSARY: Plus/Minus). */
@@ -143,6 +146,8 @@ export interface FeedGame {
   baserunning: Baserunning;
   tiles: Record<TileEventType, number>;
   playingShare: number;
+  /** Each Shot's Spot and result, not retracted: the Summary draws them on the half court. A Backlogged Game has none (ADR 0005). */
+  spots: ShotSpot[];
   /** A Backlogged Game, entered from its Totals after it was played (ADR 0005). */
   backlogged: boolean;
 }
@@ -163,14 +168,7 @@ const SPORT_TAG: Record<GameRow['sport'], string> = { basketball: '#basketball',
 export const SCORE_MAX = 999;
 const isScore = (n: number) => Number.isInteger(n) && n >= 0 && n <= SCORE_MAX;
 
-// The half court in feet, on the NFHS (US high-school and youth) line: x across the 50 ft width, y from the baseline (the basket end) down the 42 ft to the half-court line.
-const widthFt = 50;
-const basketFt = 5.25;
-const arcFt = 19.75;
-const cornerFt = 5.25;
-// the corner line runs from the baseline to where it meets the arc
-const cornerEndFt = basketFt + Math.sqrt(arcFt ** 2 - (widthFt / 2 - cornerFt) ** 2);
-export const HALF_COURT = { widthFt, lengthFt: 42, basketFt, arcFt, cornerFt, cornerEndFt };
+const { widthFt, basketFt, arcFt, cornerFt, cornerEndFt } = HALF_COURT;
 // a spot's distance in feet from the basket: the measure arcPreset and the Zones share
 const basketDistanceFt = (x: number, y: number) => Math.hypot((x / 100) * widthFt - widthFt / 2, (y / 100) * HALF_COURT.lengthFt - basketFt);
 
@@ -657,6 +655,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       onBase: log.onBase,
       baserunning: log.baserunning,
       playingShare: elapsed > 0 ? Math.min(1, Math.max(0, log.shiftMs / elapsed)) : 0,
+      spots: log.spots,
     };
   };
 
@@ -680,6 +679,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         baserunning: live.baserunning,
         tiles: live.tiles,
         playingShare: live.playingShare,
+        spots: live.spots,
         backlogged: Boolean(game.totals),
       },
     };

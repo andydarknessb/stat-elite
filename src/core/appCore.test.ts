@@ -3,7 +3,8 @@ import Dexie, { liveQuery } from 'dexie';
 import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
 import { expect, test, vi } from 'vitest';
 import type { CommandCore, LiveReads } from '../screenSeam';
-import { arcPreset, createAppCore, HALF_COURT, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
+import { arcPreset, createAppCore, periodLabel, type Base, type BacklogEntry, type GameFormat } from './appCore';
+import { HALF_COURT } from './court';
 import { backlogProblem } from './totals';
 import { gameLineText } from './words';
 import { CodeTooSoon, createStandInServer, createSupabaseServer, InviteRefused, RowRefused, serverFor, type Server } from './server';
@@ -2706,6 +2707,37 @@ test("a Game's summary shows its opponent, Final Score and stats; a Game still i
     tiles: { steal: 1 },
   });
   expect(await core.gameSummary(unfinished)).toBeUndefined();
+});
+
+test("a finished Game's summary lists each Shot with its Spot and whether it was made", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+  await core.recordShot(gameId, { x: 40.5, y: 30, value: 2, made: true });
+  await core.recordShot(gameId, { x: 12.5, y: 80, value: 3, made: false });
+  await core.endGame(gameId, { teamScore: 2, opponentScore: 0 });
+
+  expect(await core.gameSummary(gameId)).toMatchObject({
+    spots: [
+      { x: 40.5, y: 30, made: true },
+      { x: 12.5, y: 80, made: false },
+    ],
+  });
+});
+
+test('a Shot undone before End Game leaves no Spot, and a Backlogged Game has none', async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+  await core.recordShot(gameId, { x: 40.5, y: 30, value: 2, made: true });
+  await core.recordShot(gameId, { x: 12.5, y: 80, value: 3, made: false });
+  await core.undo(gameId); // retracts the missed Shot
+  await core.endGame(gameId, { teamScore: 2, opponentScore: 0 });
+  const backlogged = await core.backlogGame(backlogEntry(athleteId));
+
+  expect(await core.gameSummary(gameId)).toMatchObject({ spots: [{ x: 40.5, y: 30, made: true }] });
+  // the Backlogged Game's Totals count Shots, but none has a Spot
+  expect(await core.gameSummary(backlogged)).toMatchObject({ spots: [] });
 });
 
 test("a finished basketball Game's copy text names the Athlete and Opponent, the Final Score, the line, Plus/Minus and the sport hashtag", async () => {
