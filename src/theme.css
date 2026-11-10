@@ -207,11 +207,12 @@ button:disabled {
   height: 0;
 }
 
-/* The Team–Opponent strip is one card: each side is a label over − count +, and Team's count is gold. */
+/* The Team–Opponent strip is one card: each side is a label over − count +, and Team's count is gold. Its labels and buttons sit 8px inside the top and bottom edges (#274). */
 .strip {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+  padding: 8px 0;
   border-radius: 16px;
   background: var(--surface);
   text-align: center;
@@ -279,10 +280,10 @@ button:disabled {
   font-weight: 600;
 }
 
-/* The "N not synced" badge above every screen: quiet text, so it reads as status and not as a control. */
+/* The "N not synced" badge above every screen: quiet text, so it reads as status and not as a control. Its top padding is 8px so the score strip's inset fits Standard at 390×844 (#274). */
 .sync {
   margin: 0;
-  padding: 16px 16px 0;
+  padding: 8px 16px 0;
   color: var(--muted);
   text-align: right;
   font-family: 'Barlow Condensed', system-ui, sans-serif;
@@ -519,6 +520,11 @@ button:disabled {
   font-size: 14px;
   font-weight: 400;
   line-height: 1.1;
+}
+
+/* While a Spot is placed the Shot is the live pair, so the Free Throw pair mutes. It stays enabled, and is full again when the Spot clears (#274). */
+.shot-entry:has(.spot) + .free-throws button {
+  opacity: 0.5;
 }
 
 .tiles {
