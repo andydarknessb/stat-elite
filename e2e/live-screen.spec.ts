@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { addFirstAthlete, endGame, startGame, tapCourt } from './recorder';
+import { addFirstAthlete, endGame, openSummary, startGame, tapCourt } from './recorder';
 
 // The toast is the Undo button's box, so no Period row button sits under it (#246)
 async function expectToastOverUndo(page: Page) {
@@ -264,6 +264,53 @@ test('the softball live screen has one level-one heading, its batting line reads
   await endGame(page);
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveAttribute('aria-current', 'page');
+});
+
+// a made Shot at 50% across and 11% along, then a missed one in the key: the Summary draws each as a dot (#276)
+async function recordTwoShots(page: Page) {
+  await tapCourt(page, 50, 11);
+  await page.getByRole('group', { name: 'Shot result' }).getByRole('button', { name: 'MAKE', exact: true }).click();
+  await tapCourt(page, 20, 40);
+  await page.getByRole('group', { name: 'Shot result' }).getByRole('button', { name: 'MISS', exact: true }).click();
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+  await openSummary(page);
+}
+
+test("a recorded basketball Game's summary draws each Shot on the half court, made in the make green and missed in the miss red", async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  await recordTwoShots(page);
+
+  const court = page.getByRole('img', { name: 'Half court: 1 made, 1 missed' });
+  await expect(court).toBeVisible();
+  await expect(court.locator('.shot-dot.make')).toHaveCSS('fill', 'rgb(63, 185, 80)');
+  await expect(court.locator('.shot-dot.miss')).toHaveCSS('fill', 'rgb(240, 96, 90)');
+  // the tap at 50% across and 11% along is 25 ft and about 4.6 ft in the court's feet, within half a foot
+  const dot = await court.locator('.shot-dot.make').evaluate((el) => ({ cx: Number(el.getAttribute('cx')), cy: Number(el.getAttribute('cy')) }));
+  expect(Math.abs(dot.cx - 25)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(dot.cy - 4.62)).toBeLessThanOrEqual(0.5);
+});
+
+test('in Field mode the Summary dots take the Field make and miss tokens', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: 'Field mode' }).click();
+  await recordTwoShots(page);
+
+  const court = page.getByRole('img', { name: 'Half court: 1 made, 1 missed' });
+  await expect(court.locator('.shot-dot.make')).toHaveCSS('fill', 'rgb(26, 127, 55)');
+  await expect(court.locator('.shot-dot.miss')).toHaveCSS('fill', 'rgb(201, 48, 44)');
+});
+
+test("a softball Game's summary has no half court", async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+  await openSummary(page);
+
+  await expect(page.getByRole('img', { name: /Half court/ })).toHaveCount(0);
 });
 
 test.describe('under dark', () => {
