@@ -313,6 +313,16 @@ test("a softball Game's summary has no half court", async ({ page }) => {
   await expect(page.getByRole('img', { name: /Half court/ })).toHaveCount(0);
 });
 
+test("a basketball Game with no Shots has no half court in its summary", async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: 'End Game' }).click();
+  await endGame(page);
+  await openSummary(page);
+
+  await expect(page.getByRole('img', { name: /Half court/ })).toHaveCount(0);
+});
+
 test.describe('under dark', () => {
   test.use({ colorScheme: 'dark' });
 
