@@ -2026,6 +2026,44 @@ test('an Owner is told once when a Member leaves, and OK clears the line for goo
   expect(await core.goneMembers()).toEqual([]);
 });
 
+test('a Member listed again before OK takes its line away, and a Member who leaves again gets it back', async () => {
+  const { core, athleteId, memberId, member } = await sharedWithAMember();
+  await core.refresh();
+  await member.core.leave(athleteId);
+  await core.refresh();
+  expect(await core.goneMembers()).toHaveLength(1);
+
+  // a rejoin takes a new Invite: the used one is refused once its account has left (#210)
+  const token = await core.createInvite(athleteId);
+  await member.core.acceptInvite(token);
+  await core.refresh();
+  expect(await core.goneMembers()).toEqual([]);
+
+  const [{ label }] = await core.members(athleteId);
+  await member.core.leave(athleteId);
+  await core.refresh();
+  await core.refresh();
+  expect(await core.goneMembers()).toEqual([{ athleteId, memberId, label, athleteName: 'Casey' }]);
+});
+
+test("a removed Member's phone drops the Athlete's Members and gone lines, and another Athlete's gone line stays", async () => {
+  const { core, athleteId, memberId, member } = await sharedWithAMember();
+  // rows only an Owner's phone writes, seeded here: no command reaches them on the Member's phone today
+  await member.inspect.settings.bulkPut([
+    { key: `members:${athleteId}`, value: '[]' },
+    { key: `gone:${athleteId} some-member`, value: '{}' },
+    { key: 'gone:other-athlete some-member', value: '{}' },
+  ]);
+
+  await core.removeMember(athleteId, memberId);
+  await member.core.refresh();
+
+  expect(await member.inspect.athletes.get(athleteId)).toBeUndefined();
+  expect(await member.inspect.settings.get(`members:${athleteId}`)).toBeUndefined();
+  expect(await member.inspect.settings.get(`gone:${athleteId} some-member`)).toBeUndefined();
+  expect(await member.inspect.settings.get('gone:other-athlete some-member')).toEqual({ key: 'gone:other-athlete some-member', value: '{}' });
+});
+
 test("the Owner's own Remove of a Member adds no line", async () => {
   const { core, athleteId, memberId } = await sharedWithAMember();
   await core.refresh();

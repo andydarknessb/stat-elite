@@ -432,7 +432,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
     await store.games.bulkDelete([...gone]);
     await store.athletePhotos.bulkDelete(ids);
     await store.athletes.bulkDelete(ids);
-    await store.settings.bulkDelete([...ids.map((id) => SHARED + id), ...[...gone].map((id) => RECEIVED + id)]);
+    await store.settings.bulkDelete([...ids.map((id) => SHARED + id), ...ids.map((id) => MEMBERS + id), ...[...gone].map((id) => RECEIVED + id)]);
+    for (const id of ids) await store.settings.where('key').startsWith(GONE + id + ' ').delete();
   };
   // the phone's sign-in: the Remembered Account, the ended-Session flag and the download markers (#172)
   const phone = createPhoneAccount(store, server);
@@ -488,6 +489,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
   // an Owner's phone keeps each Athlete's Members as it last saw them: a kept one this read lacks is gone, and its line waits for OK (ADR 0004)
   const keepMembers = async (athlete: AthleteRow, members: MemberRow[]) => {
+    // a Member listed again is no Member gone: its line, if it still waits for OK, goes
+    await store.settings.bulkDelete(members.map((m) => goneKey(athlete.id, m.member_id)));
     const kept = (await store.settings.get(MEMBERS + athlete.id))?.value;
     for (const { id, label } of kept ? (JSON.parse(kept) as KeptMember[]) : []) {
       if (members.some((m) => m.member_id === id)) continue;
