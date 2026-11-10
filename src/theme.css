@@ -448,6 +448,19 @@ button:disabled {
   stroke: none;
 }
 
+/* A Shot on the Summary's court: make green or miss red from the theme tokens, so Field mode has its own (#276). */
+.court .shot-dot {
+  stroke: none;
+}
+
+.court .shot-dot.make {
+  fill: var(--make);
+}
+
+.court .shot-dot.miss {
+  fill: var(--miss);
+}
+
 /* In Field mode the pending Spot keeps its gold fill and gains a navy ring, so it reads on the white court (#249). */
 :root[data-field] .court .spot {
   stroke: var(--text);

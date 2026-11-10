@@ -81,11 +81,20 @@ export interface Undoable {
   stolen?: boolean;
 }
 
+/** A Shot's Spot and result: the dot the Summary draws on the half court (GLOSSARY: Shot). */
+export interface ShotSpot {
+  x: number;
+  y: number;
+  made: boolean;
+}
+
 /** A Game's Events folded into what its screens read (ADR 0001). */
 export interface Fold {
   /** The Events the stats count, in seq order: none a Retraction, none retracted. */
   live: (EventRow & { type: UndoableType })[];
   counts: Counts;
+  /** The Spot and result of each Shot the stats count; a Shot with no Spot, as a Backlogged Game's has, is left out. */
+  spots: ShotSpot[];
   /** The latest Score Snapshot not retracted, plus the points made since; 0–0 before the first one. */
   score: Scores;
   /** The Period a new Event falls in: the newest Period start not retracted, else the first Period. */
@@ -166,6 +175,10 @@ const countOf = (live: EventRow[]): Counts => {
   }
   return counts;
 };
+
+// each Shot's Spot and result, in seq order
+const shotSpotsOf = (live: EventRow[]): ShotSpot[] =>
+  live.flatMap((e) => (e.type === 'shot' && e.court_x !== null && e.court_y !== null ? [{ x: e.court_x, y: e.court_y, made: e.made === true }] : []));
 
 // a batting line from its counts; a rate is undefined over a zero denominator (plan: Stats)
 export const battingRates = (counts: BattingCounts): Batting => {
@@ -299,6 +312,7 @@ export function fold(events: EventRow[], now: string): Fold {
   return {
     live,
     counts: countOf(live),
+    spots: shotSpotsOf(live),
     score,
     period: currentPeriod(live),
     onCourt: onCourtSince !== undefined,

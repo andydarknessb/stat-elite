@@ -18,7 +18,7 @@ import {
 } from './store';
 import { RowRefused, type MemberRow, type Server, type SyncedTable, type UploadRow } from './server';
 import { createPhoneAccount } from './phoneAccount';
-import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type Shift, type Undoable } from './eventLog';
+import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type ShotSpot, type Shift, type Undoable } from './eventLog';
 import { HALF_COURT } from './court';
 import { backlogProblem, eventsFromTotals, NO_FIELDS } from './totals';
 import { gameLineText, signed } from './words';
@@ -114,6 +114,8 @@ export interface LiveGame extends Counts {
   batting: Batting;
   /** Total Shift time over the Game's elapsed time, from its start to now or the End Game; clamped to 0–1 if the clock steps back. */
   playingShare: number;
+  /** Each Shot's Spot and result, not retracted (the Summary's dots). */
+  spots: ShotSpot[];
 }
 
 /** The Athlete's stats summed over Games: points, shooting, rebounds, assists and Plus/Minus (GLOSSARY: Plus/Minus). */
@@ -144,6 +146,8 @@ export interface FeedGame {
   baserunning: Baserunning;
   tiles: Record<TileEventType, number>;
   playingShare: number;
+  /** Each Shot's Spot and result, not retracted: the Summary draws them on the half court. A Backlogged Game has none (ADR 0005). */
+  spots: ShotSpot[];
   /** A Backlogged Game, entered from its Totals after it was played (ADR 0005). */
   backlogged: boolean;
 }
@@ -651,6 +655,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       onBase: log.onBase,
       baserunning: log.baserunning,
       playingShare: elapsed > 0 ? Math.min(1, Math.max(0, log.shiftMs / elapsed)) : 0,
+      spots: log.spots,
     };
   };
 
@@ -674,6 +679,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
         baserunning: live.baserunning,
         tiles: live.tiles,
         playingShare: live.playingShare,
+        spots: live.spots,
         backlogged: Boolean(game.totals),
       },
     };

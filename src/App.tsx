@@ -1039,6 +1039,7 @@ function GameSummary({ gameId, onBack, onEdit, onRemoved }: { gameId: string; on
   }, [game]);
   if (!game) return null;
   const { letter, name } = resultOf(game.final);
+  const made = game.spots.filter((spot) => spot.made).length;
   return (
     <main>
       <button onClick={onBack}>Back</button>
@@ -1056,6 +1057,19 @@ function GameSummary({ gameId, onBack, onEdit, onRemoved }: { gameId: string; on
         <h1>{game.opponent}</h1>
         <p>{gameDateText(game.gameDate, new Date())}</p>
         <p>{gameLineText(game)}</p>
+        {game.spots.length > 0 && (
+          <HalfCourt label={`Half court: ${made} made, ${game.spots.length - made} missed`}>
+            {game.spots.map((spot, i) => (
+              <circle
+                key={i}
+                className={spot.made ? 'shot-dot make' : 'shot-dot miss'}
+                cx={toFt(spot.x, widthFt)}
+                cy={toFt(spot.y, lengthFt)}
+                r="1.5"
+              />
+            ))}
+          </HalfCourt>
+        )}
         {game.sport === 'basketball' && (
           <>
             <p>
