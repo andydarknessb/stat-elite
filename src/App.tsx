@@ -514,10 +514,10 @@ function FirstRun() {
     <>
       <AthleteForm />
       {phone && phone.state !== 'signed-out' && (
-        <>
+        <div className="signed-in">
           <p>Signed in as {phone.email}</p>
           <button onClick={() => setSigningOut(true)}>Sign out</button>
-        </>
+        </div>
       )}
       <InstallPrompt />
     </>
@@ -954,7 +954,7 @@ function SeasonAndRecent({ athleteId, onOpen }: { athleteId: string; onOpen: (ga
   return (
     <>
       {/* keyed by Athlete: a switch opens its own season on its first sport, not the one chosen for the last */}
-      <SeasonCard key={athleteId} feed={feed} />
+      {feed.games.length > 0 && <SeasonCard key={athleteId} feed={feed} />}
       <section className="card" aria-label="Recent Games">
         <h2>Recent Games</h2>
         {feed.games.length === 0 && <p>No finished Games yet.</p>}
@@ -1183,11 +1183,23 @@ function BacklogFields({
   // a second tap before the save lands would write a second Game: run's block refuses it
   const { run, alert, busy } = useCommand();
   const typed = (key: string) => text[key] ?? '';
-  const fields: CountField[] = [
+  const scores: CountField[] = [
     ['teamScore', `${athleteName} score`],
     ['opponentScore', 'Opponent score'],
-    ...countFields(sport),
   ];
+  const counts = countFields(sport);
+  const fields: CountField[] = [...scores, ...counts];
+  const field = ([key, label]: CountField) => (
+    <label key={key}>
+      {key === 'teamScore' ? <ScoreLabel name={athleteName}>score</ScoreLabel> : label}
+      <input
+        value={typed(key)}
+        onChange={(e) => setText((current) => ({ ...current, [key]: e.target.value }))}
+        inputMode="numeric"
+        autoComplete="off"
+      />
+    </label>
+  );
   // a count is a whole number or the form says which one is not: no coercion, no rounding
   const notWholeField = notWhole(fields, text);
   const ready = opponent.trim() !== '' && gameDate !== '' && typed('teamScore').trim() !== '' && typed('opponentScore').trim() !== '';
@@ -1219,22 +1231,15 @@ function BacklogFields({
           Date
           <input type="date" value={gameDate} max={setup.gameDate} onChange={(e) => setGameDate(e.target.value)} required />
         </label>
-        <div className="counts">
-          {fields.map(([key, label]) => (
-            <label key={key}>
-              {key === 'teamScore' ? <ScoreLabel name={athleteName}>score</ScoreLabel> : label}
-              <input
-                value={typed(key)}
-                onChange={(e) => setText((current) => ({ ...current, [key]: e.target.value }))}
-                inputMode="numeric"
-                autoComplete="off"
-              />
-            </label>
-          ))}
-        </div>
+        <h2>Final Score</h2>
+        <div className="counts">{scores.map(field)}</div>
+        <h2>Totals</h2>
+        <p className="quiet">Optional. A blank count is 0.</p>
+        <div className="counts">{counts.map(field)}</div>
         {/* above the buttons, as AthleteForm places it: the alert sits directly above Save, where a Recorder reaching Save reads it */}
         {problem && <p role="alert">{problem}</p>}
         {alert && <p role="alert">{alert}</p>}
+        {!ready && <p className="quiet">Opponent, Date and both scores are needed to save.</p>}
         <button className="primary" disabled={!draft || problem !== undefined || busy}>
           Save
         </button>
@@ -1348,7 +1353,7 @@ function DeleteAccount({ onCancel }: { onCancel: () => void }) {
           <li>Not yet synced: {summary.unsynced}</li>
         </ul>
       </section>
-      <button className="primary" disabled={busy} onClick={remove}>
+      <button disabled={busy} onClick={remove}>
         {ended ? 'Clear this phone' : 'Delete everything'}
       </button>
       <button disabled={busy} onClick={onCancel}>
@@ -1378,7 +1383,7 @@ function SignOut({ onCancel }: { onCancel: () => void }) {
           <li>Photos on this phone: {photos}</li>
         </ul>
       </section>
-      <button className="primary" disabled={busy} onClick={signOut}>
+      <button disabled={busy} onClick={signOut}>
         Sign out
       </button>
       <button disabled={busy} onClick={onCancel}>
