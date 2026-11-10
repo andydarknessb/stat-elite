@@ -1445,6 +1445,17 @@ function GameComplete({ gameId, onDone }: { gameId: string; onDone: () => void }
     );
     return () => controller.abort();
   }, [card]);
+  // the drawn card's preview: one object URL per image, revoked when the image goes
+  const [preview, setPreview] = useState<string>();
+  useEffect(() => {
+    if (!image) return;
+    const url = URL.createObjectURL(image);
+    setPreview(url);
+    return () => {
+      URL.revokeObjectURL(url);
+      setPreview(undefined);
+    };
+  }, [image]);
   // the Game was removed on another phone or tab: Game Complete goes Home (#164). liveGame does not read removed, so the summary's null is the signal
   useEffect(() => {
     if (game === null) onDone();
@@ -1480,39 +1491,55 @@ function GameComplete({ gameId, onDone }: { gameId: string; onDone: () => void }
     );
   };
   const { letter, name } = resultOf(game.final);
+  const won = letter === 'W';
   return (
     <>
       <section className="card" aria-label="Game Complete">
         <div className="result-head">
-          <svg
-            className="trophy"
-            viewBox="0 0 24 24"
-            width="28"
-            height="28"
-            aria-hidden="true"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3" />
-          </svg>
+          {/* the trophy and the gold letter mark a win; a loss or a tie has the plain badge the result rows use */}
+          {won && (
+            <svg
+              className="trophy"
+              viewBox="0 0 24 24"
+              width="28"
+              height="28"
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3" />
+            </svg>
+          )}
           <h1>Final</h1>
         </div>
         <div className="result-head">
-          <span className="badge result-badge" role="img" aria-label={name}>
+          <span className={won ? 'badge result-badge' : 'badge'} role="img" aria-label={name}>
             {letter}
           </span>
           <p className="final">
-            <ScoreLabel name={game.athleteName}>
-              {game.final.team} – Opponent {game.final.opponent}
-            </ScoreLabel>
+            {/* each name gives way with "…"; the scores and the dash keep their width */}
+            <span className="score-label">
+              <span className="score-name">{game.athleteName}</span>{' '}
+              <span className="score-text">{game.final.team} –</span>{' '}
+              <span className="score-name">{game.opponent}</span>{' '}
+              <span className="score-text">{game.final.opponent}</span>
+            </span>
           </p>
         </div>
         <p>{gameLineText(game)}</p>
         {game.sport === 'basketball' && <p>Plus/Minus {signed(game.line.plusMinus)}</p>}
       </section>
+      {/* the space is held while the card draws; a card that cannot be drawn leaves none */}
+      {!drawFailed && (
+        <div className="share-preview">
+          {preview && (
+            <img src={preview} alt={`Share card: ${game.athleteName} vs ${game.opponent}, ${game.final.team}–${game.final.opponent}`} />
+          )}
+        </div>
+      )}
       <button className="primary" disabled={image === undefined} onClick={shareCard}>
         Share card
       </button>
