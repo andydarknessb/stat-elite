@@ -94,6 +94,21 @@ test('the Game line is a button at least 44px tall, and tapping it flips aria-ex
   await expect(gameLine).toHaveAttribute('aria-expanded', 'false');
 });
 
+// on court, the Shift bar names its timer and its Playing Share, and stays one button tall at 390px wide (#274)
+test('on court the Shift bar names its timer and its Playing Share, and the bar stays 48px tall', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+
+  await page.getByRole('button', { name: 'Sub In', exact: true }).click();
+  await page.getByRole('button', { name: 'Casey +1' }).click();
+
+  await expect(page.locator('.shift .timer')).toHaveText(/^On court \d+:\d{2} · Shift [+-]?\d+$/);
+  await expect(page.locator('.shift .game')).toContainText(/Playing Share \d+% · 1 Shift · Plus\/Minus [+-]?\d+/);
+  const bar = await page.locator('.shift').boundingBox();
+  if (!bar) throw new Error('the Shift bar is not on screen');
+  expect(bar.height).toBeLessThanOrEqual(48);
+});
+
 test('the Shift on court stays off the Shifts list', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page);

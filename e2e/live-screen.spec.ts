@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { addFirstAthlete, endGame, startGame } from './recorder';
+import { addFirstAthlete, endGame, startGame, tapCourt } from './recorder';
 
 // The toast is the Undo button's box, so no Period row button sits under it (#246)
 async function expectToastOverUndo(page: Page) {
@@ -91,6 +91,66 @@ test('a Free Throw records MAKE or MISS with no spot, and the row reads made/att
 
   await page.reload();
   await expect(page.getByRole('group', { name: 'Free Throw' })).toHaveText(/MAKE\s*Free Throws\s*1\/2\s*MISS/);
+});
+
+// the Free Throw pair: muted while a Spot is placed, and enabled either way (#274)
+async function expectFreeThrowMuted(page: Page, muted: boolean) {
+  const row = page.getByRole('group', { name: 'Free Throw' });
+  for (const name of ['MAKE', 'MISS']) {
+    const button = row.getByRole('button', { name, exact: true });
+    await expect(button).toHaveCSS('opacity', muted ? '0.5' : '1');
+    await expect(button).toBeEnabled();
+  }
+}
+
+test('a placed Spot mutes the Free Throw pair, which stays enabled, and the pair is full again when the Shot records', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  const row = page.getByRole('group', { name: 'Free Throw' });
+  await expectFreeThrowMuted(page, false);
+
+  await tapCourt(page, 50, 40);
+  await expectFreeThrowMuted(page, true);
+  await row.getByRole('button', { name: 'MAKE', exact: true }).click();
+  await expect(row).toHaveText(/MAKE\s*Free Throws\s*1\/1\s*MISS/);
+  await expect(page.locator('.court .spot')).toBeVisible();
+  await expectFreeThrowMuted(page, true);
+
+  await page.getByRole('group', { name: 'Shot result' }).getByRole('button', { name: 'MAKE', exact: true }).click();
+  await expect(page.locator('.court .spot')).toHaveCount(0);
+  await expectFreeThrowMuted(page, false);
+});
+
+test('at Bleacher a placed Spot mutes the Free Throw pair the same way', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page, { buttonSize: 'Bleacher' });
+  await tapCourt(page, 50, 40);
+  await expectFreeThrowMuted(page, true);
+});
+
+test('in Field mode a placed Spot mutes the Free Throw pair the same way', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  await page.getByRole('button', { name: 'Field mode' }).click();
+  await expect(page.getByRole('button', { name: 'Field mode' })).toHaveAttribute('aria-pressed', 'true');
+  await tapCourt(page, 50, 40);
+  await expectFreeThrowMuted(page, true);
+});
+
+// the strip's labels and ± buttons sit 8px inside its top and bottom edges, so the card's edge never touches them (#274)
+test('the score strip keeps its labels and ± buttons 8px inside its top and bottom edges', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page);
+  const strip = await page.getByRole('region', { name: 'Score', exact: true }).boundingBox();
+  const team = page.getByRole('group', { name: 'Casey', exact: true });
+  const label = await team.locator('.score-name').boundingBox();
+  if (!strip || !label) throw new Error('the score strip is not on screen');
+  expect(label.y).toBeGreaterThanOrEqual(strip.y + 8 - 0.5);
+  for (const button of await team.getByRole('button').all()) {
+    const box = await button.boundingBox();
+    if (!box) throw new Error('a score button is not on screen');
+    expect(box.y + box.height).toBeLessThanOrEqual(strip.y + strip.height - 8 + 0.5);
+  }
 });
 
 test('Button Size is chosen in Settings and survives a reload', async ({ page }) => {
