@@ -190,15 +190,19 @@ button:disabled {
   margin: 0 16px;
 }
 
-/* The photo field's file button takes the app's surface-2 look, and the field centres it vertically in its 52px height (#279). */
+/* The photo field is 52px; its padding leaves the file button's 30px box in the middle. Flex on the input does not centre the button in Chromium (#279). */
 input[type='file'] {
-  display: flex;
-  align-items: center;
+  box-sizing: border-box;
+  height: 52px;
+  padding: 10px 12px;
 }
 
 input[type='file']::file-selector-button {
-  margin-right: 12px;
-  padding: 6px 14px;
+  box-sizing: border-box;
+  height: 30px;
+  vertical-align: top;
+  margin: 0 12px 0 0;
+  padding: 0 14px;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--surface-2);
