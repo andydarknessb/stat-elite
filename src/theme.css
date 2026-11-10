@@ -596,7 +596,17 @@ button:disabled {
 .plate-appearance .outcomes button,
 .plate-appearance .rbi button {
   font-weight: 600;
+}
+
+/* Standard: the Pitch, Outcome and RBI chips are 56px tall; Cancel sits in the RBI header and is 44px (criterion 5) */
+.plate-appearance .pitches button,
+.plate-appearance .outcomes button,
+.plate-appearance .rbi > button {
   min-height: 56px;
+}
+
+.plate-appearance .group-head button {
+  min-height: 44px;
 }
 
 /* Compact keeps its 44px tiles under the Standard rule above (Bleacher's 64px is further down) */
@@ -616,6 +626,11 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--surface);
+}
+
+/* the batting line is hidden while the RBI or Base group is up: [hidden] must beat the grid below */
+.batting[hidden] {
+  display: none;
 }
 
 /* the batting line: three stat cards, each a label over its value in the scoreboard face */
@@ -705,7 +720,7 @@ button:disabled {
 /* Bleacher: the Plate Appearance Pitch, Outcome and RBI buttons take the Standard tile height; the Base group stays at its size */
 .bleacher .plate-appearance .pitches button,
 .bleacher .plate-appearance .outcomes button,
-.bleacher .plate-appearance .rbi button {
+.bleacher .plate-appearance .rbi > button {
   min-height: 64px;
 }
 

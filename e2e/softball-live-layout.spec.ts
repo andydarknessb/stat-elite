@@ -82,6 +82,38 @@ for (const buttonSize of [undefined, 'Compact', 'Bleacher'] as const) {
   });
 }
 
+for (const buttonSize of [undefined, 'Bleacher'] as const) {
+  test(`Cancel is at most 44px tall at ${buttonSize ?? 'Standard'}`, async ({ page }) => {
+    await addFirstAthlete(page);
+    await startGame(page, { sport: 'softball', buttonSize });
+    await page.getByRole('button', { name: '2B', exact: true }).click();
+    const cancel = await boxOf(page.getByRole('group', { name: 'RBI', exact: true }).getByRole('button', { name: 'Cancel', exact: true }));
+    expect(cancel.height).toBeLessThanOrEqual(44 + 1);
+  });
+}
+
+test('the batting line leaves the screen while the RBI or Base group is up, and comes back after Out', async ({ page }) => {
+  await addFirstAthlete(page);
+  await startGame(page, { sport: 'softball' });
+  const batting = page.locator('dl.batting');
+
+  await page.getByRole('button', { name: '2B', exact: true }).click();
+  await expect(batting).toBeHidden();
+  await expect(batting).toHaveCount(1);
+
+  await page.getByRole('button', { name: '2 RBI', exact: true }).click();
+  await expect(batting).toBeVisible();
+
+  await page.getByRole('button', { name: '1B', exact: true }).click();
+  await page.getByRole('button', { name: '0 RBI', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Base', exact: true })).toBeVisible();
+  await expect(batting).toBeHidden();
+
+  await page.getByRole('button', { name: 'Out', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Base', exact: true })).toHaveCount(0);
+  await expect(batting).toBeVisible();
+});
+
 test('basketball keeps Next period on the Period button, its toast and Undo', async ({ page }) => {
   await addFirstAthlete(page);
   await startGame(page);

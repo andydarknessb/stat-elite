@@ -1901,7 +1901,8 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
           ))}
         </div>
       )}
-      <dl className="batting">
+      {/* softball: the batting line leaves the screen while the RBI or Base group is up; it stays in the page (#273) */}
+      <dl className="batting" hidden={Boolean(pending || game.onBase)}>
         {[
           ['AVG', rateText(game.batting.avg)],
           ['OBP', rateText(game.batting.obp)],
