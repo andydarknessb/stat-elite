@@ -38,6 +38,7 @@ import {
   OUTCOME_LABELS,
   outcomeLabel,
   PITCH_LABELS,
+  periodStartLabel,
   rateText,
   resultOf,
   shotLabel,
@@ -1807,7 +1808,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   const nextPeriod = () => {
     run((core) => core.nextPeriod(gameId), {
       onDone: () => {
-        setToast({ label: EVENT_LABELS.period_start });
+        setToast({ label: periodStartLabel(game.sport) });
         setPending(undefined);
       },
     });
@@ -1964,7 +1965,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
       <div className="dock" ref={dock}>
         <div className="undo-slot">
           <button className="undo" disabled={!game.undoable} onClick={undo}>
-            {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable)}` : 'Undo (last Event)'}
+            {game.undoable ? `Undo (last Event): ${undoLabel(game.undoable, game.sport)}` : 'Undo (last Event)'}
           </button>
           {/* the toast covers the Undo button it names; its status region is mounted from the start, so each new text is announced (#246) */}
           <div className="toast" role="status">
@@ -1981,7 +1982,7 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
         {/* the Period sits on the End Game row, so the live screen keeps its height at every Button Size */}
         <div className="period-row">
           <span className="period">{game.periodLabel}</span>
-          <button onClick={nextPeriod}>Next period</button>
+          <button onClick={nextPeriod}>{periodStartLabel(game.sport)}</button>
           {/* a second tap while the form is open only brings it back into view */}
           <button className={ending ? 'primary' : undefined} aria-expanded={ending} onClick={() => (ending ? bringFormIntoView() : setEnding(true))}>
             End Game

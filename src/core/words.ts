@@ -13,14 +13,13 @@ export const TILE_LABELS: Record<TileEventType, string> = {
   foul: 'FOUL',
 };
 
-/** Labels for every Event Undo can retract, except a Free Throw or Shot, which name their result (see undoLabel). */
-export const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw' | 'shot'>, string> = {
+/** Labels for every Event Undo can retract, except a Free Throw or Shot, which name their result, and a Period start, which names its sport (see undoLabel). */
+export const EVENT_LABELS: Record<Exclude<UndoableType, 'free_throw' | 'shot' | 'period_start'>, string> = {
   ...TILE_LABELS,
   sub_in: 'Sub In',
   sub_out: 'Sub Out',
   score: 'Score',
   game_end: 'End Game',
-  period_start: 'Next period',
   plate_appearance: 'Plate Appearance',
   pitch: 'Pitch',
   baserunning: 'Base',
@@ -82,18 +81,23 @@ export const clockOf = (ms: number) => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 };
 
-export const undoLabel = (undoable: Undoable) =>
+/** A Period's end in words: basketball advances by Next period, softball and baseball by Next inning (plan: Periods). */
+export const periodStartLabel = (sport: LiveGame['sport']) => (sport === 'basketball' ? 'Next period' : 'Next inning');
+
+export const undoLabel = (undoable: Undoable, sport: LiveGame['sport']) =>
   undoable.type === 'free_throw'
     ? freeThrowLabel(undoable.made)
     : undoable.type === 'shot'
       ? shotLabel(undoable.value, undoable.made)
-      : undoable.base
-        ? baseLabel(undoable.base, undoable.stolen)
-        : undoable.pitch
-          ? PITCH_LABELS[undoable.pitch]
-          : undoable.outcome
-            ? outcomeLabel(undoable.outcome, undoable.strikeout)
-            : EVENT_LABELS[undoable.type];
+      : undoable.type === 'period_start'
+        ? periodStartLabel(sport)
+        : undoable.base
+          ? baseLabel(undoable.base, undoable.stolen)
+          : undoable.pitch
+            ? PITCH_LABELS[undoable.pitch]
+            : undoable.outcome
+              ? outcomeLabel(undoable.outcome, undoable.strikeout)
+              : EVENT_LABELS[undoable.type];
 
 /** A Game's result: the letter its badge shows and the word it reads (W Won, L Lost, T Tied). */
 export const resultOf = ({ team, opponent }: { team: number; opponent: number }) =>
