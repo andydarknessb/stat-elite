@@ -3,9 +3,11 @@ import { renderShareCard, type CardInput } from './shareCard';
 
 const card: CardInput = {
   athlete: 'Casey',
+  mark: 'C',
   opponent: 'Hawks',
   final: { team: 7, opponent: 3 },
   line: '2 pts',
+  shots: [],
 };
 
 test('aborting a render terminates its unanswered worker and rejects as AbortError', async () => {
