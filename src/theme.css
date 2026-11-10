@@ -286,12 +286,13 @@ button:disabled {
   font-weight: 600;
 }
 
-/* The "N not synced" badge above every screen: quiet text, so it reads as status and not as a control. Its top padding is 8px so the score strip's inset fits Standard at 390×844 (#274). */
+/* The sync badge above every screen ("All synced", or the rows waiting on this phone): quiet text, one line so it keeps its height and reads as status and not as a control. Its top padding is 8px so the score strip's inset fits Standard at 390×844 (#274). */
 .sync {
   margin: 0;
   padding: 8px 16px 0;
   color: var(--muted);
   text-align: right;
+  white-space: nowrap;
   font-family: 'Barlow Condensed', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
 }

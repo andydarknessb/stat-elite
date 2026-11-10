@@ -1228,7 +1228,7 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       });
     },
 
-    /** The "N not synced" badge: how many rows still live only on the phone, and whether the server has refused one (Refused Row). Whether the phone is signed in is phoneAccount's (ADR 0007). Live. */
+    /** The sync badge's read: how many rows still live only on the phone, and whether the server has refused one (Refused Row). Whether the phone is signed in is phoneAccount's (ADR 0007). Live. */
     async sync(): Promise<{ notSynced: number; refused: boolean }> {
       const pending = await store.outbox.toArray();
       // the notice holds only while the refused row is still queued: its landing or its drop from the Outbox ends it

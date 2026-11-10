@@ -44,6 +44,7 @@ import {
   shotLabel,
   shotTallyText,
   signed,
+  syncText,
   TILE_LABELS,
   undoLabel,
   zoneLabel,
@@ -244,14 +245,18 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
   const [leaving, setLeaving] = useState(false);
   const [removing, setRemoving] = useState<Member>();
   const { run, alert, clear } = useCommand();
+  // the load has its own alert, so its Retry leaves a failed Leave or Remove message alone (#278)
+  const loads = useCommand();
+  const online = useOnline();
   const load = () =>
-    run((core) => core.members(athleteId), {
+    loads.run((core) => core.members(athleteId), {
       onDone: setMembers,
       message: 'Could not load the Members. Check the connection and try again.',
     });
+  // the load waits for the connection: offline, the list shows its line instead, and reconnecting loads it (#278)
   useEffect(() => {
-    if (canInvite) load();
-  }, [athleteId, canInvite]);
+    if (canInvite && online) load();
+  }, [athleteId, canInvite, online]);
   if (owner === undefined) return null;
   if (!owner) {
     return (
@@ -273,6 +278,14 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
     );
   }
   if (!canInvite) return null;
+  if (!online) {
+    return (
+      <section>
+        <h2>Members</h2>
+        <p>Members show when this phone is back online.</p>
+      </section>
+    );
+  }
   const remove = (memberId: string) =>
     run((core) => core.removeMember(athleteId, memberId), {
       onDone: () => {
@@ -284,6 +297,14 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
   return (
     <section>
       <h2>Members</h2>
+      {loads.alert && (
+        <>
+          <p role="alert">{loads.alert}</p>
+          <button className="primary" onClick={() => { loads.clear(); load(); }}>
+            Retry
+          </button>
+        </>
+      )}
       {members?.length === 0 && <p>No Members yet.</p>}
       <ul>
         {members?.map((member) => (
@@ -345,11 +366,22 @@ function GoneMembers() {
   );
 }
 
-/** The "N not synced" badge: the rows that still live only on the phone. */
+/** The sync badge: "All synced", or the rows that still live only on the phone once they have waited a second (#278). */
 function NotSynced() {
   const sync = useLive((live) => live.sync(), [], { optional: true });
+  const waiting = (sync?.notSynced ?? 0) > 0;
+  // an Outbox that empties after each tap online never shows a count: rows must have waited a second, and a clear shows at once
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    if (!waiting) {
+      setWaited(false);
+      return;
+    }
+    const timer = setTimeout(() => setWaited(true), 1000);
+    return () => clearTimeout(timer);
+  }, [waiting]);
   if (!sync) return null;
-  return <p className="sync">{sync.notSynced} not synced</p>;
+  return <p className="sync">{syncText(waited ? sync.notSynced : 0)}</p>;
 }
 
 /** The first screen on a phone with no Account and no live Game (ADR 0007): what the app is, the install card, then the sign-in form. */
