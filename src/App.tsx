@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   BUTTON_SIZES,
   HALF_COURT,
@@ -1702,21 +1702,19 @@ function LiveGame({ gameId, onEnded, onDone }: { gameId: string; onEnded: (gameI
   useLayoutEffect(() => {
     if (ending) bringFormIntoView();
   }, [ending]);
-  // the dock's height, plus the gap above it, is what a control scrolls clear of: each control's scroll margin reads it (theme.css)
-  const dock = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = dock.current;
-    if (!el) return;
-    const fit = () => {
-      document.documentElement.style.setProperty('--dock-clear', `${el.offsetHeight + 8}px`);
-    };
-    const observer = new ResizeObserver(fit);
-    observer.observe(el);
-    fit();
-    return () => {
-      observer.disconnect();
+  // the dock's height, plus the gap above it, is what a control scrolls clear of: each control's scroll margin reads it (theme.css).
+  // A callback ref, so the observer follows the dock wherever it mounts: the Game loads after the first render, and a final Game unmounts the dock.
+  const dockObserver = useRef<ResizeObserver | undefined>(undefined);
+  const dock = useCallback((el: HTMLDivElement | null) => {
+    dockObserver.current?.disconnect();
+    if (!el) {
       document.documentElement.style.removeProperty('--dock-clear');
-    };
+      return;
+    }
+    const fit = () => document.documentElement.style.setProperty('--dock-clear', `${el.offsetHeight + 8}px`);
+    dockObserver.current = new ResizeObserver(fit);
+    dockObserver.current.observe(el);
+    fit();
   }, []);
   // the Outcome picked on softball or baseball, waiting for its RBI chip
   const [pending, setPending] = useState<Outcome>();
