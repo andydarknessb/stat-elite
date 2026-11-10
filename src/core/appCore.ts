@@ -21,7 +21,7 @@ import { createPhoneAccount } from './phoneAccount';
 import { battingRates, fold, type Base, type Batting, type Baserunning, type Counts, type Fold, type PitchCount, type Scores, type ShotSpot, type Shift, type Undoable } from './eventLog';
 import { HALF_COURT } from './court';
 import { backlogProblem, eventsFromTotals, NO_FIELDS } from './totals';
-import { gameLineText, signed } from './words';
+import { gameLineText, initials, signed } from './words';
 
 export type { TileEventType };
 export type { Base, Batting, Baserunning, Counts, PitchCount, Scores, Shift, StrikeKind, UndoableType } from './eventLog';
@@ -1047,18 +1047,23 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
       return practiceFocusOf(games);
     },
 
-    /** Game Complete's share card: the Athlete's name and photo, the Opponent, the Final Score and the line; undefined while the Game is in progress. The photo only leaves the phone inside the image. */
+    /** Game Complete's share card: the Athlete's name and photo, the Opponent, the Final Score, the line, the jersey number or initials and the Shots; undefined while the Game is in progress. The photo only leaves the phone inside the image. */
     async gameCard(gameId: string) {
       const game = await store.games.get(gameId);
       const summary = game && (await finishedGame(game, localDate(clock())))?.row;
       if (!game || !summary) return undefined;
       const photo = await store.athletePhotos.get(game.athlete_id);
+      const athlete = await store.athletes.get(game.athlete_id);
+      const line = gameLineText(summary);
       return {
         athlete: summary.athleteName,
         photo: photoOf(photo),
+        mark: athlete?.jersey_number || initials(summary.athleteName),
         opponent: summary.opponent,
         final: summary.final,
-        line: gameLineText(summary),
+        // the line's labels carry no digits, so a line with no 1 to 9 is all zeros and the card leaves it off
+        line: /[1-9]/.test(line) ? line : undefined,
+        shots: summary.spots,
       };
     },
 

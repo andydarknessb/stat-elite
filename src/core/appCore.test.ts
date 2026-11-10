@@ -2798,6 +2798,44 @@ test("a finished Game's share card names the Athlete, carries its photo, the Opp
   expect((await core.gameCard(gameId))?.photo?.size).toBe(photo.size);
 });
 
+test("a finished Game's share card marks the Athlete with the jersey number, or the initials when there is none", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const numbered = await core.addAthlete({ name: 'Casey Jones', jerseyNumber: '23' });
+  const plain = await core.addAthlete({ name: 'Casey Jones' });
+  for (const athleteId of [numbered, plain]) {
+    const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+    await core.endGame(gameId, { teamScore: 2, opponentScore: 0 });
+    expect((await core.gameCard(gameId))?.mark).toBe(athleteId === numbered ? '23' : 'CJ');
+  }
+});
+
+test("a finished Game's share card carries its Shots, with a retracted one left out", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+  await core.toggleSub(gameId);
+  await core.recordShot(gameId, { x: 50, y: 11, value: 2, made: true });
+  await core.recordShot(gameId, { x: 30, y: 40, value: 2, made: false });
+  await core.recordShot(gameId, { x: 70, y: 60, value: 2, made: true });
+  await core.undo(gameId); // retracts the last Shot
+  await core.toggleSub(gameId);
+  await core.endGame(gameId, { teamScore: 2, opponentScore: 0 });
+
+  expect((await core.gameCard(gameId))?.shots).toEqual([
+    { x: 50, y: 11, made: true },
+    { x: 30, y: 40, made: false },
+  ]);
+});
+
+test("a finished Game's share card leaves the line off when every number in it is zero", async () => {
+  const { core } = setup(new Date(2026, 9, 30, 12));
+  const athleteId = await core.addAthlete({ name: 'Casey' });
+  const gameId = await core.startGame({ athleteId, opponentName: 'Hawks', gameDate: '2026-10-28', sport: 'basketball', periodFormat: 'quarters' });
+  await core.endGame(gameId, { teamScore: 0, opponentScore: 0 });
+
+  expect((await core.gameCard(gameId))?.line).toBeUndefined();
+});
+
 test('a plate appearance records its Outcome and RBI as one Event, and Undo names it', async () => {
   const { core } = setup();
   const athleteId = await core.addAthlete({ name: 'Casey' });
