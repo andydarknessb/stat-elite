@@ -47,6 +47,8 @@ export class RowRefused extends Error {
 const REFUSED_EMAIL = 'refused@example.com';
 // the stand-in's one address whose first Invite accept and first Members load fail without a refusal, so a spec can reach Retry (#210, #278)
 const NO_ANSWER_EMAIL = 'no-answer@example.com';
+// the stand-in's one address whose Members load finds one Member, so a spec can reach a Remove without an Invite (#290)
+const WITH_MEMBER_EMAIL = 'with-member@example.com';
 
 /** The backend App Core syncs with: Supabase in a configured build, the in-memory stand-in on localhost. */
 export interface Server {
@@ -184,6 +186,10 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       },
       async members(athleteId: string) {
         reach();
+        // shortcut: with-member@example.com's Members load finds one Member for any Athlete, whether or not the Athlete has synced yet; upgrade when a test needs an Invite accepted
+        if (account !== undefined && emails.get(account) === WITH_MEMBER_EMAIL) {
+          return [{ member_id: 'with-member', joined_at: new Date().toISOString(), email: 'member@example.com' }];
+        }
         // shortcut: the first Members load by no-answer@example.com fails without a refusal, so a spec can reach Retry; upgrade when a test needs a real network failure
         if (account !== undefined && emails.get(account) === NO_ANSWER_EMAIL && !noAnswerMembers) {
           noAnswerMembers = true;

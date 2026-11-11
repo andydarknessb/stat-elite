@@ -257,6 +257,10 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
   useEffect(() => {
     if (canInvite && online) load();
   }, [athleteId, canInvite, online]);
+  // the load's alert goes as the Phone goes offline, so the reconnect's first render cannot show a stale one (#290)
+  useEffect(() => {
+    if (!online) loads.clear();
+  }, [online]);
   if (owner === undefined) return null;
   if (!owner) {
     return (
@@ -278,14 +282,6 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
     );
   }
   if (!canInvite) return null;
-  if (!online) {
-    return (
-      <section>
-        <h2>Members</h2>
-        <p>Members show when this phone is back online.</p>
-      </section>
-    );
-  }
   const remove = (memberId: string) =>
     run((core) => core.removeMember(athleteId, memberId), {
       onDone: () => {
@@ -294,26 +290,33 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
       },
       message: 'Could not remove. Check the connection and try again.',
     });
+  // offline, the confirm card and a failed Remove's message stay up; only the list waits for the connection (#290)
   return (
     <section>
       <h2>Members</h2>
-      {loads.alert && (
+      {online ? (
         <>
-          <p role="alert">{loads.alert}</p>
-          <button className="primary" onClick={() => { loads.clear(); load(); }}>
-            Retry
-          </button>
+          {loads.alert && (
+            <>
+              <p role="alert">{loads.alert}</p>
+              <button className="primary" onClick={() => { loads.clear(); load(); }}>
+                Retry
+              </button>
+            </>
+          )}
+          {members?.length === 0 && <p>No Members yet.</p>}
+          <ul>
+            {members?.map((member) => (
+              <li key={member.member_id}>
+                {member.label}{' '}
+                <button onClick={() => { clear(); setRemoving(member); }}>Remove</button>
+              </li>
+            ))}
+          </ul>
         </>
+      ) : (
+        <p>Members show when this phone is back online.</p>
       )}
-      {members?.length === 0 && <p>No Members yet.</p>}
-      <ul>
-        {members?.map((member) => (
-          <li key={member.member_id}>
-            {member.label}{' '}
-            <button onClick={() => { clear(); setRemoving(member); }}>Remove</button>
-          </li>
-        ))}
-      </ul>
       {removing && (
         <section className="card">
           <p>{`Remove ${removing.label}? They lose ${name} at their next sync, and anything they haven't synced is lost.`}</p>
@@ -369,9 +372,16 @@ function GoneMembers() {
 /** The sync badge: "All synced", or the rows that still live only on the phone once they have waited a second (#278). */
 function NotSynced() {
   const sync = useLive((live) => live.sync(), [], { optional: true });
-  const waiting = (sync?.notSynced ?? 0) > 0;
-  // an Outbox that empties after each tap online never shows a count: rows must have waited a second, and a clear shows at once
-  const [waited, setWaited] = useState(false);
+  if (!sync) return null;
+  return <SyncCount count={sync.notSynced} />;
+}
+
+/** The count: at once when the first read finds rows waiting, else once they have waited a second (#278, #290). */
+function SyncCount({ count }: { count: number }) {
+  const waiting = count > 0;
+  // an Outbox that empties after each tap online never shows a count: rows must have waited a second, and a clear shows at once.
+  // Rows already waiting on the first read were written before this screen, so they are not a blip and show at once.
+  const [waited, setWaited] = useState(waiting);
   useEffect(() => {
     if (!waiting) {
       setWaited(false);
@@ -380,8 +390,7 @@ function NotSynced() {
     const timer = setTimeout(() => setWaited(true), 1000);
     return () => clearTimeout(timer);
   }, [waiting]);
-  if (!sync) return null;
-  return <p className="sync">{syncText(waited ? sync.notSynced : 0)}</p>;
+  return <p className="sync">{syncText(waited ? count : 0)}</p>;
 }
 
 /** The first screen on a phone with no Account and no live Game (ADR 0007): what the app is, the install card, then the sign-in form. */
