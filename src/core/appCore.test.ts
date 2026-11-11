@@ -2091,6 +2091,15 @@ test('a Session that ends during the Members read adds no line, and signing in a
   expect(await core.goneMembers()).toEqual([]);
 });
 
+test('an Owner whose session ended is refused its Members list and the server is not asked: anon would answer none', async () => {
+  const { core, server, athleteId } = await sharedWithAMember();
+  await server.signOut();
+  const read = vi.spyOn(server, 'members');
+
+  await expect(core.members(athleteId)).rejects.toThrow('Sign in again to see the Members');
+  expect(read).not.toHaveBeenCalled();
+});
+
 test('a Members read that fails adds no line and does not stop the download', async () => {
   const { core, server, athleteId, member } = await sharedWithAMember();
   await core.refresh();
