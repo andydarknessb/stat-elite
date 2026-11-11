@@ -1102,6 +1102,8 @@ export function createAppCore({ clock, store, server }: { clock: () => Date; sto
 
     /** The Owner's Members list for one of its Athletes, each named for the screen (ADR 0004). */
     async members(athleteId: string): Promise<Member[]> {
+      // no Session, the server answers anon with none, which would read as an empty list (#268)
+      if ((await server.session()) === undefined) throw new Error('Sign in again to see the Members');
       return (await server.members(athleteId)).map(labelled);
     },
 
