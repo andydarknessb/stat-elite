@@ -4,7 +4,7 @@ import { addAthlete, addFirstAthlete, startGame } from './recorder';
 
 // A Game recorded with the network off uploads once the connection returns, and the badge reads All synced.
 // The smoke runs with no Supabase URL or key, so no request may reach supabase.co (#9).
-test('a Game recorded offline uploads once the connection returns, and the badge reaches 0', async ({ page, context }) => {
+test('a Game recorded offline uploads once the connection returns, and the badge reads All synced', async ({ page, context }) => {
   const supabaseRequests: string[] = [];
   page.on('request', (request) => {
     if (request.url().includes('supabase.co')) supabaseRequests.push(request.url());
@@ -50,6 +50,34 @@ test('the badge holds All synced through a blip under a second around a stat til
   await expect(page.getByText('All synced')).toBeVisible();
   const seen = await page.evaluate(() => (window as unknown as { badgeSeen: string[] }).badgeSeen);
   expect(seen.filter((text) => text !== 'All synced')).toEqual([]);
+});
+
+// A row waiting from before a reload shows its count at once: rows already on the phone are not a blip, so All synced never shows (#290).
+test('a row waiting from before a reload shows its count at once, and All synced never shows', async ({ page, context }) => {
+  await openApp(page);
+  // the service worker precaches the app shell while it installs; a reload hands the page to it
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Add Athlete' })).toBeVisible();
+
+  await context.setOffline(true);
+  await addAthlete(page);
+  // every text the badge shows from the start of the next load, before the page's own scripts run
+  await page.addInitScript(() => {
+    const seen: string[] = [];
+    (window as unknown as { badgeSeen: string[] }).badgeSeen = seen;
+    new MutationObserver(() => {
+      const text = document.querySelector('.sync')?.textContent;
+      if (text) seen.push(text);
+    }).observe(document, { subtree: true, childList: true, characterData: true });
+  });
+  await page.reload();
+  await expect(page.getByText(/^[1-9][0-9]* not synced · saved on this phone$/)).toBeVisible();
+  const seen = await page.evaluate(() => (window as unknown as { badgeSeen: string[] }).badgeSeen);
+  expect(seen.length).toBeGreaterThan(0);
+  expect(seen).not.toContain('All synced');
 });
 
 // A wrong code on the sign-in screen offers a new code with the email kept, and the code and error clear; the right one then signs in (#76).
