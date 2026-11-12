@@ -253,6 +253,8 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
   const load = () =>
     loads.run((core) => core.members(athleteId), {
       onDone: setMembers,
+      // a refused load clears the list, so no stale Member or Remove stands beside the alert (#297)
+      onRefused: () => setMembers(undefined),
       message: 'Could not load the Members. Check the connection and try again.',
     });
   // the load waits for the connection: offline, the list shows its line instead, and reconnecting loads it (#278)
