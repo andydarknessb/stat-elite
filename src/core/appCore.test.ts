@@ -2100,6 +2100,29 @@ test('an Owner whose session ended is refused its Members list and the server is
   expect(read).not.toHaveBeenCalled();
 });
 
+test('a Members read that a Session ends during is refused, not read as none', async () => {
+  const { core, server, athleteId } = await sharedWithAMember();
+  vi.spyOn(server, 'members').mockImplementationOnce(async () => {
+    await server.signOut();
+    return [];
+  });
+
+  await expect(core.members(athleteId)).rejects.toThrow('Sign in again to see the Members');
+});
+
+test('the stand-in gives one address one Account across stand-ins', async () => {
+  const first = createStandInServer(() => true);
+  const second = createStandInServer(() => true);
+  const third = createStandInServer(() => true);
+  await first.verifyCode('casey@example.com', '123456');
+  await second.verifyCode('casey@example.com', '123456');
+  await third.verifyCode('sam@example.com', '123456');
+
+  expect(await second.session()).toBeDefined();
+  expect(await second.session()).toEqual(await first.session());
+  expect(await third.session()).not.toEqual(await first.session());
+});
+
 test('a Members read that fails adds no line and does not stop the download', async () => {
   const { core, server, athleteId, member } = await sharedWithAMember();
   await core.refresh();

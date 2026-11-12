@@ -135,8 +135,9 @@ export function createStandInServer(reachable: () => boolean = () => globalThis.
       async verifyCode(email: string, code: string) {
         reach();
         if (!/^\d{6}$/.test(code)) throw new Error('invalid code');
-        // one Account per address, as the server gives it: signing in again finds the Account this address made
-        account ??= [...emails].find(([, held]) => held === email)?.[0] ?? crypto.randomUUID();
+        // one Account per address, as the server gives it: the id is the address's own, so a new stand-in (a page reload) finds the same Account
+        // shortcut: a deleted address gets its old id back at its next sign-in, where the server makes a new Account, upgrade when a test signs in again after a deletion
+        account ??= `account-${email}`;
         emails.set(account, email);
       },
       async upload(table: SyncedTable, row: UploadRow) {

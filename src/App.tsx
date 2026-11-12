@@ -240,6 +240,8 @@ function InviteCoParent({ athleteId, name }: { athleteId: string; name: string }
 function Members({ athleteId, name }: { athleteId: string; name: string }) {
   const canInvite = useLive((live) => live.canInvite(athleteId), [athleteId], { optional: true });
   const owner = useLive((live) => live.isOwner(athleteId), [athleteId], { optional: true });
+  // a boolean, not the read: the first read and each re-emission must not re-run the load, and a sign-in again ends session-ended (#294)
+  const sessionEnded = useLive((live) => live.phoneAccount(), [], { optional: true })?.state === 'session-ended';
   const [members, setMembers] = useState<Member[]>();
   // nothing leaves or is removed until the confirm card's button is tapped (#205)
   const [leaving, setLeaving] = useState(false);
@@ -256,7 +258,7 @@ function Members({ athleteId, name }: { athleteId: string; name: string }) {
   // the load waits for the connection: offline, the list shows its line instead, and reconnecting loads it (#278)
   useEffect(() => {
     if (canInvite && online) load();
-  }, [athleteId, canInvite, online]);
+  }, [athleteId, canInvite, online, sessionEnded]);
   // the load's alert goes as the Phone goes offline, so the reconnect's first render cannot show a stale one (#290)
   useEffect(() => {
     if (!online) loads.clear();
