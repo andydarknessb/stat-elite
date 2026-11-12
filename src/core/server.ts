@@ -383,7 +383,12 @@ const phoneRow = <R>(row: R): R => {
  */
 export function serverFor({ url, key, host }: { url?: string; key?: string; host: string }): Server {
   if (url && key) return createSupabaseServer(createClient(url, key));
-  if (host === 'localhost') return createStandInServer();
+  if (host === 'localhost') {
+    const standIn = createStandInServer();
+    // shortcut: the stand-in on globalThis so a spec can end its Session in place (signOut) without a reload, upgrade when a spec can end a Session through the real sign-out
+    Object.assign(globalThis, { standIn });
+    return standIn;
+  }
   const refuse = async () => {
     throw new Error('Sign-in is not set up in this build');
   };

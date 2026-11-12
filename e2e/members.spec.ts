@@ -95,3 +95,37 @@ test('an Owner whose session ended sees the Members alert, not No Members yet, a
   await expect(page.getByText('Could not load the Members')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Leave', exact: true })).toHaveCount(0);
 });
+
+type StandIn = { standIn: { signOut(): Promise<void> } };
+
+// A Session that ends with No Members yet on screen: the refused load shows its alert alone (#297).
+test('a Session that ends with No Members yet on screen shows the alert alone', async ({ page }) => {
+  await addFirstAthlete(page);
+  await expect(page.getByText('No Members yet.')).toBeVisible();
+  await page.evaluate(async () => {
+    await (globalThis as unknown as StandIn).standIn.signOut();
+    window.dispatchEvent(new Event('online'));
+  });
+
+  await expect(page.getByText('Could not load the Members. Check the connection and try again.')).toBeVisible();
+  await expect(page.getByText('No Members yet.')).toHaveCount(0);
+});
+
+// A Session that ends with a Member on screen: the refused load clears the list, so no stale Remove stands beside the alert (#297).
+test('a Session that ends with a Member on screen shows the alert alone, no stale Remove', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Email').fill('with-member@example.com');
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await page.getByLabel('Code').fill('123456');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await addAthlete(page);
+  await expect(page.getByRole('listitem').filter({ hasText: 'member@example.com' })).toBeVisible();
+  await page.evaluate(async () => {
+    await (globalThis as unknown as StandIn).standIn.signOut();
+    window.dispatchEvent(new Event('online'));
+  });
+
+  await expect(page.getByText('Could not load the Members. Check the connection and try again.')).toBeVisible();
+  await expect(page.getByRole('listitem').filter({ hasText: 'member@example.com' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
+});
