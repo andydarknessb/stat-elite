@@ -78,3 +78,20 @@ test('a failed Members load leaves no message when the connection returns, and t
   await expect(page.getByText('No Members yet.')).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { alertSeen: boolean }).alertSeen)).toBe(false);
 });
+
+// A reload ends the Owner's Session: its Members load alerts and never reads as none, and signing in again loads the list (#294).
+test('an Owner whose session ended sees the Members alert, not No Members yet, and signing in again loads the list', async ({ page }) => {
+  await addFirstAthlete(page);
+  await page.reload();
+
+  await expect(page.getByText('Could not load the Members. Check the connection and try again.')).toBeVisible();
+  await expect(page.getByText('No Members yet.')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await page.getByLabel('Code').fill('123456');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+
+  await expect(page.getByText('No Members yet.')).toBeVisible();
+  await expect(page.getByText('Could not load the Members')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Leave', exact: true })).toHaveCount(0);
+});
